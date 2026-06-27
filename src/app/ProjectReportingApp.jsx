@@ -588,6 +588,35 @@ function buildExactGeneratorFacts(config, draft) {
 }
 
 function getClientJourneyMeta(record) {
+  const payload = record.payload || {};
+  const recordKa = String(record.ka || '').toUpperCase();
+  const isKa1 = recordKa === 'KA1' || recordKa === 'KA01';
+  const isKa2 = recordKa === 'KA2' || recordKa === 'KA02' || Boolean(payload.caseManagementMode);
+
+  if (record.entityType === 'plans') {
+    return { stage: 'KA1', label: 'Individuální plán rozvoje', tone: 'emerald', icon: Target };
+  }
+
+  if (record.entityType === 'consultations') {
+    if (isKa2) {
+      return {
+        stage: 'KA2',
+        label: payload.consultationType || 'Case management',
+        tone: 'blue',
+        icon: MessageSquare
+      };
+    }
+
+    if (isKa1) {
+      return {
+        stage: 'KA1',
+        label: payload.consultationType || 'Individuální podpora',
+        tone: 'emerald',
+        icon: MessageSquare
+      };
+    }
+  }
+
   return CLIENT_JOURNEY_META[record.entityType] || {
     stage: record.ka || 'Dokument',
     label: record.entityType || 'Záznam',
@@ -595,7 +624,6 @@ function getClientJourneyMeta(record) {
     icon: FileText
   };
 }
-
 function buildClientJourneySummary(record) {
   if (record.entityType === 'project_entry') {
     return record.summary || 'Klient byl zařazen do projektu a otevřela se jeho klientská cesta.';
@@ -1518,8 +1546,63 @@ const optionItems = (values, placeholder) => [
   ...values.map((value) => ({ value, label: value }))
 ];
 
-function ClientRegistrationFields({ draft, setDraft }) {
+function ClientRegistrationFields({ draft, setDraft, compact = false }) {
   const update = (key, value) => setDraft((previous) => ({ ...previous, [key]: value }));
+
+  if (compact) {
+    const sectionTitle = 'text-[10px] font-extrabold uppercase tracking-[0.18em] text-slate-500';
+    const sectionBox = 'space-y-2 rounded-xl border border-indigo-100 bg-white/70 p-3';
+
+    return (
+      <div className="space-y-3">
+        <div className={sectionBox}>
+          <div className={sectionTitle}>Základní údaje</div>
+          <InputField label="Jméno" value={draft.jmeno} onChange={(value) => update('jmeno', value)} required />
+          <InputField label="Příjmení" value={draft.prijmeni} onChange={(value) => update('prijmeni', value)} required />
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+            <InputField label="Datum narození" type="date" value={draft.datumNarozeni} onChange={(value) => update('datumNarozeni', value)} />
+            <SelectField label="Pohlaví" value={draft.pohlavi} onChange={(value) => update('pohlavi', value)} options={optionItems(CLIENT_GENDER_OPTIONS, 'Vyberte pohlaví')} />
+          </div>
+        </div>
+
+        <div className={sectionBox}>
+          <div className={sectionTitle}>Adresa a kontakt</div>
+          <InputField label="Ulice" value={draft.ulice} onChange={(value) => update('ulice', value)} />
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+            <InputField label="Číslo popisné" value={draft.cisloPopisne} onChange={(value) => update('cisloPopisne', value)} />
+            <InputField label="PSČ" value={draft.psc} onChange={(value) => update('psc', value)} />
+          </div>
+          <InputField label="Město / obec" value={draft.mesto} onChange={(value) => update('mesto', value)} />
+          <InputField label="Telefon" type="tel" value={draft.telefon} onChange={(value) => update('telefon', value)} />
+          <InputField label="E-mail" type="email" value={draft.email} onChange={(value) => update('email', value)} />
+          <InputField label="Datová schránka" value={draft.datovaSchranka} onChange={(value) => update('datovaSchranka', value)} />
+        </div>
+
+        <div className={sectionBox}>
+          <div className={sectionTitle}>Monitorovací údaje</div>
+          <SelectField label="Postavení na trhu práce" value={draft.postaveniNaTrhu} onChange={(value) => update('postaveniNaTrhu', value)} options={optionItems(CLIENT_EMPLOYMENT_OPTIONS, 'Vyberte postavení')} />
+          <SelectField label="Dosažené vzdělání" value={draft.vzdelani} onChange={(value) => update('vzdelani', value)} options={optionItems(CLIENT_EDUCATION_OPTIONS, 'Vyberte vzdělání')} />
+          <SelectField label="Typ znevýhodnění" value={draft.znevyhodneni} onChange={(value) => update('znevyhodneni', value)} options={optionItems(CLIENT_DISADVANTAGE_OPTIONS, 'Vyberte znevýhodnění')} />
+        </div>
+
+        <div className={sectionBox}>
+          <div className={sectionTitle}>Zařazení v projektu</div>
+          <SelectField label="Stav klienta" value={draft.stavKlienta} onChange={(value) => update('stavKlienta', value)} options={optionItems(CLIENT_STATUS_OPTIONS, 'Vyberte stav')} />
+          <InputField label="Datum vstupu do projektu" type="date" value={draft.datumVstupu} onChange={(value) => update('datumVstupu', value)} />
+          <InputField label="Datum výstupu z projektu" type="date" value={draft.datumVystupu} onChange={(value) => update('datumVystupu', value)} />
+          <SelectField label="Potřeba case managementu" value={draft.caseManagementPotreba} onChange={(value) => update('caseManagementPotreba', value)} options={optionItems(YES_NO_OPTIONS, 'Vyberte odpověď')} />
+          {draft.caseManagementPotreba === 'Ano' && (
+            <>
+              <InputField label="Case management od" type="date" value={draft.caseManagementOd} onChange={(value) => update('caseManagementOd', value)} />
+              <TextAreaField label="Důvod case managementu" value={draft.caseManagementDuvod} onChange={(value) => update('caseManagementDuvod', value)} rows={2} />
+            </>
+          )}
+          <TextAreaField label="Poznámka" value={draft.poznamka} onChange={(value) => update('poznamka', value)} rows={2} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -4925,7 +5008,7 @@ function App() {
               >
                 {showClientForm && (
                   <div className="mb-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3">
-                    <ClientRegistrationFields draft={clientDraft} setDraft={setClientDraft} />
+                    <ClientRegistrationFields draft={clientDraft} setDraft={setClientDraft} compact />
                     <div className="mt-3 flex justify-end">
                       <button
                         onClick={handleClientCreate}
@@ -5180,7 +5263,7 @@ function App() {
                       )}
                     </Panel>
 
-                    <Panel title="Klientská osa" description="Přehled klientské cesty od zařazení přes KA02 po KA03 a dokumenty." icon={History}>
+                    <Panel title="Klientská osa" description="Přehled klientské cesty přes KA1, KA2 a dokumenty." icon={History}>
                       <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div className="text-xs text-slate-500">
                           Zaškrtni zápisy, které chceš vytisknout společně. Podpis klienta bude jen jednou na konci dokumentu.
@@ -5203,7 +5286,7 @@ function App() {
                       </div>
                       <div className="space-y-3">
                         {clientJourneyTimeline.length === 0 ?(
-                          <EmptyState icon={FileText} title="Klient zatím nemá žádné uložené kroky v KA02 ani KA03." />
+                          <EmptyState icon={FileText} title="Klient zatím nemá žádné uložené kroky v KA1 ani KA2." />
                         ) : (
                           clientJourneyTimeline.map((record, index) => {
                             const meta = getClientJourneyMeta(record);
