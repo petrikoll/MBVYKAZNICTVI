@@ -57,7 +57,7 @@ function ReportingView({
   setCopied,
   copied
 }) {
-  const overview = dashboardOverview || { indicators: [], longGoals: [], shortGoals: [], outputs: [], risks: [] };
+  const overview = dashboardOverview || { indicators: [], longGoals: [], shortGoals: [], activityGoals: [], risks: [] };
   return (
     <div className="space-y-5">
       <Panel
@@ -105,11 +105,12 @@ function ReportingView({
             <div className="space-y-2">{overview.shortGoals.map((item) => <ProgressRow key={item.key} item={item} />)}</div>
           </div>
         </div>
-      </section>
-
-      <section>
-        <h2 className="mb-3 text-base font-bold text-slate-900">Výstupy projektu</h2>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{overview.outputs.map((item) => <ProgressRow key={item.key} item={item} />)}</div>
+        <div className="mt-4 rounded-lg border border-slate-300 bg-slate-100 p-4">
+          <div className="mb-3 text-sm font-bold text-slate-900">Doplňkové cíle KA1 / KA2</div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {overview.activityGoals.map((item) => <ProgressRow key={item.key} item={item} />)}
+          </div>
+        </div>
       </section>
 
       <section>

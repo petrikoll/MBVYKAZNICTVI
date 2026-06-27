@@ -2098,12 +2098,9 @@ function App() {
         { key: 'parenting-short', label: 'Rodi\u010dovsk\u00e9 kompetence', current: countShortGoal(['rodina']), target: 20 },
         { key: 'inclusion-short', label: 'Soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed', current: countShortGoal(['soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed']), target: 5 }
       ],
-      outputs: [
-        { key: 'short-support', label: 'Osoby s kr\u00e1tkodobou podporou', current: shortEligible.length, target: 100 },
-        { key: 'long-support', label: 'Osoby s dlouhodobou podporou', current: longEligible.length, target: 29 },
-        { key: 'case-meetings', label: 'P\u0159\u00edpadov\u00e1 / multioborov\u00e1 setk\u00e1n\u00ed', current: caseMeetingCount, target: 15 },
+      activityGoals: [
         { key: 'outreach', label: 'Depist\u00e1\u017en\u00ed z\u00e1znamy', current: outreachCount, target: null },
-        { key: 'monitoring', label: 'Monitorovac\u00ed listy / kompletn\u00ed \u00fadaje u 40+', current: completeMonitoringCount, target: longTermClients.length, note: (longTermClients.length - completeMonitoringCount) + ' chyb\u00ed' }
+        { key: 'case-meetings', label: 'P\u0159\u00edpadov\u00e1 / multioborov\u00e1 setk\u00e1n\u00ed', current: caseMeetingCount, target: 15 }
       ],
       risks: [
         { key: 'near-40', label: 'Klienti bl\u00edzko 40 hodin', count: supportedClients.filter((client) => hoursFor(client.id) >= 30 && hoursFor(client.id) < 40).length, detail: '30\u201339,99 hodiny podpory' },
