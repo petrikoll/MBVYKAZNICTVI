@@ -2005,8 +2005,20 @@ function App() {
     });
 
     return [
-      { key: 'clients-under-40-hours', label: 'Klienti pod 40 h podpory', current: under40, target: 0, ka: 'Podpora' },
-      { key: 'clients-at-least-40-hours', label: 'Klienti 40+ h podpory', current: atLeast40, target: clients.length, ka: 'Podpora' }
+      {
+        key: 'indicator-600000-at-least-40-hours',
+        label: 'Osoby nad 40 hodin podpory',
+        current: atLeast40,
+        target: null,
+        ka: 'Indikátor 600 000'
+      },
+      {
+        key: 'indicator-670102-under-40-hours',
+        label: 'Osoby pod 40 hodin podpory',
+        current: under40,
+        target: null,
+        ka: 'Indikátor 670 102'
+      }
     ];
   }, [clients, filteredRecords]);
 

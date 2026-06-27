@@ -5,7 +5,6 @@ import { Panel, SelectField, StatCard } from '../components/ui.jsx';
 import { REPORTING_PERIODS, WORKERS } from '../config/projectConfig.js';
 
 function ReportingView({
-  computedIndicators,
   supportThresholdMetrics = [],
   exportClientsCsv,
   exportAllRecordsBackup,
@@ -46,8 +45,8 @@ function ReportingView({
               }
             >
               <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {[...supportThresholdMetrics, ...computedIndicators].map((indicator) => (
+                <div className="grid gap-4 md:grid-cols-2">
+                  {supportThresholdMetrics.map((indicator) => (
                     <StatCard key={indicator.key} title={indicator.label} current={indicator.current} target={indicator.target} ka={indicator.ka} />
                   ))}
                 </div>

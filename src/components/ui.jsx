@@ -88,7 +88,8 @@ const CompactMetric = ({ label, value, target, tone }) => {
 };
 
 const StatCard = ({ title, current, target, ka }) => {
-  const percent = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
+  const hasTarget = Number(target) > 0;
+  const percent = hasTarget ? Math.min(100, Math.round((current / target) * 100)) : null;
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -96,17 +97,21 @@ const StatCard = ({ title, current, target, ka }) => {
           <div className="text-sm font-bold text-slate-900">{title}</div>
           <div className="mt-1 text-xs uppercase tracking-wide text-slate-400">{ka}</div>
         </div>
-        <div className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-          {percent} %
-        </div>
+        {hasTarget && (
+          <div className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+            {percent} %
+          </div>
+        )}
       </div>
       <div className="mt-4 flex items-end gap-2">
         <span className="text-3xl font-bold text-slate-900">{current}</span>
-        <span className="pb-1 text-sm text-slate-400">/ {target}</span>
+        {hasTarget && <span className="pb-1 text-sm text-slate-400">/ {target}</span>}
       </div>
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-        <div className="h-full rounded-full bg-indigo-500" style={{ width: `${percent}%` }} />
-      </div>
+      {hasTarget && (
+        <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div className="h-full rounded-full bg-indigo-500" style={{ width: `${percent}%` }} />
+        </div>
+      )}
     </div>
   );
 };
