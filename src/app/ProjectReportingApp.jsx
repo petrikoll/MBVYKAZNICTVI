@@ -4728,7 +4728,7 @@ function App() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className={`text-xs font-semibold uppercase tracking-[0.22em] ${viewTheme.label}`}>Projektové výkaznictví</p>
-              <h1 className="mt-1 text-2xl font-bold text-slate-900">PODPORA SOCIÁLNÍ PRÁCE V MORAVSKÉM BEROUNĚ</h1>
+              <h1 className="mt-1 text-2xl font-bold text-slate-900">PODPORA SOCIÁLNÍ PRÁCE V MORAVSKÉM BEROUNĚ II</h1>
             </div>
             <div className="grid gap-2 text-sm sm:grid-cols-2">
               <TopMetric label="Klienti v registru" value={String(clients.length)} icon={Users} tone="indigo" />
