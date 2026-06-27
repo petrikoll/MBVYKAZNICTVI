@@ -58,6 +58,7 @@ function AiDocumentPanel({
     'vzd\u011bl\u00e1n\u00ed',
     'slu\u017eby',
     'pr\u00e1va/povinnosti',
+    'soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed',
     'jin\u00e9'
   ];
   const KA2_CASE_SUPPORT_TYPE_OPTIONS = [

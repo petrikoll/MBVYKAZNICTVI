@@ -1985,42 +1985,135 @@ function App() {
     });
   }, [clients, filteredRecords]);
 
-  const supportThresholdMetrics = useMemo(() => {
-    const supportByClient = new Map();
-    filteredRecords.forEach((record) => {
+  const dashboardOverview = useMemo(() => {
+    const normalize = (value) =>
+      String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+
+    const contextRecordsByClient = new Map(clients.map((client) => [client.id, []]));
+    records.forEach((record) => {
       const clientIds = Array.isArray(record.clientIds) ? record.clientIds : record.clientId ? [record.clientId] : [];
-      const minutes = Number(record.payload?.durationMinutes || 0);
-      if (!minutes || clientIds.length === 0) return;
       clientIds.forEach((clientId) => {
-        supportByClient.set(clientId, (supportByClient.get(clientId) || 0) + minutes);
+        if (!contextRecordsByClient.has(clientId)) contextRecordsByClient.set(clientId, []);
+        contextRecordsByClient.get(clientId).push(record);
       });
     });
 
-    let under40 = 0;
-    let atLeast40 = 0;
-    clients.forEach((client) => {
-      const hours = (supportByClient.get(client.id) || 0) / 60;
-      if (hours >= 40) atLeast40 += 1;
-      else if (hours > 0) under40 += 1;
+    const filteredRecordsByClient = new Map(clients.map((client) => [client.id, []]));
+    const supportMinutesByClient = new Map();
+    filteredRecords.forEach((record) => {
+      const clientIds = Array.isArray(record.clientIds) ? record.clientIds : record.clientId ? [record.clientId] : [];
+      const minutes = Number(record.payload?.durationMinutes || 0);
+      clientIds.forEach((clientId) => {
+        if (!filteredRecordsByClient.has(clientId)) filteredRecordsByClient.set(clientId, []);
+        filteredRecordsByClient.get(clientId).push(record);
+        if (minutes > 0) supportMinutesByClient.set(clientId, (supportMinutesByClient.get(clientId) || 0) + minutes);
+      });
     });
 
-    return [
-      {
-        key: 'indicator-600000-at-least-40-hours',
-        label: 'Osoby nad 40 hodin podpory',
-        current: atLeast40,
-        target: null,
-        ka: 'Indikátor 600 000'
-      },
-      {
-        key: 'indicator-670102-under-40-hours',
-        label: 'Osoby pod 40 hodin podpory',
-        current: under40,
-        target: null,
-        ka: 'Indikátor 670 102'
-      }
-    ];
-  }, [clients, filteredRecords]);
+    const hoursFor = (clientId) => (supportMinutesByClient.get(clientId) || 0) / 60;
+    const supportedClients = clients.filter((client) => hoursFor(client.id) > 0);
+    const longTermClients = supportedClients.filter((client) => hoursFor(client.id) >= 40);
+    const shortTermClients = supportedClients.filter((client) => hoursFor(client.id) < 40);
+
+    const hasMinimumData = (client) =>
+      Boolean(client.id && client.fullName && client.datumNarozeni && client.datumVstupu);
+    const hasCompleteMonitoringData = (client) =>
+      Boolean(
+        client.monitoringListUrl && client.datumNarozeni && client.pohlavi && client.postaveniNaTrhu &&
+        client.vzdelani && client.znevyhodneni && client.datumVstupu && client.mesto && client.psc
+      );
+
+    const longEligible = longTermClients.filter(hasCompleteMonitoringData);
+    const shortEligible = shortTermClients.filter(hasMinimumData);
+    const areaMatches = (record, aliases) => {
+      const area = normalize(record.payload?.supportArea);
+      return aliases.some((alias) => area.includes(normalize(alias)));
+    };
+    const isCompletedGoal = (goal) => {
+      const value = goal?.isCompleted;
+      return value === true || ['ano', 'true', '1', 'splnen', 'splneno'].includes(normalize(value));
+    };
+    const evaluatedLongGoal = (clientId, aliases) => {
+      const plans = (contextRecordsByClient.get(clientId) || []).filter((record) => record.entityType === 'plans');
+      const activities = (filteredRecordsByClient.get(clientId) || []).filter(
+        (record) => record.entityType !== 'plans' && areaMatches(record, aliases)
+      );
+      return activities.some((activity) => {
+        const goalId = String(activity.linkedPlanGoalId || activity.payload?.linkedPlanGoalId || '');
+        if (!goalId || goalId === 'one-time-order') return false;
+        return plans.some((plan) => {
+          const finalEvaluation = String(plan.finalEvaluation || plan.payload?.finalEvaluation || '').trim();
+          const goal = getPlanGoals(plan).find(
+            (item, index) => String(item.goalId || item.id || ('goal-' + (index + 1))) === goalId
+          );
+          return Boolean(goal && isCompletedGoal(goal) && (String(goal.goalEvaluation || '').trim() || finalEvaluation));
+        });
+      });
+    };
+    const completedShortOrder = (clientId, aliases) =>
+      (filteredRecordsByClient.get(clientId) || []).some((record) => {
+        if (record.entityType === 'plans' || !areaMatches(record, aliases)) return false;
+        const outcome = String(record.payload?.outcome || record.documentText || '').trim();
+        const goalId = String(record.linkedPlanGoalId || record.payload?.linkedPlanGoalId || '');
+        return Boolean(outcome && (!goalId || goalId === 'one-time-order'));
+      });
+    const countLongGoal = (aliases) => longTermClients.filter((client) => evaluatedLongGoal(client.id, aliases)).length;
+    const countShortGoal = (aliases) => shortTermClients.filter((client) => completedShortOrder(client.id, aliases)).length;
+
+    const caseMeetingCount = filteredRecords.filter((record) => {
+      const type = normalize(record.payload?.consultationType || record.payload?.type || record.title);
+      return type.includes('pripadov') || type.includes('multiobor');
+    }).length;
+    const outreachCount = filteredRecords.filter((record) =>
+      normalize(record.payload?.consultationType || record.title).includes('depist')
+    ).length;
+    const missingPlanCount = longTermClients.filter(
+      (client) => !(contextRecordsByClient.get(client.id) || []).some((record) => record.entityType === 'plans')
+    ).length;
+    const missingGoalEvaluationCount = supportedClients.filter((client) =>
+      (contextRecordsByClient.get(client.id) || [])
+        .filter((record) => record.entityType === 'plans')
+        .some((plan) => getPlanGoals(plan).some((goal) => isCompletedGoal(goal) && !String(goal.goalEvaluation || '').trim()))
+    ).length;
+    const completeMonitoringCount = longTermClients.filter(hasCompleteMonitoringData).length;
+
+    return {
+      indicators: [
+        { key: '600000', code: '600 000', label: 'Celkov\u00fd po\u010det \u00fa\u010dastn\u00edk\u016f', current: longEligible.length, target: 29 },
+        { key: '670102', code: '670 102', label: 'Vyu\u017e\u00edv\u00e1n\u00ed podpo\u0159en\u00fdch slu\u017eeb', current: shortEligible.length, target: 100 }
+      ],
+      longGoals: [
+        { key: 'parenting-long', label: 'Rodi\u010dovsk\u00e9 kompetence', current: countLongGoal(['rodina']), target: 11 },
+        { key: 'housing-long', label: 'Bydlen\u00ed', current: countLongGoal(['bydlen\u00ed']), target: 5 },
+        { key: 'work-long', label: 'Pracovn\u00ed kompetence', current: countLongGoal(['zam\u011bstn\u00e1n\u00ed']), target: 5 },
+        { key: 'finance-long', label: 'Finan\u010dn\u00ed situace', current: countLongGoal(['finance/dluhy', 'dluhy']), target: 5 }
+      ],
+      shortGoals: [
+        { key: 'security-short', label: 'Soci\u00e1ln\u00ed zabezpe\u010den\u00ed', current: countShortGoal(['d\u00e1vky']), target: 50 },
+        { key: 'services-short', label: 'P\u0159\u00edstup ke slu\u017eb\u00e1m', current: countShortGoal(['slu\u017eby']), target: 25 },
+        { key: 'parenting-short', label: 'Rodi\u010dovsk\u00e9 kompetence', current: countShortGoal(['rodina']), target: 20 },
+        { key: 'inclusion-short', label: 'Soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed', current: countShortGoal(['soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed']), target: 5 }
+      ],
+      outputs: [
+        { key: 'short-support', label: 'Osoby s kr\u00e1tkodobou podporou', current: shortEligible.length, target: 100 },
+        { key: 'long-support', label: 'Osoby s dlouhodobou podporou', current: longEligible.length, target: 29 },
+        { key: 'case-meetings', label: 'P\u0159\u00edpadov\u00e1 / multioborov\u00e1 setk\u00e1n\u00ed', current: caseMeetingCount, target: 15 },
+        { key: 'outreach', label: 'Depist\u00e1\u017en\u00ed z\u00e1znamy', current: outreachCount, target: null },
+        { key: 'monitoring', label: 'Monitorovac\u00ed listy / kompletn\u00ed \u00fadaje u 40+', current: completeMonitoringCount, target: longTermClients.length, note: (longTermClients.length - completeMonitoringCount) + ' chyb\u00ed' }
+      ],
+      risks: [
+        { key: 'near-40', label: 'Klienti bl\u00edzko 40 hodin', count: supportedClients.filter((client) => hoursFor(client.id) >= 30 && hoursFor(client.id) < 40).length, detail: '30\u201339,99 hodiny podpory' },
+        { key: 'long-not-counted', label: 'Nad 40 hodin, ale nezapo\u010dteno do 600 000', count: longTermClients.length - longEligible.length, detail: 'Chyb\u00ed povinn\u00e9 monitorovac\u00ed \u00fadaje' },
+        { key: 'short-not-counted', label: 'Pod 40 hodin, ale nezapo\u010dteno do 670 102', count: shortTermClients.length - shortEligible.length, detail: 'Chyb\u00ed minim\u00e1ln\u00ed registra\u010dn\u00ed \u00fadaje' },
+        { key: 'missing-plan', label: 'Chyb\u00ed individu\u00e1ln\u00ed pl\u00e1n u 40+', count: missingPlanCount, detail: 'Riziko pro dolo\u017een\u00ed dlouhodob\u00e9 podpory' },
+        { key: 'missing-evaluation', label: 'Chyb\u00ed vyhodnocen\u00ed c\u00edle', count: missingGoalEvaluationCount, detail: 'Spln\u011bn\u00fd c\u00edl nem\u00e1 slovn\u00ed vyhodnocen\u00ed' }
+      ]
+    };
+  }, [clients, filteredRecords, records]);
 
   const periodRecordsForZor = useMemo(
     () => storedActivityRecords.filter((record) => isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod)),
@@ -5576,8 +5669,7 @@ function App() {
         {mainView === 'dashboard' && (
           <React.Suspense fallback={<LazyViewFallback />}>
             <ReportingView
-              computedIndicators={computedIndicators}
-              supportThresholdMetrics={supportThresholdMetrics}
+              dashboardOverview={dashboardOverview}
               exportClientsCsv={exportClientsCsv}
               exportAllRecordsBackup={exportAllRecordsBackup}
               dashboardFilters={dashboardFilters}
