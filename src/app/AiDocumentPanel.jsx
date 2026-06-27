@@ -65,7 +65,6 @@ function AiDocumentPanel({
     'koordinace podpory klienta',
     'případové setkání',
     'multioborové setkání',
-    'jednání s aktéry ve prospěch klienta',
     'vyhodnocení podpory klienta'
   ];
   const KA1_SUPPORT_TYPE_OPTIONS = [

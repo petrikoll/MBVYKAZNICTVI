@@ -1270,6 +1270,29 @@ const VIEW_THEMES = {
   }
 };
 
+const NAV_THEMES = {
+  clients: {
+    active: 'border-amber-300 bg-amber-600 text-white shadow-sm shadow-amber-200/70',
+    idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800'
+  },
+  ka02: {
+    active: 'border-emerald-300 bg-emerald-600 text-white shadow-sm shadow-emerald-200/70',
+    idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800'
+  },
+  ka2case: {
+    active: 'border-blue-300 bg-blue-600 text-white shadow-sm shadow-blue-200/70',
+    idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800'
+  },
+  ka01: {
+    active: 'border-violet-300 bg-violet-600 text-white shadow-sm shadow-violet-200/70',
+    idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-800'
+  },
+  dashboard: {
+    active: 'border-slate-400 bg-slate-700 text-white shadow-sm shadow-slate-300/70',
+    idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-slate-400 hover:bg-slate-100 hover:text-slate-800'
+  }
+};
+
 function asSheetText(value) {
   if (value == null) return '';
   if (typeof value?.toDate === 'function') return value.toDate().toISOString().slice(0, 10);
@@ -1331,7 +1354,7 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       remoteSource: 'google-sheet',
       entityType: 'plans',
       ka: 'KA1',
-      title: 'Individu?ln? pl?n - ' + clientName(clientId),
+      title: 'Individuální plán - ' + clientName(clientId),
       activityDate: asSheetDate(row.updated_at || row.created_at),
       worker: asSheetWorker(row.pracovnik || row.updated_by || row.created_by),
       clientId,
@@ -4942,14 +4965,15 @@ function App() {
               {APP_VIEWS.map((item) => {
                 const Icon = item.icon;
                 const active = mainView === item.id;
+                const navTheme = NAV_THEMES[item.id] || NAV_THEMES.clients;
                 return (
                   <button
                     key={item.id}
                     onClick={() => setMainView(item.id)}
                     className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
                       active
-                        ?viewTheme.navActive
-                        : viewTheme.navIdle
+                        ? navTheme.active
+                        : navTheme.idle
                     }`}
                   >
                     <Icon className="h-4 w-4" />

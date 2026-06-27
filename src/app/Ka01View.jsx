@@ -52,8 +52,10 @@ function Ka01View({
       { value: ka01ActorCustomValue, label: 'Dal\u0161\u00ed osoba (ru\u010dn\u011b)' }
     ]);
   }, [isTeamMeeting, ka01Draft.worker, ka01ActorCustomValue, sortedActors]);
-  const currentActors = sortedActors.filter((record) => String(record.payload?.networkOrigin || '').toLowerCase().includes('stávaj')).length;
-  const newActors = sortedActors.filter((record) => String(record.payload?.networkOrigin || '').toLowerCase().includes('nov')).length;
+  const actorOrigin = (record) => String(record.payload?.networkOrigin || '').toLocaleLowerCase('cs');
+  const networkActors = sortedActors.filter((record) => !actorOrigin(record).includes('potenci'));
+  const currentActors = networkActors.filter((record) => actorOrigin(record).includes('stávaj')).length;
+  const newActors = networkActors.filter((record) => actorOrigin(record).includes('nov')).length;
   const attendanceCount = Object.values(ka01AttendanceSelection || {}).filter(Boolean).length;
   const isNewActor = String(ka01ActorDraft.networkOrigin || '').toLowerCase().includes('nov');
   const actorTypeOptions = ACTOR_OPTIONS.some((option) => option.value === ka01ActorDraft.actorType)
@@ -66,7 +68,7 @@ function Ka01View({
       <div className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <span className="font-semibold uppercase text-slate-300">KA02 - Tvorba sítě:</span>
-          <span>Aktéři <strong>{sortedActors.length}</strong></span>
+          <span>Aktéři <strong>{networkActors.length}</strong></span>
           <span>Stávající síť <strong>{currentActors}</strong></span>
           <span>Nově zapojení <strong>{newActors}</strong></span>
           <span>Aktivity <strong>{ka01NetworkRecords.length}</strong></span>

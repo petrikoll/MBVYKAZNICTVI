@@ -37,9 +37,9 @@ function Ka02View({
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="font-semibold uppercase tracking-wide text-slate-300">KA1 Individu\u00e1ln\u00ed podpora:</span>
-          <span>Individu\u00e1ln\u00ed pl\u00e1ny <strong>{plans.current}</strong></span>
-          <span>Z\u00e1pisy podpory <strong>{consultations.current}</strong></span>
+          <span className="font-semibold uppercase tracking-wide text-slate-300">KA1 Individuální podpora:</span>
+          <span>Individuální plány <strong>{plans.current}</strong></span>
+          <span>Zápisy podpory <strong>{consultations.current}</strong></span>
         </div>
       </div>
 
