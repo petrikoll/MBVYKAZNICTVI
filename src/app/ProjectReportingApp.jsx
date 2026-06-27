@@ -2099,7 +2099,7 @@ function App() {
         { key: 'inclusion-short', label: 'Soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed', current: countShortGoal(['soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed']), target: 5 }
       ],
       activityGoals: [
-        { key: 'outreach', label: 'Depist\u00e1\u017en\u00ed z\u00e1znamy', current: outreachCount, target: null },
+        { key: 'outreach', label: 'Depist\u00e1\u017en\u00ed z\u00e1znamy', current: outreachCount, target: 100 },
         { key: 'case-meetings', label: 'P\u0159\u00edpadov\u00e1 / multioborov\u00e1 setk\u00e1n\u00ed', current: caseMeetingCount, target: 15 }
       ],
       risks: [
