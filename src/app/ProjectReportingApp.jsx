@@ -2146,6 +2146,18 @@ function App() {
       });
     const countLongGoal = (aliases) => longTermClients.filter((client) => evaluatedLongGoal(client.id, aliases)).length;
     const countShortGoal = (aliases) => shortTermClients.filter((client) => completedShortOrder(client.id, aliases)).length;
+    const countSocialInclusionGoal = () => shortTermClients.filter((client) => {
+      const distinctAreas = new Set(
+        (filteredRecordsByClient.get(client.id) || [])
+          .filter((record) => {
+            const ka = normalize(record.ka).replace(/\s/g, '');
+            return record.entityType !== 'plans' && ['ka1', 'ka01', 'ka2', 'ka02'].includes(ka);
+          })
+          .map((record) => normalize(record.payload?.supportArea))
+          .filter((area) => area && area !== normalize('soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed'))
+      );
+      return distinctAreas.size >= 4;
+    }).length;
 
     const caseMeetingCount = filteredRecords.filter((record) => {
       const type = normalize(record.payload?.consultationType || record.payload?.type || record.title);
@@ -2179,7 +2191,7 @@ function App() {
         { key: 'security-short', label: 'Soci\u00e1ln\u00ed zabezpe\u010den\u00ed', current: countShortGoal(['d\u00e1vky']), target: 50 },
         { key: 'services-short', label: 'P\u0159\u00edstup ke slu\u017eb\u00e1m', current: countShortGoal(['slu\u017eby']), target: 25 },
         { key: 'parenting-short', label: 'Rodi\u010dovsk\u00e9 kompetence', current: countShortGoal(['rodina']), target: 20 },
-        { key: 'inclusion-short', label: 'Soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed', current: countShortGoal(['soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed']), target: 5 }
+        { key: 'inclusion-short', label: 'Soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed (min. 4 oblasti v KA1/KA2)', current: countSocialInclusionGoal(), target: 5 }
       ],
       activityGoals: [
         { key: 'outreach', label: 'Depist\u00e1\u017en\u00ed z\u00e1znamy', current: outreachCount, target: 100 },
