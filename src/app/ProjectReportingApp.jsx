@@ -1230,43 +1230,39 @@ function buildPlanTemplatePayload(client, draft, generatedText) {
 const VIEW_THEMES = {
   clients: {
     page: 'bg-[radial-gradient(circle_at_top_left,#f7dfb9_0,#f3ead9_32%,#eee7d8_58%,#e8edf0_100%)]',
-    header: 'border-stone-200 bg-stone-50/90',
-    accent: 'bg-amber-300/30',
-    label: 'text-amber-700',
-    navActive: 'border-amber-300 bg-amber-600 text-white shadow-sm shadow-amber-200/70',
-    navIdle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800'
-  },
-  ka01: {
-    page: 'bg-[radial-gradient(circle_at_top_left,#d7f2df_0,#eef4dc_36%,#edf2e6_62%,#e8eef0_100%)]',
-    header: 'border-emerald-200 bg-emerald-50/85',
-    accent: 'bg-emerald-300/30',
-    label: 'text-emerald-700',
-    navActive: 'border-emerald-300 bg-emerald-600 text-white shadow-sm shadow-emerald-200/70',
-    navIdle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800'
+    header: 'border-amber-200 bg-amber-50/90',
+    accent: 'bg-amber-300/25',
+    label: 'text-amber-700'
   },
   ka02: {
-    page: 'bg-[radial-gradient(circle_at_top_left,#fde7b2_0,#f6edd7_35%,#eee8dc_62%,#e7edf1_100%)]',
-    header: 'border-amber-200 bg-amber-50/85',
-    accent: 'bg-yellow-300/30',
-    label: 'text-amber-700',
-    navActive: 'border-amber-300 bg-amber-600 text-white shadow-sm shadow-amber-200/70',
-    navIdle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800'
+    page: 'bg-[radial-gradient(circle_at_top_left,#d7f2df_0,#eef4dc_36%,#edf2e6_62%,#e8eef0_100%)]',
+    header: 'border-emerald-200 bg-emerald-50/85',
+    accent: 'bg-emerald-300/25',
+    label: 'text-emerald-700'
+  },
+  ka2case: {
+    page: 'bg-[radial-gradient(circle_at_top_left,#dbeafe_0,#eaf2f8_36%,#edf2f4_62%,#e8edf0_100%)]',
+    header: 'border-blue-200 bg-blue-50/85',
+    accent: 'bg-blue-300/25',
+    label: 'text-blue-700'
+  },
+  ka01: {
+    page: 'bg-[radial-gradient(circle_at_top_left,#eadff5_0,#f1ebf5_36%,#eeeaf1_62%,#e9edf0_100%)]',
+    header: 'border-violet-200 bg-violet-50/85',
+    accent: 'bg-violet-300/20',
+    label: 'text-violet-700'
   },
   ka03: {
     page: 'bg-[radial-gradient(circle_at_top_left,#ffd7ba_0,#f7e5d2_34%,#eee4d8_62%,#e8edf1_100%)]',
     header: 'border-orange-200 bg-orange-50/85',
-    accent: 'bg-orange-300/30',
-    label: 'text-orange-700',
-    navActive: 'border-orange-300 bg-orange-600 text-white shadow-sm shadow-orange-200/70',
-    navIdle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-800'
+    accent: 'bg-orange-300/25',
+    label: 'text-orange-700'
   },
   dashboard: {
-    page: 'bg-[radial-gradient(circle_at_top_left,#dbeafe_0,#e9eef4_35%,#f0eadc_66%,#ebe6dc_100%)]',
-    header: 'border-blue-200 bg-blue-50/85',
-    accent: 'bg-blue-300/30',
-    label: 'text-blue-700',
-    navActive: 'border-blue-300 bg-blue-600 text-white shadow-sm shadow-blue-200/70',
-    navIdle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800'
+    page: 'bg-[radial-gradient(circle_at_top_left,#e2e8f0_0,#edf1f4_36%,#f1eee8_66%,#ebe8e3_100%)]',
+    header: 'border-slate-300 bg-slate-100/90',
+    accent: 'bg-slate-400/15',
+    label: 'text-slate-700'
   }
 };
 
