@@ -2412,13 +2412,12 @@ function App() {
       therapy: 'Terapeut',
       cv: 'Pracovní poradce',
       simulator: 'Pracovní poradce'
-    };
-    const consultationWorkers = ['Pracovní poradce', 'Dluhový poradce', 'Více pracovníků'];
+    };    const consultationWorkers = ['Soci\u00e1ln\u00ed pracovn\u00edk', 'Case manager'];
     const targetWorker = workerByDocument[generatorDraft.selectedKey];
     setGeneratorDraft((prev) => {
       if (targetWorker && prev.worker !== targetWorker) return { ...prev, worker: targetWorker };
       if (prev.selectedKey === 'consultation' && !consultationWorkers.includes(prev.worker)) {
-        return { ...prev, worker: 'Pracovní poradce' };
+        return { ...prev, worker: 'Soci\u00e1ln\u00ed pracovn\u00edk' };
       }
       return prev;
     });

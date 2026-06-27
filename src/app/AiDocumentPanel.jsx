@@ -383,7 +383,7 @@ function AiDocumentPanel({
               </button>
             </div>
           </div>
-          {!isMentorForm && !generatorDraft.caseManagementMode && (
+          {!isMentorForm && (
             <SelectField
               label="Pracovník"
               value={generatorDraft.worker}
