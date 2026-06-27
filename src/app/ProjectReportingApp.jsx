@@ -2842,6 +2842,7 @@ function App() {
           cas_od: payload.startTime || payload.ka02StartTime || '',
           cas_do: payload.endTime || payload.ka02EndTime || '',
           pocet_hodin: payload.durationMinutes ? Math.round((Number(payload.durationMinutes) / 60) * 100) / 100 : '',
+          pracovnik: record.worker || '',
           typ_podpory: payload.consultationType || 'case management - individu\u00e1ln\u00ed pr\u00e1ce s klientem',
           tema_podpory: payload.supportArea || '',
           forma_poskytovani: 'ambulantn\u00ed',

@@ -200,7 +200,7 @@ const PERFORMANCE_HEADERS_ = [
 ];
 
 const MEETING_HEADERS_ = [
-  'meeting_id', 'klient_id', 'case_management_id', 'datum', 'cas_od', 'cas_do', 'pocet_hodin',
+  'meeting_id', 'klient_id', 'case_management_id', 'datum', 'cas_od', 'cas_do', 'pocet_hodin', 'pracovnik',
   'typ_podpory', 'tema_podpory', 'forma_poskytovani', 'cil_ip_id', 'cil_ip', 'partner_ids', 'partneri', 'ucastnici', 'pocet_akteru',
   'popis', 'vysledek', 'dalsi_krok', 'dokument_text', 'document_url', 'document_error', 'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
 ];
