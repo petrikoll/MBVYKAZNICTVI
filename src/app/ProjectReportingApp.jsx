@@ -4832,10 +4832,8 @@ function App() {
               <p className={`text-xs font-semibold uppercase tracking-[0.22em] ${viewTheme.label}`}>Projektové výkaznictví</p>
               <h1 className="mt-1 text-2xl font-bold text-slate-900">PODPORA SOCIÁLNÍ PRÁCE V MORAVSKÉM BEROUNĚ II</h1>
             </div>
-            <div className="grid gap-2 text-sm sm:grid-cols-2">
-              <TopMetric label="Klienti v registru" value={String(clients.length)} icon={Users} tone="indigo" />
-              <TopMetric label="Uložené aktivity" value={String(storedActivityRecords.length)} icon={Database} tone="emerald" />
-              {false && <TopMetric
+            <div className="text-sm">
+              <TopMetric label="Klienti v registru" value={String(clients.length)} icon={Users} tone="indigo" />              {false && <TopMetric
                 label="Stav integrace"
                 value={sheetError ?'Sheets fallback' : 'Hybrid aktivní'}
                 icon={sheetError ?AlertCircle : CheckCircle2}
