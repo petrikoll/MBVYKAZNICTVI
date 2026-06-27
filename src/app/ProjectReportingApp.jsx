@@ -4989,14 +4989,6 @@ function App() {
                 action={
                   <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={provisionAllClientDriveFolders}
-                      disabled={isProvisioningClientFolder || isLoadingClients || clients.length === 0}
-                      className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isProvisioningClientFolder ?<Loader2 className="h-4 w-4 animate-spin" /> : <DownloadCloud className="h-4 w-4" />}
-                      Vytvořit všechny složky
-                    </button>
-                    <button
                       onClick={() => setShowClientForm((prev) => !prev)}
                       className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
                     >
@@ -5033,24 +5025,22 @@ function App() {
                         <button
                           key={client.id}
                           onClick={() => openClient(client.id)}
-                          className={`w-full rounded-xl border p-3 text-left transition ${
+                          className={`w-full rounded-xl border px-3 py-2.5 text-left transition ${
                             active
                               ?'border-indigo-200 bg-indigo-50 shadow-sm'
                               : 'border-slate-200 bg-white hover:border-indigo-200 hover:bg-slate-50'
                           }`}
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-bold text-slate-900">{client.fullName}</div>
-                              <div className="mt-1 text-xs text-slate-500">{client.mesto || 'Bez obce'} · {client.projectStatusLabel}</div>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-bold text-slate-900">{client.fullName}</div>
+                              <div className="mt-0.5 truncate text-xs text-slate-500">{client.mesto || 'Bez obce'} · {client.projectStatusLabel}</div>
                             </div>
-                            <ChevronRight className="h-4 w-4 text-slate-400" />
+                            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                           </div>
-                          <div className="mt-2 grid grid-cols-2 gap-1.5 text-xs">
+                          <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-xs">
                             <MiniBadge icon={Database} label={`ID ${client.id}`} tone="slate" />
                             <MiniBadge icon={Clock} label={`${stats.supportHours.toFixed(1)} h`} tone="indigo" />
-                            <MiniBadge icon={Activity} label={`${stats.activities} aktivit`} tone="emerald" />
-                            <MiniBadge icon={Target} label={`${stats.documents} dokumentů`} tone="amber" />
                           </div>
                         </button>
                       );
