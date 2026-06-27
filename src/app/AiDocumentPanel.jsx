@@ -86,6 +86,15 @@ function AiDocumentPanel({
     'Administrativa ve prosp\u011bch klienta',
     'Vyhodnocen\u00ed spolupr\u00e1ce / ukon\u010den\u00ed podpory'
   ];
+  const KA1_SUPPORT_TYPE_EXCLUDED_FROM_SELECT = new Set([
+    'Dluhy a finan\u010dn\u00ed situace',
+    'Bydlen\u00ed',
+    'Zam\u011bstn\u00e1n\u00ed / pracovn\u00ed kompetence',
+    'D\u00e1vky a soci\u00e1ln\u00ed zabezpe\u010den\u00ed'
+  ]);
+  const KA1_SUPPORT_TYPE_SELECT_OPTIONS = KA1_SUPPORT_TYPE_OPTIONS.filter(
+    (item) => !KA1_SUPPORT_TYPE_EXCLUDED_FROM_SELECT.has(item)
+  );
   const field = (key, label, type = 'textarea', options = []) => [key, label, type, options];
   const SUPPORT_SPECIFIC_DEFINITIONS = {
     [KA1_SUPPORT_TYPE_OPTIONS[0]]: [
@@ -283,7 +292,7 @@ function AiDocumentPanel({
     updateDraft({ generatedText: value });
   };
   const hasGeneratedText = Boolean(String(generatedText || '').trim());
-  const supportTypeOptions = generatorDraft.caseManagementMode ? KA2_CASE_SUPPORT_TYPE_OPTIONS : KA1_SUPPORT_TYPE_OPTIONS;
+  const supportTypeOptions = generatorDraft.caseManagementMode ? KA2_CASE_SUPPORT_TYPE_OPTIONS : KA1_SUPPORT_TYPE_SELECT_OPTIONS;
   const normalizedSupportType = String(generatorDraft.consultationType || '').toLowerCase();
   const supportSpecific = generatorDraft.supportSpecific || {};
   const updateSupportSpecific = (key, value) => updateDraft({
