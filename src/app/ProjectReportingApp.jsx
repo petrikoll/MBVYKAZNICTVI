@@ -81,6 +81,7 @@ import {
 import { appId, auth, db, hasFirebaseConfig } from '../lib/firebase.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
 import sfLogoImage from '../assets/eu-spolufinancovano-logo.png';
+import cityLogoImage from '../assets/moravsky-beroun-erb.jpg';
 import {
   buildAddress,
   buildAllRecordsBackupHtml,
@@ -4952,12 +4953,17 @@ function App() {
       <div className="pointer-events-none absolute right-[-8rem] top-[22rem] h-96 w-96 rounded-full bg-white/35 blur-3xl" />
       <header className={`sticky top-0 z-10 border-b shadow-sm shadow-black/5 backdrop-blur-xl transition-colors duration-500 ${viewTheme.header}`}>
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 md:px-6">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_80px_auto] lg:items-center">
             <div>
               <p className={`text-xs font-semibold uppercase tracking-[0.22em] ${viewTheme.label}`}>Projektové výkaznictví</p>
               <h1 className="mt-1 text-2xl font-bold text-slate-900">PODPORA SOCIÁLNÍ PRÁCE V MORAVSKÉM BEROUNĚ II</h1>
             </div>
-            <div className="text-sm">
+            <img
+              src={cityLogoImage}
+              alt="Znak města Moravský Beroun"
+              className="mx-auto h-20 w-auto max-w-[72px] object-contain lg:justify-self-center"
+            />
+            <div className="text-sm lg:justify-self-end">
               <TopMetric label="Klienti v registru" value={String(clients.length)} icon={Users} tone="indigo" />              {false && <TopMetric
                 label="Stav integrace"
                 value={sheetError ?'Sheets fallback' : 'Hybrid aktivní'}
