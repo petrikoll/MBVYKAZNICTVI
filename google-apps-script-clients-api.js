@@ -9,7 +9,11 @@
   headerRow: 1,
   token: '',
   clientFoldersRootId: '1ZmYVNPm_ckRLCgWxpU2LXDkAYK1pM9ZX',
-  clientFoldersRootName: 'Klientské složky - Moravský Beroun'
+  clientFoldersRootName: 'Klientské složky - Moravský Beroun',
+  monitoringTemplateFileId: '1jwt5VRDXwgZamPtk7zRcEBIqjUGKNjCwsKsaiugGLuc',
+  projectName: 'Podpora sociální práce v Moravském Berouně II',
+  projectCode: 'CZ.03.02.01/00/25_106/0006125',
+  beneficiaryName: 'Město Moravský Beroun'
 };
 
 function doGet(e) {
@@ -107,6 +111,7 @@ function doPost(e) {
 
 function authorizeOnce() {
   SpreadsheetApp.openById(CONFIG.spreadsheetId).getName();
+  if (CONFIG.monitoringTemplateFileId) DriveApp.getFileById(CONFIG.monitoringTemplateFileId).getName();
   const parent = getClientFolderParent_();
   const testFolder = parent.createFolder('__opravneni_test__');
   const testFile = SpreadsheetApp.create('__opravneni_test_mon_list__');
@@ -572,57 +577,113 @@ function getOrCreateMonitoringList_(folder, client, currentUrl) {
   if (currentId) {
     try {
       const existing = SpreadsheetApp.openById(currentId);
-      fillMonitoringList_(existing, client);
-      return existing;
+      if (findMonitoringSheet_(existing)) {
+        fillMonitoringList_(existing, client);
+        return existing;
+      }
     } catch (error) {
-      // Když byl monitorovací list smazán nebo není dostupný, vytvoří se nový.
+      // Nedostupny nebo smazany soubor se nahradi novou kopii sablony.
     }
   }
 
-  const spreadsheet = SpreadsheetApp.create('Monitorovací list - ' + buildClientFolderName_(client));
-  DriveApp.getFileById(spreadsheet.getId()).moveTo(folder);
+  return copyMonitoringTemplate_(folder, client);
+}
+
+function copyMonitoringTemplate_(folder, client) {
+  if (!CONFIG.monitoringTemplateFileId) throw new Error('Není nastaveno ID šablony MON listu.');
+
+  let template;
+  try {
+    template = DriveApp.getFileById(CONFIG.monitoringTemplateFileId);
+  } catch (error) {
+    throw new Error('Šablona MON listu není dostupná účtu, pod kterým je Apps Script nasazen. Nasdílejte soubor ' + CONFIG.monitoringTemplateFileId + ' tomuto účtu.');
+  }
+
+  const clientName = [client.jmeno, client.prijmeni].filter(Boolean).join(' ').trim() || client.klient_id || 'Klient';
+  const targetName = sanitizeFileName_('MON list - ' + clientName);
+  const copy = template.makeCopy(targetName, folder);
+  copy.setDescription(JSON.stringify({
+    projectName: CONFIG.projectName,
+    projectCode: CONFIG.projectCode,
+    generatedFromTemplateId: CONFIG.monitoringTemplateFileId
+  }, null, 2));
+
+  const spreadsheet = SpreadsheetApp.openById(copy.getId());
   fillMonitoringList_(spreadsheet, client);
   return spreadsheet;
 }
 
 function fillMonitoringList_(spreadsheet, client) {
-  const sheet = spreadsheet.getSheets()[0];
-  sheet.setName('Monitorovací list');
-  sheet.clear();
+  const sheet = findMonitoringSheet_(spreadsheet);
+  if (!sheet) throw new Error('Zkopírovaná šablona neobsahuje list Monitorovací list.');
 
-  const rows = [
-    ['Monitorovací list klienta', ''],
-    ['ID klienta', client.klient_id || ''],
-    ['Jméno', client.jmeno || ''],
-    ['Příjmení', client.prijmeni || ''],
-    ['Datum narození', formatDateValue_(client.datum_narozeni)],
-    ['Pohlaví', client.pohlavi || ''],
-    ['Adresa', [client.ulice, client.cislo_popisne].filter(Boolean).join(' ')],
-    ['Město', client.mesto || ''],
-    ['PSČ', client.psc || ''],
-    ['Telefon', client.telefon || ''],
-    ['E-mail', client.email || ''],
-    ['Datová schránka', client.datova_schranka || ''],
-    ['Postavení na trhu práce', client.postaveni_na_trhu_prace || ''],
-    ['Dosažené vzdělání', client.dosazene_vzdelani || ''],
-    ['Typ znevýhodnění', client.znevyhodneni || ''],
-    ['Datum vstupu do projektu', formatDateValue_(client.datum_vstupu_do_projektu)],
-    ['Datum výstupu z projektu', formatDateValue_(client.datum_vystupu_z_projektu)],
-    ['Stav klienta', client.stav_klienta || ''],
-    ['Potřeba case managementu', client.case_management_potreba || 'Ne'],
-    ['Důvod case managementu', client.case_management_duvod || ''],
-    ['Case management od', formatDateValue_(client.case_management_od)],
-    ['Poznámka', client.poznamka || ''],
-    ['Vyplněno dne', Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')]
-  ];
+  const directValues = {
+    C3: CONFIG.projectCode || "",
+    C4: CONFIG.projectName || "",
+    C5: CONFIG.beneficiaryName || "",
+    C7: client.jmeno || "",
+    C8: client.prijmeni || "",
+    C9: formatDateValue_(client.datum_narozeni),
+    C11: client.ulice || "",
+    C12: client.mesto || "",
+    C13: client.cislo_popisne || "",
+    C14: client.psc || "",
+    C15: [client.email, client.datova_schranka].filter(Boolean).join(' / '),
+    C16: client.telefon || "",
+    C17: client.spadove_mesto || "",
+    C18: client.pohlavi || "",
+    C19: client.postaveni_na_trhu_prace || "",
+    C20: client.dosazene_vzdelani || "",
+    C21: client.znevyhodneni || ""
+  };
 
-  sheet.getRange(1, 1, rows.length, 2).setValues(rows);
-  sheet.getRange('A1:B1').merge().setFontWeight('bold').setFontSize(14).setBackground('#e8f0fe');
-  sheet.getRange(2, 1, rows.length - 1, 1).setFontWeight('bold').setBackground('#f8fafc');
-  sheet.getRange(1, 1, rows.length, 2).setBorder(true, true, true, true, true, true);
-  sheet.setColumnWidth(1, 230);
-  sheet.setColumnWidth(2, 420);
-  sheet.getRange(1, 1, rows.length, 2).setWrap(true).setVerticalAlignment('top');
+  Object.keys(directValues).forEach(function(cell) {
+    sheet.getRange(cell).setValue(directValues[cell]);
+  });
+
+  const replacements = buildMonitoringReplacements_(client);
+  spreadsheet.getSheets().forEach(function(targetSheet) {
+    Object.keys(replacements).forEach(function(placeholder) {
+      targetSheet.createTextFinder(placeholder).matchCase(true).replaceAllWith(replacements[placeholder] || "");
+    });
+  });
+  SpreadsheetApp.flush();
+}
+
+function buildMonitoringReplacements_(client) {
+  const address = [client.ulice, client.cislo_popisne].filter(Boolean).join(' ').trim();
+  const addressLine = [address, client.psc, client.mesto].filter(Boolean).join(', ');
+  return {
+    '{{PROJECT_NAME}}': CONFIG.projectName || '',
+    '{{PROJECT_CODE}}': CONFIG.projectCode || '',
+    '{{BENEFICIARY_NAME}}': CONFIG.beneficiaryName || '',
+    '{{CLIENT_NAME}}': [client.jmeno, client.prijmeni].filter(Boolean).join(' '),
+    '{{CLIENT_ID}}': client.klient_id || '',
+    '{{CLIENT_FIRST_NAME}}': client.jmeno || '',
+    '{{CLIENT_LAST_NAME}}': client.prijmeni || '',
+    '{{CLIENT_BIRTH_DATE}}': formatDateValue_(client.datum_narozeni),
+    '{{CLIENT_ADDRESS}}': addressLine,
+    '{{CLIENT_STREET}}': client.ulice || '',
+    '{{CLIENT_CITY}}': client.mesto || '',
+    '{{CLIENT_POSTAL_CODE}}': client.psc || '',
+    '{{CLIENT_HOUSE_NUMBER}}': client.cislo_popisne || '',
+    '{{CLIENT_GENDER}}': client.pohlavi || '',
+    '{{CLIENT_LABOUR_STATUS}}': client.postaveni_na_trhu_prace || '',
+    '{{CLIENT_EDUCATION}}': client.dosazene_vzdelani || '',
+    '{{CLIENT_DISADVANTAGE}}': client.znevyhodneni || '',
+    '{{CLIENT_PHONE}}': client.telefon || '',
+    '{{CLIENT_EMAIL}}': client.email || ''
+  };
+}
+
+function findMonitoringSheet_(spreadsheet) {
+  const sheets = spreadsheet.getSheets();
+  for (let index = 0; index < sheets.length; index += 1) {
+    const candidate = sheets[index];
+    const header = String(candidate.getRange('B1').getDisplayValue() || '').toLowerCase();
+    if (header.includes('monitorovaci list') || header.includes('monitorovací list')) return candidate;
+  }
+  return null;
 }
 
 function getClientFolderParent_() {
