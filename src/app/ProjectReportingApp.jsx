@@ -4320,37 +4320,45 @@ function App() {
     return `${decimalHours} hod (${String(wholeHours).padStart(2, '0')}hod${String(minutes).padStart(2, '0')}min)`;
   };
 
+  const getUniqueClientSupportRecords = (sourceRecords) => {
+    const seen = new Set();
+    return (sourceRecords || []).filter((record) => {
+      if (record.isSynthetic || record.entityType !== 'consultations') return false;
+      const clientIds = Array.isArray(record.clientIds) ? record.clientIds : record.clientId ? [record.clientId] : [];
+      if (!clientIds.length) return false;
+      const payload = record.payload || {};
+      const key = [
+        [...clientIds].sort().join(','),
+        record.activityDate || '',
+        payload.startTime || payload.ka02StartTime || '',
+        payload.endTime || payload.ka02EndTime || '',
+        Number(payload.durationMinutes || 0),
+        payload.consultationType || record.title || '',
+        record.documentText || payload.topics || '',
+        payload.outcome || '',
+        payload.nextSteps || ''
+      ].map((value) => String(value).trim()).join('|').toLocaleLowerCase('cs');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
   const getClientDashboardExportStats = (clientId) => {
-    const clientRecords = records.filter((record) => {
+    const supportRecords = getUniqueClientSupportRecords(records).filter((record) => {
       const clientIds = Array.isArray(record.clientIds) ? record.clientIds : record.clientId ? [record.clientId] : [];
       return clientIds.includes(clientId);
     });
-
-    const minutesFor = (predicate) => clientRecords
+    const minutesFor = (predicate) => supportRecords
       .filter(predicate)
       .reduce((sum, record) => sum + Number(record.payload?.durationMinutes || 0), 0);
-
-    const workCounselingMinutes = minutesFor((record) =>
-      record.entityType === 'consultations' && String(record.payload?.consultationType || '').toLowerCase().includes('pracovn')
-    );
-    const debtCounselingMinutes = minutesFor((record) => {
-      const consultationType = String(record.payload?.consultationType || '').toLowerCase();
-      const title = String(record.title || '').toLowerCase();
-      return record.entityType === 'debt_cases' ||
-        (record.entityType === 'consultations' && (consultationType.includes('dluh') || consultationType.includes('mapov') || title.includes('mapov')));
-    });
-    const tpmMonths = clientRecords
-      .filter((record) => record.entityType === 'tpm_records')
-      .reduce((sum, record) => sum + Number(record.payload?.actualMonths || record.payload?.plannedMonths || 0), 0);
-    const employmentMonths = clientRecords
-      .filter((record) => record.entityType === 'employment_records')
-      .reduce((sum, record) => sum + Number(record.payload?.employmentActualMonths || record.payload?.employmentPlannedMonths || 0), 0);
-
+    const isKa2 = (record) => String(record.ka || '').toUpperCase() === 'KA2' || Boolean(record.payload?.caseManagementMode);
+    const totalMinutes = minutesFor(() => true);
     return {
-      workCounselingHours: workCounselingMinutes / 60,
-      debtCounselingHours: debtCounselingMinutes / 60,
-      tpmMonths,
-      employmentMonths
+      supportCount: supportRecords.length,
+      totalHours: totalMinutes / 60,
+      ka1Hours: minutesFor((record) => !isKa2(record)) / 60,
+      ka2Hours: minutesFor(isKa2) / 60
     };
   };
   const exportActivitiesCsv = () => {
@@ -4373,24 +4381,25 @@ function App() {
 
   const exportClientsCsv = () => {
     const rows = clients.map((client) => {
-      const clientStats = getClientStats(client.id, records);
-      const dashboardStats = getClientDashboardExportStats(client.id);
+      const stats = getClientDashboardExportStats(client.id);
+      const supportCategory = stats.totalHours >= 40 ? '40 hodin a více' : stats.totalHours > 0 ? 'Méně než 40 hodin' : 'Bez podpory';
       return [
         client.id,
         client.fullName,
-        client.mesto,
-        client.postaveniNaTrhu,
-        client.vzdelani,
-        client.znevyhodneni,
-        client.projectStatusLabel,
+        client.datumNarozeni || '',
+        client.pohlavi || '',
+        client.mesto || '',
+        client.postaveniNaTrhu || '',
+        client.vzdelani || '',
+        client.znevyhodneni || '',
+        client.projectStatusLabel || '',
         client.datumVstupu || '',
         client.datumVystupu || '',
-        clientStats.activities,
-        formatHoursForExport(clientStats.supportHours),
-        formatHoursForExport(dashboardStats.workCounselingHours),
-        formatHoursForExport(dashboardStats.debtCounselingHours),
-        dashboardStats.tpmMonths,
-        dashboardStats.employmentMonths
+        stats.supportCount,
+        formatHoursForExport(stats.totalHours),
+        formatHoursForExport(stats.ka1Hours),
+        formatHoursForExport(stats.ka2Hours),
+        supportCategory
       ];
     });
 
@@ -4398,28 +4407,30 @@ function App() {
       [
         'Interní ID',
         'Klient',
+        'Datum narození',
+        'Pohlaví',
         'Obec',
-        'Postavení na trhu',
-        'Vzdělání',
-        'Znevýhodnění',
-        'Status',
+        'Postavení na trhu práce',
+        'Dosažené vzdělání',
+        'Typ znevýhodnění',
+        'Status klienta',
         'Datum vstupu',
         'Datum výstupu',
-        'Počet aktivit',
+        'Počet zápisů podpory',
         'Celková podpora',
-        'z\u00e1kladn\u00ed soci\u00e1ln\u00ed poradenstv\u00ed',
-        'Dluhové poradenství',
-        'TPM měsíce',
-        'HPP měsíce'
+        'Podpora KA1',
+        'Podpora KA2',
+        'Kategorie podpory'
       ],
       rows,
-      'klienti-projektu.csv'
+      'klienti-a-podpora-is-esf.csv'
     );
   };
 
   const exportAllRecordsBackup = () => {
-    const content = buildAllRecordsBackupHtml(records, clients);
-    downloadHtmlDocument(content, `zaloha-vsech-zapisu-${todayIso()}.doc`);
+    const supportRecords = getUniqueClientSupportRecords(filteredRecords);
+    const content = buildAllRecordsBackupHtml(supportRecords, clients);
+    downloadHtmlDocument(content, `zapisy-podpory-${todayIso()}.doc`);
   };
   const exportIndicatorsCsv = () => {
     const rows = computedIndicators.map((item) => [
@@ -5772,6 +5783,7 @@ function App() {
               dashboardOverview={dashboardOverview}
               exportClientsCsv={exportClientsCsv}
               exportAllRecordsBackup={exportAllRecordsBackup}
+              supportExportCount={getUniqueClientSupportRecords(filteredRecords).length}
               dashboardFilters={dashboardFilters}
               setDashboardFilters={setDashboardFilters}
               filteredRecords={filteredRecords}

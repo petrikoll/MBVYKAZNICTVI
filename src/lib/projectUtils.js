@@ -1540,10 +1540,10 @@ function buildAllRecordsBackupHtml(records, clients) {
     clientIndex[client.id] = client;
   });
 
+  const supportRecords = (records || []).filter((record) => !record.isSynthetic && record.entityType === 'consultations');
+
   const grouped = new Map();
-  (records || [])
-    .filter((record) => !record.isSynthetic)
-    .forEach((record) => {
+  supportRecords.forEach((record) => {
       resolveRecordClients(record, clientIndex).forEach((client) => {
         if (!grouped.has(client.id)) grouped.set(client.id, { client, records: [] });
         grouped.get(client.id).records.push(record);
@@ -1556,20 +1556,19 @@ function buildAllRecordsBackupHtml(records, clients) {
       const recordSections = clientRecords
         .sort((a, b) => String(b.activityDate || '').localeCompare(String(a.activityDate || '')))
         .map((record, index) => {
-          const printableRows = getPrintablePayloadRows(record);
+          const payload = record.payload || {};
           const rows = [
             ['Datum', formatRecordExportDate(record.activityDate) || 'Bez data'],
             ['Klient', client.fullName || record.clientName || 'Bez klienta'],
             ['KA', record.ka || 'Bez KA'],
-            ['Typ', getRecordExportTypeLabel(record)],
+            ['Typ podpory', payload.consultationType || record.title || 'Neuvedeno'],
+            ['Oblast podpory', payload.supportArea || 'Neuvedeno'],
+            ['Cíl individuálního plánu', record.linkedPlanGoalLabel || payload.linkedPlanGoalLabel || 'Jednorázová zakázka'],
             ['Pracovník', record.worker || 'Bez pracovníka'],
             ['Čas', formatRecordExportTimeRange(record) || 'Neuvedeno'],
-            ['Délka', formatRecordExportDuration(record) || 'Neuvedeno'],
-            ...printableRows.map(([key, value]) => [translateFieldLabel(key), value])
+            ['Délka', formatRecordExportDuration(record) || 'Neuvedeno']
           ].filter(([, value]) => value !== '' && value != null);
-          const text = record.entityType === 'plans'
-            ? buildPlanExportText(record, client)
-            : record.documentText || formatRecordExportValue(record.payload || {}) || 'Text zápisu není doplněn.';
+          const text = record.documentText || 'Text zápisu není doplněn.';
 
           return `
             <section class="record-block">
@@ -1594,7 +1593,7 @@ function buildAllRecordsBackupHtml(records, clients) {
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Záloha všech zápisů</title>
+    <title>Zápisy podpory klientů</title>
     <style>
       @page { size: A4; margin: 16mm 14mm 18mm 14mm; }
       body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; line-height: 1.42; font-size: 10.5pt; }
@@ -1618,9 +1617,9 @@ function buildAllRecordsBackupHtml(records, clients) {
   <body>
     <main class="document">
       <header class="top-header">
-        <div class="kicker">Záložní export projektové evidence</div>
-        <h1>Všechny zápisy podle klientů</h1>
-        <p>Vygenerováno: ${escapeHtml(formatRecordExportDate(todayIso()))} | Počet klientských složek v exportu: ${grouped.size} | Počet záznamů: ${(records || []).filter((record) => !record.isSynthetic).length}</p>
+        <div class="kicker">Export klientských zápisů</div>
+        <h1>Zápisy podpory podle klientů</h1>
+        <p>Vygenerováno: ${escapeHtml(formatRecordExportDate(todayIso()))} | Počet klientských složek v exportu: ${grouped.size} | Počet záznamů: ${supportRecords.length}</p>
       </header>
       ${clientSections || '<p>Nejsou uloženy žádné zápisy.</p>'}
     </main>

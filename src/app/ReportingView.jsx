@@ -48,6 +48,7 @@ function ReportingView({
   dashboardOverview,
   exportClientsCsv,
   exportAllRecordsBackup,
+  supportExportCount,
   dashboardFilters,
   setDashboardFilters,
   filteredRecords,
@@ -67,10 +68,10 @@ function ReportingView({
         action={
           <div className="flex flex-wrap gap-2">
             <button onClick={exportClientsCsv} className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100">
-              <FileSpreadsheet className="h-4 w-4" /> Klienti a podpora
+              <FileSpreadsheet className="h-4 w-4" /> Klienti a podpora do IS ESF
             </button>
             <button onClick={exportAllRecordsBackup} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-              <Archive className="h-4 w-4" /> Stáhnout zápisy
+              <Archive className="h-4 w-4" /> Stáhnout zápisy ({supportExportCount || 0})
             </button>
           </div>
         }
