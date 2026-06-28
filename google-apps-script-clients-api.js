@@ -10,7 +10,7 @@
   token: '',
   clientFoldersRootId: '1ZmYVNPm_ckRLCgWxpU2LXDkAYK1pM9ZX',
   clientFoldersRootName: 'Klientské složky - Moravský Beroun',
-  monitoringTemplateFileId: '1jwt5VRDXwgZamPtk7zRcEBIqjUGKNjCwsKsaiugGLuc',
+  monitoringTemplateFileId: '1xCGjTEJX0mo1aqXjGZqVBVEBxv2whubZqJ1-_jBk1w4',
   projectName: 'Podpora sociální práce v Moravském Berouně II',
   projectCode: 'CZ.03.02.01/00/25_106/0006125',
   beneficiaryName: 'Město Moravský Beroun'
