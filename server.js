@@ -1,11 +1,62 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const distDir = resolve(__dirname, 'dist');
 const port = Number(process.env.PORT || 4173);
+
+
+const authUser = process.env.BASIC_AUTH_USER || 'admin';
+const authPassword = process.env.BASIC_AUTH_PASSWORD || '';
+
+function safeCompare(a, b) {
+  const aBuffer = Buffer.from(String(a));
+  const bBuffer = Buffer.from(String(b));
+
+  if (aBuffer.length !== bBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(aBuffer, bBuffer);
+}
+
+function isAuthorized(request) {
+  // Když není BASIC_AUTH_PASSWORD nastavené, aplikace běží bez ochrany.
+  // Na Renderu proto BASIC_AUTH_PASSWORD nastav vždy.
+  if (!authPassword) {
+    return true;
+  }
+
+  const header = request.headers.authorization || '';
+  const [scheme, encodedCredentials] = header.split(' ');
+
+  if (scheme !== 'Basic' || !encodedCredentials) {
+    return false;
+  }
+
+  const decoded = Buffer.from(encodedCredentials, 'base64').toString('utf8');
+  const separatorIndex = decoded.indexOf(':');
+
+  if (separatorIndex === -1) {
+    return false;
+  }
+
+  const username = decoded.slice(0, separatorIndex);
+  const password = decoded.slice(separatorIndex + 1);
+
+  return safeCompare(username, authUser) && safeCompare(password, authPassword);
+}
+
+function requireAuth(response) {
+  response.writeHead(401, {
+    'WWW-Authenticate': 'Basic realm="MB vykaznictvi", charset="UTF-8"',
+    'Content-Type': 'text/plain; charset=utf-8'
+  });
+  response.end('Přístup vyžaduje přihlášení.');
+}
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -31,6 +82,11 @@ function sendFile(response, filePath) {
 }
 
 const server = createServer((request, response) => {
+  if (!isAuthorized(request)) {
+    requireAuth(response);
+    return;
+  }
+
   const url = new URL(request.url || '/', `http://${request.headers.host}`);
   const requestedPath = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
   const staticPath = join(distDir, requestedPath);
