@@ -1,6 +1,57 @@
 import React from 'react';
-import { Loader2 } from 'lucide-react';
-const Panel = ({ title, description, icon: Icon, action, children, className = '' }) => (
+import { CircleHelp, Loader2 } from 'lucide-react';
+const HelpIcon = ({ help, className = '' }) => {
+  const [open, setOpen] = React.useState(false);
+  const id = React.useId();
+
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [open]);
+
+  if (!help?.text) return null;
+
+  return (
+    <span className={`relative inline-flex align-middle ${className}`} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        aria-label={`Nápověda: ${help.title || 'informace'}`}
+        aria-describedby={open ? id : undefined}
+        aria-expanded={open}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen((value) => !value);
+        }}
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+      >
+        <CircleHelp className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      {open && (
+        <span id={id} role="tooltip" className="absolute left-0 top-full z-[100] mt-1 w-[min(280px,calc(100vw-32px))] sm:left-1/2 sm:-translate-x-1/2 rounded-lg border border-slate-300 bg-slate-950 px-3 py-2 text-left normal-case tracking-normal text-white shadow-xl">
+          {help.title && <span className="block text-xs font-bold">{help.title}</span>}
+          <span className="mt-0.5 block text-xs font-normal leading-relaxed text-slate-100">{help.text}</span>
+        </span>
+      )}
+    </span>
+  );
+};
+
+const FieldLabel = ({ label, help }) => (
+  <label className="mb-1 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+    <span>{label}</span>
+    <HelpIcon help={help} />
+  </label>
+);
+
+
+const Panel = ({ title, description, icon: Icon, action, children, className = '', help }) => (
   <section className={`rounded-2xl border border-slate-500 bg-slate-300 p-4 shadow-sm ${className}`}>
     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div className="flex items-start gap-3">
@@ -8,7 +59,7 @@ const Panel = ({ title, description, icon: Icon, action, children, className = '
           <Icon className="h-5 w-5" />
         </div>
         <div>
-          <h2 className="text-base font-bold text-slate-900">{title}</h2>
+          <div className="flex items-center gap-1"><h2 className="text-base font-bold text-slate-900">{title}</h2><HelpIcon help={help} /></div>
           {description && <p className="mt-0.5 text-xs text-slate-500">{description}</p>}
         </div>
       </div>
@@ -130,9 +181,9 @@ const EmptyState = ({ icon: Icon, title }) => (
   </div>
 );
 
-const InputField = ({ label, value, onChange, type = 'text', placeholder = '', required = false }) => (
+const InputField = ({ label, value, onChange, type = 'text', placeholder = '', required = false, help }) => (
   <div>
-    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</label>
+    <FieldLabel label={label} help={help} />
     <input
       type={type}
       value={value}
@@ -144,9 +195,9 @@ const InputField = ({ label, value, onChange, type = 'text', placeholder = '', r
   </div>
 );
 
-const SelectField = ({ label, value, onChange, options }) => (
+const SelectField = ({ label, value, onChange, options, help }) => (
   <div>
-    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</label>
+    <FieldLabel label={label} help={help} />
     <select
       value={value}
       onChange={(event) => onChange(event.target.value)}
@@ -161,12 +212,13 @@ const SelectField = ({ label, value, onChange, options }) => (
   </div>
 );
 
-const TextAreaField = ({ label, value, onChange, rows = 4 }) => (
+const TextAreaField = ({ label, value, onChange, rows = 4, placeholder = '', help }) => (
   <div>
-    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</label>
+    <FieldLabel label={label} help={help} />
     <textarea
       rows={rows}
       value={value}
+      placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-[inset_0_0_0_1px_rgba(148,163,184,0.18)] outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
     />
@@ -182,6 +234,8 @@ const CheckboxField = ({ label, checked, onChange, compact = false }) => (
 
 export {
   Panel,
+  HelpIcon,
+  FieldLabel,
   TopMetric,
   InfoCard,
   DetailRow,

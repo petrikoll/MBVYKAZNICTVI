@@ -44,9 +44,14 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  let lock = null;
+  let lockAcquired = false;
   try {
     const payload = JSON.parse(e.postData.contents || '{}');
     assertToken_(payload.token);
+    lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    lockAcquired = true;
 
     if (payload.action === 'saveClient') {
       const client = saveClient_(payload.client || {});
@@ -61,6 +66,11 @@ function doPost(e) {
     if (payload.action === 'saveIndividualPlan') {
       const individualPlan = saveIndividualPlan_(payload.individualPlan || {});
       return json_({ ok: true, individualPlan });
+    }
+
+    if (payload.action === 'deleteIndividualPlan') {
+      deleteRecord_(CONFIG.individualPlanSheetName, 'plan_id', payload.id);
+      return json_({ ok: true });
     }
 
     if (payload.action === 'savePerformance') {
@@ -106,6 +116,8 @@ function doPost(e) {
     return json_({ ok: false, error: 'Unknown action' });
   } catch (error) {
     return json_({ ok: false, error: String(error.message || error) });
+  } finally {
+    if (lockAcquired && lock) lock.releaseLock();
   }
 }
 
@@ -128,72 +140,19 @@ function getSpreadsheet_() {
 }
 
 const INDIVIDUAL_PLAN_HEADERS_ = [
-  'plan_id', 'klient_id', 'silne_stranky_limity', 'identifikovane_bariery_potreby',
+  'plan_id', 'klient_id', 'popis_situace',
   'cile_json', 'zaverecne_vyhodnoceni', 'accepted_plan_text', 'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
 ];
 
 const PERFORMANCE_SPECIFIC_HEADERS_ = [
-  'misto_depistaze',
-  'zpusob_kontaktu',
-  'duvod_osloveni',
-  'pomoc_nabidnuta',
-  'poradenstvi_poskytnuto',
-  'kontakty_predany',
-  'zajem_o_spolupraci',
-  'hlavni_zjistene_oblasti',
-  'rizika',
-  'zdroje_klienta',
-  'potreby_klienta',
-  'dohoda_na_dalsim_postupu',
-  'tema_poradenstvi',
-  'poskytnute_informace',
-  'doporuceny_postup',
-  'misto_vykonu',
-  'ucel_navstevy',
-  'reakce_klienta',
-  'dohoda_na_dalsim_kontaktu',
-  'druh_problemu',
-  'stav_reseni',
-  'domluveny_krok',
-  'doporucena_navazna_sluzba',
-  'typ_bytove_situace',
-  'problem_v_bydleni',
-  'kontaktovany_subjekt',
-  'pracovni_status',
-  'resene_tema_prace',
-  'provedeny_krok',
-  'navazny_subjekt',
-  'druh_davky_rizeni',
-  'stav_zadosti',
-  'potrebne_doklady',
-  'dalsi_krok_spec',
-  'resena_oblast_rodina',
-  'zapojene_osoby',
-  'potreba_navazne_podpory',
-  'dohoda_s_klientem',
-  'resena_potreba_zdravi',
-  'doporuceny_kontakt',
-  'asistence_objednani',
-  'dalsi_postup_zdravi',
-  'kam_doprovod_probehl',
-  'ucel_doprovodu',
-  'vysledek_jednani',
-  'instituce',
-  'forma_kontaktu',
-  'tema_jednani',
-  'klient_pritomen',
-  'typ_krize',
-  'mira_akutnosti',
-  'prijata_opatreni',
-  'predani_navazne_pomoci',
-  'vysledek_kontaktu',
-  'typ_administrativy',
-  'dokument_ukon',
-  'provedeno_s_klientem',
-  'duvod_vyhodnoceni_ukonceni',
-  'dosazeny_posun',
-  'nedoresene_oblasti',
-  'doporuceni',
+  'misto_depistaze', 'zpusob_kontaktu', 'duvod_osloveni', 'zajem_o_spolupraci',
+  'hlavni_zjistene_oblasti', 'rizika', 'zdroje_klienta', 'potreby_klienta',
+  'poskytnute_informace', 'doporuceny_postup', 'misto_vykonu', 'ucel_navstevy',
+  'kam_doprovod', 'ucel_doprovodu', 'vysledek_doprovodu',
+  'instituce', 'forma_kontaktu', 'tema_jednani', 'klient_pritomen',
+  'typ_krize', 'mira_akutnosti', 'prijata_opatreni', 'predani_navazne_pomoci', 'kontaktovana_navazna_sluzba',
+  'typ_administrativy', 'dokument_ukon', 'provedeno_s_klientem',
+  'duvod_vyhodnoceni_ukonceni', 'dosazeny_posun', 'nedoresene_oblasti', 'doporuceni'
 ];
 
 const PERFORMANCE_HEADERS_ = [
@@ -204,6 +163,54 @@ const PERFORMANCE_HEADERS_ = [
   'dalsi_krok', 'dokument_text', 'document_url', 'document_error', 'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
 ];
 
+
+const KA1_SUPPORT_TYPE_OPTIONS_ = [
+  'Depist\u00e1\u017e',
+  'Soci\u00e1ln\u00ed \u0161et\u0159en\u00ed / mapov\u00e1n\u00ed situace',
+  'Z\u00e1kladn\u00ed soci\u00e1ln\u00ed poradenstv\u00ed',
+  'Ter\u00e9nn\u00ed soci\u00e1ln\u00ed pr\u00e1ce',
+  'Doprovod klienta',
+  'Jedn\u00e1n\u00ed s instituc\u00ed ve prosp\u011bch klienta',
+  'Krizov\u00e1 intervence',
+  'Administrativa ve prosp\u011bch klienta',
+  'Vyhodnocen\u00ed spolupr\u00e1ce / ukon\u010den\u00ed podpory'
+];
+
+const KA1_SUPPORT_AREA_OPTIONS_ = [
+  'bydlen\u00ed', 'finance/dluhy', 'zam\u011bstn\u00e1n\u00ed', 'rodina', 'zdrav\u00ed',
+  'bezpe\u010d\u00ed', 'vzd\u011bl\u00e1n\u00ed', 'slu\u017eby', 'pr\u00e1va/povinnosti', 'jin\u00e9'
+];
+
+const KA1_SERVICE_FORM_OPTIONS_ = ['ambulantn\u00ed', 'ter\u00e9nn\u00ed', 'Telefonn\u00ed'];
+
+function syncKa01SheetStructure() {
+  let sheet = getOrCreateSheet_(CONFIG.performanceSheetName, PERFORMANCE_HEADERS_);
+  let headers = getHeaders_(sheet);
+  for (let index = headers.length - 1; index >= 0; index -= 1) {
+    if (!PERFORMANCE_HEADERS_.includes(headers[index])) sheet.deleteColumn(index + 1);
+  }
+  sheet = getOrCreateSheet_(CONFIG.performanceSheetName, PERFORMANCE_HEADERS_);
+  headers = getHeaders_(sheet);
+  setColumnListValidation_(sheet, headers, 'typ_podpory', KA1_SUPPORT_TYPE_OPTIONS_);
+  setColumnListValidation_(sheet, headers, 'tema_podpory', KA1_SUPPORT_AREA_OPTIONS_);
+  setColumnListValidation_(sheet, headers, 'forma_poskytovani', KA1_SERVICE_FORM_OPTIONS_);
+  return {
+    sheetName: sheet.getName(),
+    headerCount: headers.length,
+    expectedHeaderCount: PERFORMANCE_HEADERS_.length
+  };
+}
+
+function setColumnListValidation_(sheet, headers, header, values) {
+  const column = headers.indexOf(header) + 1;
+  if (!column) throw new Error('Missing column for validation: ' + header);
+  const rowCount = Math.max(sheet.getMaxRows() - CONFIG.headerRow, 1);
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(values, true)
+    .setAllowInvalid(false)
+    .build();
+  sheet.getRange(CONFIG.headerRow + 1, column, rowCount, 1).setDataValidation(rule);
+}
 const MEETING_HEADERS_ = [
   'meeting_id', 'klient_id', 'case_management_id', 'datum', 'cas_od', 'cas_do', 'pocet_hodin', 'pracovnik',
   'typ_podpory', 'tema_podpory', 'forma_poskytovani', 'cil_ip_id', 'cil_ip', 'partner_ids', 'partneri', 'ucastnici', 'pocet_akteru',
@@ -291,8 +298,33 @@ function savePartner_(partner) {
 }
 
 
+function getIndividualPlanSheet_() {
+  const spreadsheet = getSpreadsheet_();
+  const existing = spreadsheet.getSheetByName(CONFIG.individualPlanSheetName);
+
+  if (existing) {
+    let headers = getHeaders_(existing);
+    const legacySituationIndex = headers.indexOf('silne_stranky_limity');
+    const situationIndex = headers.indexOf('popis_situace');
+
+    if (legacySituationIndex >= 0) {
+      if (situationIndex < 0) {
+        existing.getRange(CONFIG.headerRow, legacySituationIndex + 1).setValue('popis_situace');
+      } else {
+        existing.deleteColumn(legacySituationIndex + 1);
+      }
+    }
+
+    headers = getHeaders_(existing);
+    const legacyBarriersIndex = headers.indexOf('identifikovane_bariery_potreby');
+    if (legacyBarriersIndex >= 0) existing.deleteColumn(legacyBarriersIndex + 1);
+  }
+
+  return getOrCreateSheet_(CONFIG.individualPlanSheetName, INDIVIDUAL_PLAN_HEADERS_);
+}
+
 function listIndividualPlans_() {
-  const sheet = getOrCreateSheet_(CONFIG.individualPlanSheetName, INDIVIDUAL_PLAN_HEADERS_);
+  const sheet = getIndividualPlanSheet_();
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -305,7 +337,7 @@ function listIndividualPlans_() {
 }
 
 function saveIndividualPlan_(individualPlan) {
-  const sheet = getOrCreateSheet_(CONFIG.individualPlanSheetName, INDIVIDUAL_PLAN_HEADERS_);
+  const sheet = getIndividualPlanSheet_();
   const headers = getHeaders_(sheet);
   const idColumn = headers.indexOf('plan_id') + 1;
   if (!idColumn) throw new Error('Missing plan_id column');

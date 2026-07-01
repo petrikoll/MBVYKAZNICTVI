@@ -234,6 +234,78 @@ function groupRecordsByType(records) {
   }, {});
 }
 
+function buildPartnerStats({ records = [], partners = [], projectStartDate = '', referenceDate = todayIso() } = {}) {
+  const normalizeDate = (value) => {
+    const date = String(value || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
+  };
+  const normalizeIds = (value) => {
+    const values = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
+    return [...new Set(values.map((id) => String(id || '').trim()).filter(Boolean))];
+  };
+  const normalizeOrigin = (value) =>
+    String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const makeRow = (partnerId, partner = {}) => ({
+    partnerId,
+    name: partner.payload?.name || partner.title || partnerId,
+    registryOrigin: partner.payload?.networkOrigin || '',
+    joinedNetworkDate: normalizeDate(partner.payload?.joinedNetworkDate),
+    caseManagementCount: 0,
+    networkMeetingCount: 0,
+    totalActivityCount: 0,
+    firstActivityDate: '',
+    lastActivityDate: ''
+  });
+
+  const normalizedStart = normalizeDate(projectStartDate);
+  const normalizedReference = normalizeDate(referenceDate) || todayIso();
+  const cutoff = new Date(normalizedReference + 'T00:00:00');
+  cutoff.setDate(cutoff.getDate() - 89);
+  const cutoffDate = cutoff.toISOString().slice(0, 10);
+  const partnerMap = new Map();
+
+  partners.forEach((partner) => {
+    const partnerId = String(partner?.id || '').trim();
+    if (partnerId) partnerMap.set(partnerId, makeRow(partnerId, partner));
+  });
+
+  const seenRecordIds = new Set();
+  records.forEach((record) => {
+    const recordId = String(record?.id || '').trim();
+    if (recordId && seenRecordIds.has(recordId)) return;
+    if (recordId) seenRecordIds.add(recordId);
+    const partnerIds = normalizeIds(record?.payload?.selectedPartnerIds || record?.payload?.partnerIds);
+    if (!partnerIds.length) return;
+    const activityDate = normalizeDate(record.activityDate);
+
+    partnerIds.forEach((partnerId) => {
+      const row = partnerMap.get(partnerId) || makeRow(partnerId);
+      if (record.payload?.caseManagementMode) row.caseManagementCount += 1;
+      if (record.entityType === 'network_activities') row.networkMeetingCount += 1;
+      row.totalActivityCount += 1;
+      if (activityDate && (!row.firstActivityDate || activityDate < row.firstActivityDate)) row.firstActivityDate = activityDate;
+      if (activityDate && (!row.lastActivityDate || activityDate > row.lastActivityDate)) row.lastActivityDate = activityDate;
+      partnerMap.set(partnerId, row);
+    });
+  });
+
+  return [...partnerMap.values()]
+    .map((row) => {
+      const isActiveInProject = row.totalActivityCount > 0;
+      const origin = normalizeOrigin(row.registryOrigin);
+      return {
+        ...row,
+        isActiveInProject,
+        isNewInProject: isActiveInProject && (
+          origin.includes('nove zapojen') ||
+          Boolean(normalizedStart && row.joinedNetworkDate && row.joinedNetworkDate >= normalizedStart)
+        ),
+        isActiveLast90Days: isActiveInProject && Boolean(row.lastActivityDate && row.lastActivityDate >= cutoffDate)
+      };
+    })
+    .sort((a, b) => b.totalActivityCount - a.totalActivityCount || a.name.localeCompare(b.name, 'cs'));
+}
+
 function buildIndicators({ clients, records }) {
   const counts = computedIndicatorsMapRaw(clients, records);
   return [
@@ -416,6 +488,8 @@ function buildGeneratorRecord({ client, generatorDraft, generatedText, selectedT
         durationMinutes: getKa02DurationMinutes(generatorDraft),
         caseManagementMode: Boolean(generatorDraft.caseManagementMode),
         selectedPartnerIds: generatorDraft.selectedPartnerIds || [],
+        registeredPartnerNames: generatorDraft.registeredPartnerNames || [],
+        manualPartnerNames: generatorDraft.manualPartnerNames || [],
         partnerNames: generatorDraft.partnerNames || [],
         partners: (generatorDraft.partnerNames || []).join('; '),
         participantCount: Number(generatorDraft.participantCount || 0)
@@ -1102,11 +1176,9 @@ function buildPlanExportText(record, client) {
     `Datum plánu: ${formatPlanExportDate(record.activityDate)}`,
     `Pracovník: ${record.worker || ''}`,
     '',
-    'Silné stránky a limity',
-    record.strengthsAndLimits || payload.strengthsAndLimits || 'Neuvedeno',
+    'Popis situace',
+    record.situationDescription || payload.situationDescription || 'Neuvedeno',
     '',
-    'Identifikované bariéry',
-    record.identifiedBarriers || payload.identifiedBarriers || 'Neuvedeno',
     '',
     'Cíle a plánované kroky'
   ];
@@ -1132,8 +1204,7 @@ function buildPlanPrintHtml(record, client) {
   const payload = record.payload || {};
   const goals = getPlanExportGoals(record);
   const acceptedPlanText = payload.acceptedPlanText || record.acceptedPlanText || '';
-  const strengths = record.strengthsAndLimits || payload.strengthsAndLimits || '';
-  const barriers = record.identifiedBarriers || payload.identifiedBarriers || '';
+  const strengths = record.situationDescription || payload.situationDescription || '';
   const finalEvaluation = record.finalEvaluation || payload.finalEvaluation || '';
   const planDate = formatPlanExportDate(record.activityDate) || '';
   const title = record.title || 'Individuální plán rozvoje';
@@ -1203,7 +1274,7 @@ function buildPlanPrintHtml(record, client) {
       </header>
 
       <section class="section">
-        <h2>Silné stránky a limity</h2>
+        <h2>Popis situace</h2>
         <div class="text-box">${escapeHtml(strengths || 'Neuvedeno')}</div>
       </section>
 
@@ -1756,6 +1827,7 @@ export {
   enrichClient,
   getMockClients,
   groupRecordsByType,
+  buildPartnerStats,
   buildIndicators,
   computedIndicatorsMap,
   buildGeneratorRecord,

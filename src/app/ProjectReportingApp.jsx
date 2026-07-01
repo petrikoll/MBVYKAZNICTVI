@@ -63,12 +63,14 @@ import {
   emptyFilters,
   emptyGeneratorDraft
 } from '../config/projectConfig.js';
+import { HELP } from '../config/helpCatalog.js';
 import {
   CheckboxField,
   CompactMetric,
   DetailRow,
   EmptyState,
   InfoCard,
+  HelpIcon,
   InputField,
   LoadingCard,
   MiniBadge,
@@ -79,6 +81,7 @@ import {
   TopMetric
 } from '../components/ui.jsx';
 import { appId, auth, db, hasFirebaseConfig } from '../lib/firebase.js';
+import { parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
 import sfLogoImage from '../assets/eu-spolufinancovano-logo.png';
 import cityLogoImage from '../assets/moravsky-beroun-erb.jpg';
@@ -92,6 +95,7 @@ import {
   buildGeneratorRecord,
   buildStyleMemoryContext,
   buildIndicators,
+  buildPartnerStats,
   buildKa02Record,
   buildKa03Record,
   buildManualClientId,
@@ -133,48 +137,18 @@ const KA1_SUPPORT_SPECIFIC_SHEET_COLUMNS = [
   ['contactPlace', 'misto_depistaze'],
   ['contactMethod', 'zpusob_kontaktu'],
   ['contactReason', 'duvod_osloveni'],
-  ['helpOffered', 'pomoc_nabidnuta'],
-  ['counsellingProvided', 'poradenstvi_poskytnuto'],
-  ['contactsGiven', 'kontakty_predany'],
   ['cooperationInterest', 'zajem_o_spolupraci'],
   ['mappedAreas', 'hlavni_zjistene_oblasti'],
   ['risks', 'rizika'],
   ['clientResources', 'zdroje_klienta'],
   ['clientNeeds', 'potreby_klienta'],
-  ['agreedProcedure', 'dohoda_na_dalsim_postupu'],
-  ['counsellingTopic', 'tema_poradenstvi'],
   ['providedInformation', 'poskytnute_informace'],
   ['recommendedProcedure', 'doporuceny_postup'],
   ['fieldWorkPlace', 'misto_vykonu'],
   ['visitPurpose', 'ucel_navstevy'],
-  ['clientReaction', 'reakce_klienta'],
-  ['nextContactAgreement', 'dohoda_na_dalsim_kontaktu'],
-  ['problemType', 'druh_problemu'],
-  ['solutionStatus', 'stav_reseni'],
-  ['agreedStep', 'domluveny_krok'],
-  ['recommendedService', 'doporucena_navazna_sluzba'],
-  ['housingSituation', 'typ_bytove_situace'],
-  ['housingProblem', 'problem_v_bydleni'],
-  ['contactedSubject', 'kontaktovany_subjekt'],
-  ['workStatus', 'pracovni_status'],
-  ['workTopic', 'resene_tema_prace'],
-  ['performedStep', 'provedeny_krok'],
-  ['followupSubject', 'navazny_subjekt'],
-  ['benefitType', 'druh_davky_rizeni'],
-  ['applicationStatus', 'stav_zadosti'],
-  ['neededDocuments', 'potrebne_doklady'],
-  ['nextStep', 'dalsi_krok_spec'],
-  ['familyArea', 'resena_oblast_rodina'],
-  ['involvedPersons', 'zapojene_osoby'],
-  ['followupNeed', 'potreba_navazne_podpory'],
-  ['clientAgreement', 'dohoda_s_klientem'],
-  ['healthNeed', 'resena_potreba_zdravi'],
-  ['recommendedContact', 'doporuceny_kontakt'],
-  ['orderingAssistance', 'asistence_objednani'],
-  ['nextProcedure', 'dalsi_postup_zdravi'],
-  ['accompanimentPlace', 'kam_doprovod_probehl'],
+  ['accompanimentPlace', 'kam_doprovod'],
   ['accompanimentPurpose', 'ucel_doprovodu'],
-  ['meetingResult', 'vysledek_jednani'],
+  ['accompanimentResult', 'vysledek_doprovodu'],
   ['institution', 'instituce'],
   ['contactForm', 'forma_kontaktu'],
   ['meetingTopic', 'tema_jednani'],
@@ -183,7 +157,7 @@ const KA1_SUPPORT_SPECIFIC_SHEET_COLUMNS = [
   ['urgency', 'mira_akutnosti'],
   ['measures', 'prijata_opatreni'],
   ['followupHelp', 'predani_navazne_pomoci'],
-  ['contactResult', 'vysledek_kontaktu'],
+  ['contactedFollowupServices', 'kontaktovana_navazna_sluzba'],
   ['adminType', 'typ_administrativy'],
   ['documentAction', 'dokument_ukon'],
   ['withClient', 'provedeno_s_klientem'],
@@ -418,6 +392,32 @@ const inspectAiOutputCompleteness = (text, { finishReason = '' } = {}) => {
   return { isSuspicious: reasons.length > 0, reasons };
 };
 
+const AI_SAFETY_BASE = 'Jsi odborný asistent pro zpracování interních záznamů projektu „Podpora sociální práce v Moravském Berouně II“. Pracuj pouze s výslovně uvedenými údaji. Nevymýšlej osoby, diagnózy, výsledky, rozhodnutí, termíny ani služby. Piš česky, věcně, profesionálně a auditně obhajitelně.';
+
+const KA2_NETWORK_SYSTEM_PROMPT = `${AI_SAFETY_BASE}
+
+Vytváříš projektový zápis aktivity KA2 – Tvorba sítě. Zápis se netýká individuální klientské podpory, ale rozvoje, koordinace, udržení nebo rozšíření partnerské sítě. Všechny obsahové informace čerpej z jediného vstupního pole Popis. Rozděl je do polí description, outcome a nextSteps. Nevymýšlej osoby, rozhodnutí, úkoly, odpovědnosti ani termíny. Pokud pro některé pole není ve vstupním Popisu podklad, vrať v něm text Neuvedeno. Vrať pouze JSON podle zadaného schématu.`;
+
+const fetchGemini = async (url, options) => {
+  const response = await fetch(url, options);
+  if (response.ok) return response;
+
+  const primaryModel = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash-lite';
+  const fallbackModel = import.meta.env.VITE_GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash';
+  if (!fallbackModel || fallbackModel === primaryModel || url.includes(`/models/${fallbackModel}:`)) return response;
+
+  const fallbackUrl = url.replace(`/models/${primaryModel}:`, `/models/${fallbackModel}:`);
+  if (fallbackUrl === url) return response;
+  console.warn(`Gemini model ${primaryModel} selhal, používám náhradní model ${fallbackModel}.`);
+  return fetch(fallbackUrl, options);
+};
+
+const buildSafeGeneratorUserPrompt = (config, client, fields) => {
+  const safeClient = sanitizeAiInput(client || {});
+  const safeFields = sanitizeAiInput(fields || {});
+  return redactClientIdentifiers(config.buildUserPrompt({ client: safeClient, fields: safeFields }), client);
+};
+
 const KA02_ACTIVITY_AI_CONTEXT = `
 KA02 je zaměřena na poskytování pracovního a dluhového poradenství cílové skupině, včetně motivačních, vzdělávacích a terapeuticko-diagnostických aktivit. Podpora probíhá po celou dobu projektu ambulantní formou v poradně v Dívčím Hradě a Hlinkách, s důrazem na individuální práci, pravidelný kontakt, bezpečné prostředí, důvěru a postupné posilování samostatnosti klienta.
 
@@ -632,7 +632,7 @@ function buildClientJourneySummary(record) {
 
   const payload = record.payload || {};
   const specificSummary = {
-    plans: record.strengthsAndLimits || payload.strengthsAndLimits || payload.currentSituation || payload.plannedSteps,
+    plans: record.situationDescription || payload.situationDescription || payload.currentSituation || payload.plannedSteps,
     consultations: payload.topics || payload.outcome || payload.nextSteps,
     debt_cases: payload.debtSummary || payload.solutionPlan || payload.educationTopic,
     therapy_sessions: payload.themes || payload.recommendations || payload.mentalState,
@@ -667,7 +667,7 @@ function normalizePlanGoalForAi(goal, index) {
     goalId: goal.goalId || goal.id || `goal-${index + 1}`,
     goalDescription: cleanGeneratedText(goal.goalDescription || ''),
     actionSteps: cleanGeneratedText(goal.actionSteps || ''),
-    targetDate: formatCaseSummaryDate(goal.targetDate),
+    deadline: goal.deadline || goal.targetDate || '',
     isCompleted: Boolean(goal.isCompleted),
     goalEvaluation: cleanGeneratedText(goal.goalEvaluation || '')
   };
@@ -676,8 +676,7 @@ function normalizePlanGoalForAi(goal, index) {
 function buildStructuredPlanForAi(record) {
   const payload = record.payload || {};
   return {
-    strengthsAndLimits: cleanGeneratedText(record.strengthsAndLimits || payload.strengthsAndLimits || ''),
-    identifiedBarriers: cleanGeneratedText(record.identifiedBarriers || payload.identifiedBarriers || ''),
+    situationDescription: cleanGeneratedText(record.situationDescription || payload.situationDescription || ''),
     goals: getPlanGoals(record).map(normalizePlanGoalForAi),
     finalEvaluation: cleanGeneratedText(record.finalEvaluation || payload.finalEvaluation || '')
   };
@@ -695,6 +694,10 @@ function parseStructuredPlanAiResult(rawValue, sourceRecord) {
   const parsed = JSON.parse(rawText.slice(start, end + 1));
   const sourceGoals = getPlanGoals(sourceRecord);
   const aiGoals = Array.isArray(parsed.goals) ? parsed.goals : [];
+  validatePlanOutput(
+    { ...parsed, goals: aiGoals.map((goal) => ({ ...goal, deadline: goal.deadline ?? goal.targetDate ?? '' })) },
+    { goals: sourceGoals.map((goal, index) => ({ goalId: String(goal.goalId || goal.id || `goal-${index + 1}`), goalDescription: goal.goalDescription || '', actionSteps: Array.isArray(goal.actionSteps) ? goal.actionSteps.join('\n') : goal.actionSteps || '', deadline: goal.deadline ?? goal.targetDate ?? '' })), finalEvaluation: sourceRecord.finalEvaluation || sourceRecord.payload?.finalEvaluation || '' }
+  );
   const sourceGoalById = new Map(
     sourceGoals.map((goal, index) => [String(goal.goalId || goal.id || `goal-${index + 1}`), { goal, index }])
   );
@@ -714,28 +717,37 @@ function parseStructuredPlanAiResult(rawValue, sourceRecord) {
   });
 
   return {
-    strengthsAndLimits: cleanGeneratedText(parsed.strengthsAndLimits || sourceRecord.strengthsAndLimits || sourceRecord.payload?.strengthsAndLimits || ''),
-    identifiedBarriers: cleanGeneratedText(parsed.identifiedBarriers || sourceRecord.identifiedBarriers || sourceRecord.payload?.identifiedBarriers || ''),
+    situationDescription: cleanGeneratedText(parsed.situationDescription || sourceRecord.situationDescription || sourceRecord.payload?.situationDescription || ''),
     goals,
-    finalEvaluation: cleanGeneratedText(parsed.finalEvaluation || sourceRecord.finalEvaluation || sourceRecord.payload?.finalEvaluation || ''),
+    finalEvaluation: cleanGeneratedText(sourceRecord.finalEvaluation || sourceRecord.payload?.finalEvaluation || ''),
     acceptedPlanText: cleanGeneratedText(parsed.acceptedPlanText || '')
   };
+}
+
+function buildAcceptedPlanTextFromStructuredDraft(structuredDraft) {
+  const lines = ['Individuální plán rozvoje klienta.', '', 'Popis situace:', structuredDraft.situationDescription || '', '', 'Cíle a kroky:'];
+  (structuredDraft.goals || []).forEach((goal, index) => {
+    lines.push(`${index + 1}. Cíl: ${goal.goalDescription || ''}`);
+    lines.push(`Akční kroky: ${goal.actionSteps || ''}`);
+    if (goal.targetDate || goal.deadline) lines.push(`Termín: ${String(goal.targetDate || goal.deadline).slice(0, 10)}`);
+  });
+  if (structuredDraft.finalEvaluation) lines.push('', 'Závěrečné vyhodnocení:', structuredDraft.finalEvaluation);
+  return lines.join('\n').trim();
 }
 
 function buildPlanRecordWithStructuredDraft(record, structuredDraft, client = null) {
   const payload = record.payload || {};
   const updatedRecord = {
     ...record,
-    strengthsAndLimits: structuredDraft.strengthsAndLimits,
-    identifiedBarriers: structuredDraft.identifiedBarriers,
+    situationDescription: structuredDraft.situationDescription,
     goals: structuredDraft.goals,
     finalEvaluation: structuredDraft.finalEvaluation || '',
     acceptedPlanText: structuredDraft.acceptedPlanText || '',
     payload: {
       ...payload,
-      strengthsAndLimits: structuredDraft.strengthsAndLimits,
-      identifiedBarriers: structuredDraft.identifiedBarriers,
+      situationDescription: structuredDraft.situationDescription,
       goals: structuredDraft.goals,
+      structuredGoals: structuredDraft.goals,
       finalEvaluation: structuredDraft.finalEvaluation || '',
       acceptedPlanText: structuredDraft.acceptedPlanText || '',
       structuredPersonalDevelopmentPlan: true
@@ -759,11 +771,9 @@ function buildPersonalDevelopmentPlanText(planRecord, client = null) {
     `Datum plánu: ${formatDateLabel(planRecord.activityDate)}`,
     `Pracovník: ${planRecord.worker || 'Neuvedeno'}`,
     '',
-    'Silné stránky a limity',
-    planRecord.strengthsAndLimits || payload.strengthsAndLimits || 'Neuvedeno',
+    'Popis situace',
+    planRecord.situationDescription || payload.situationDescription || 'Neuvedeno',
     '',
-    'Identifikované bariéry',
-    planRecord.identifiedBarriers || payload.identifiedBarriers || 'Neuvedeno',
     '',
     'Cíle a plánované kroky'
   ];
@@ -902,8 +912,7 @@ function buildClientCaseSummary(client, timeline, supportBreakdown) {
     `- Znevýhodnění / bariéry z registru: ${client.znevyhodneni || 'neuvedeno'}`,
     '',
     'Individuální plán rozvoje',
-    `- Silné stránky a limity: ${planRecord?.strengthsAndLimits || planRecord?.payload?.strengthsAndLimits || 'zatím neuvedeno'}`,
-    `- Identifikované bariéry: ${planRecord?.identifiedBarriers || planRecord?.payload?.identifiedBarriers || 'zatím neuvedeno'}`,
+    `- Popis situace: ${planRecord?.situationDescription || planRecord?.payload?.situationDescription || 'zatím neuvedeno'}`,
     `- Cíle: ${goals.length} celkem, ${completedGoals} splněno, ${evaluatedGoals} vyhodnoceno`,
     '',
     'Cíle'
@@ -957,7 +966,7 @@ function buildClientCaseSummary(client, timeline, supportBreakdown) {
 }
 
 function buildAiClientCaseSummaryPrompt(client, timeline, supportBreakdown) {
-  const deterministicSummary = buildClientCaseSummary(client, timeline, supportBreakdown);
+  const deterministicSummary = redactClientIdentifiers(buildClientCaseSummary(sanitizeAiInput(client), timeline, supportBreakdown), client);
   const qualityWarnings = buildClientCaseQualityWarnings(client, timeline);
 
   return `
@@ -965,7 +974,7 @@ Vytvoř profesionální souhrn zakázky klienta pro projektovou evidenci.
 
 Povinná pravidla:
 1. Piš česky, věcně, úředně srozumitelně, bez marketingu a bez domýšlení faktů.
-2. Použij pouze data níže. Pokud údaj chybí, napiš, že chybí nebo není doložen.
+2. Použij pouze data níže. Chybějící údaje označ pouze v části upozornění; nevymýšlej jejich obsah.
 3. Zachovej jednotnou strukturu přesně v tomto pořadí:
    Souhrn zakázky klienta
    1. Identifikace zakázky
@@ -977,7 +986,7 @@ Povinná pravidla:
    7. Závěrečné vyhodnocení cílů a doporučení
 4. Část "Promítnutí do indikátorů" musí obsahovat tabulku z podkladů. Neměň hodnoty v tabulce.
 5. Část "Kontrola kvality evidence" musí výslovně upozornit na zjevné chyby, chybějící údaje a časové nesoulady podpor. Pokud nic zásadního nevidíš, napiš "Bez zjevného rozporu v dostupných datech."
-6. Nehodnoť osobnost klienta a nepiš diagnózy. Hodnoť jen doložený posun, doložené aktivity a chybějící evidenci.
+6. Nehodnoť osobnost klienta a nepiš diagnózy. Odděl plán, průběh a doložené výsledky. Pokud je doložen pouze průběh, neformuluj jej jako dosaženou změnu.
 7. Výstup vrať jako prostý text s nadpisy a tabulkou v Markdownu. Nepřidávej komentář k tomu, že jsi AI.
 
 Strojově zjištěná varování:
@@ -1360,10 +1369,8 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       documentText: asSheetText(row.accepted_plan_text),
       goals: Array.isArray(goals) ? goals : [],
       payload: {
-        currentSituation: asSheetText(row.silne_stranky_limity),
-        strengthsAndLimits: asSheetText(row.silne_stranky_limity),
-        barriers: asSheetText(row.identifikovane_bariery_potreby),
-        identifiedBarriers: asSheetText(row.identifikovane_bariery_potreby),
+        currentSituation: asSheetText(row.popis_situace),
+        situationDescription: asSheetText(row.popis_situace),
         goals: stringifyPlanGoals(goals),
         structuredGoals: Array.isArray(goals) ? goals : [],
         plannedSteps: stringifyPlanGoals(goals),
@@ -1424,6 +1431,11 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
     const id = asSheetText(row.meeting_id);
     const clientId = asSheetText(row.klient_id);
     if (!id || !clientId) return;
+    const registeredPartnerNames = asSheetText(row.partneri).split(';').map((item) => item.trim()).filter(Boolean);
+    const participantNames = (asSheetText(row.ucastnici) || asSheetText(row.partneri)).split(';').map((item) => item.trim()).filter(Boolean);
+    const registeredNameSet = new Set(registeredPartnerNames);
+    const manualPartnerNames = participantNames.filter((name) => !registeredNameSet.has(name));
+
     records.push({
       id,
       remoteSource: 'google-sheet',
@@ -1452,8 +1464,10 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
         linkedPlanGoalId: asSheetText(row.cil_ip_id),
         linkedPlanGoalLabel: asSheetText(row.cil_ip),
         selectedPartnerIds: asSheetText(row.partner_ids).split(/[;,]/).map((item) => item.trim()).filter(Boolean),
-        partnerNames: asSheetText(row.partneri).split(';').map((item) => item.trim()).filter(Boolean),
-        partners: asSheetText(row.partneri),
+        registeredPartnerNames,
+        manualPartnerNames,
+        partnerNames: participantNames,
+        partners: participantNames.join('; '),
         participantCount: Number(asSheetText(row.pocet_akteru) || 0),
         caseManagementMode: true
       },
@@ -1610,11 +1624,11 @@ function ClientRegistrationFields({ draft, setDraft, compact = false }) {
           <SelectField label="Stav klienta" value={draft.stavKlienta} onChange={(value) => update('stavKlienta', value)} options={optionItems(CLIENT_STATUS_OPTIONS, 'Vyberte stav')} />
           <InputField label="Datum vstupu do projektu" type="date" value={draft.datumVstupu} onChange={(value) => update('datumVstupu', value)} />
           <InputField label="Datum výstupu z projektu" type="date" value={draft.datumVystupu} onChange={(value) => update('datumVystupu', value)} />
-          <SelectField label="Potřeba case managementu" value={draft.caseManagementPotreba} onChange={(value) => update('caseManagementPotreba', value)} options={optionItems(YES_NO_OPTIONS, 'Vyberte odpověď')} />
+          <SelectField label="Potřeba case managementu" help={HELP.clientsCaseNeed} value={draft.caseManagementPotreba} onChange={(value) => update('caseManagementPotreba', value)} options={optionItems(YES_NO_OPTIONS, 'Vyberte odpověď')} />
           {draft.caseManagementPotreba === 'Ano' && (
             <>
-              <InputField label="Case management od" type="date" value={draft.caseManagementOd} onChange={(value) => update('caseManagementOd', value)} />
-              <TextAreaField label="Důvod case managementu" value={draft.caseManagementDuvod} onChange={(value) => update('caseManagementDuvod', value)} rows={2} />
+              <InputField label="Case management od" help={HELP.clientsCaseSince} type="date" value={draft.caseManagementOd} onChange={(value) => update('caseManagementOd', value)} />
+              <TextAreaField label="Důvod case managementu" help={HELP.clientsCaseReason} value={draft.caseManagementDuvod} onChange={(value) => update('caseManagementDuvod', value)} rows={2} />
             </>
           )}
           <TextAreaField label="Poznámka" value={draft.poznamka} onChange={(value) => update('poznamka', value)} rows={2} />
@@ -1652,14 +1666,14 @@ function ClientRegistrationFields({ draft, setDraft, compact = false }) {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <InputField label="Datum vstupu do projektu" type="date" value={draft.datumVstupu} onChange={(value) => update('datumVstupu', value)} />
         <InputField label="Datum výstupu z projektu" type="date" value={draft.datumVystupu} onChange={(value) => update('datumVystupu', value)} />
-        <SelectField label="Potřeba case managementu" value={draft.caseManagementPotreba} onChange={(value) => update('caseManagementPotreba', value)} options={optionItems(YES_NO_OPTIONS, 'Vyberte odpověď')} />
+        <SelectField label="Potřeba case managementu" help={HELP.clientsCaseNeed} value={draft.caseManagementPotreba} onChange={(value) => update('caseManagementPotreba', value)} options={optionItems(YES_NO_OPTIONS, 'Vyberte odpověď')} />
         {draft.caseManagementPotreba === 'Ano' && (
-          <InputField label="Case management od" type="date" value={draft.caseManagementOd} onChange={(value) => update('caseManagementOd', value)} />
+          <InputField label="Case management od" help={HELP.clientsCaseSince} type="date" value={draft.caseManagementOd} onChange={(value) => update('caseManagementOd', value)} />
         )}
       </div>
 
       {draft.caseManagementPotreba === 'Ano' && (
-        <TextAreaField label="Důvod case managementu" value={draft.caseManagementDuvod} onChange={(value) => update('caseManagementDuvod', value)} rows={2} />
+        <TextAreaField label="Důvod case managementu" help={HELP.clientsCaseReason} value={draft.caseManagementDuvod} onChange={(value) => update('caseManagementDuvod', value)} rows={2} />
       )}
       <TextAreaField label="Poznámka" value={draft.poznamka} onChange={(value) => update('poznamka', value)} rows={2} />
     </div>
@@ -1687,6 +1701,7 @@ function App() {
   const [aiGenerationStatus, setAiGenerationStatus] = useState('idle');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveNotice, setSaveNotice] = useState(null);
   const [isProvisioningClientFolder, setIsProvisioningClientFolder] = useState(false);
   const [isSummarizingCase, setIsSummarizingCase] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -2195,6 +2210,13 @@ function App() {
         .some((plan) => getPlanGoals(plan).some((goal) => isCompletedGoal(goal) && !String(goal.goalEvaluation || '').trim()))
     ).length;
     const completeMonitoringCount = longTermClients.filter(hasCompleteMonitoringData).length;
+    const partnerStats = buildPartnerStats({
+      records: filteredRecords,
+      partners: records.filter((record) => record.entityType === 'actor_registry'),
+      projectStartDate: REPORTING_PERIODS[1]?.start || '2026-03-01',
+      referenceDate: selectedReportingPeriod?.end || todayIso()
+    });
+    const activePartners = partnerStats.filter((partner) => partner.isActiveInProject);
 
     return {
       indicators: [
@@ -2217,6 +2239,12 @@ function App() {
         { key: 'outreach', label: 'Depist\u00e1\u017en\u00ed z\u00e1znamy', current: outreachCount, target: 100 },
         { key: 'case-meetings', label: 'P\u0159\u00edpadov\u00e1 / multioborov\u00e1 setk\u00e1n\u00ed', current: caseMeetingCount, target: 15 }
       ],
+      partnerMetrics: [
+        { key: 'partners-active', label: 'Spolupracující partneři', current: activePartners.length, detail: 'Alespoň jedna doložená aktivita' },
+        { key: 'partners-new', label: 'Nově zapojení partneři', current: activePartners.filter((partner) => partner.isNewInProject).length, detail: 'Nově zapojení od zahájení projektu' },
+        { key: 'partners-once', label: 'Jednorázově zapojení partneři', current: activePartners.filter((partner) => partner.totalActivityCount === 1).length, detail: 'Právě jedna doložená aktivita' },
+        { key: 'partners-90-days', label: 'Aktivní partneři za 90 dní', current: activePartners.filter((partner) => partner.isActiveLast90Days).length, detail: 'Aktivita v posledních 90 dnech období' }
+      ],
       risks: [
         { key: 'near-40', label: 'Klienti bl\u00edzko 40 hodin', count: supportedClients.filter((client) => hoursFor(client.id) >= 30 && hoursFor(client.id) < 40).length, detail: '30\u201339,99 hodiny podpory' },
         { key: 'long-not-counted', label: 'Nad 40 hodin, ale nezapo\u010dteno do 600 000', count: longTermClients.length - longEligible.length, detail: 'Chyb\u00ed povinn\u00e9 monitorovac\u00ed \u00fadaje' },
@@ -2225,7 +2253,7 @@ function App() {
         { key: 'missing-evaluation', label: 'Chyb\u00ed vyhodnocen\u00ed c\u00edle', count: missingGoalEvaluationCount, detail: 'Spln\u011bn\u00fd c\u00edl nem\u00e1 slovn\u00ed vyhodnocen\u00ed' }
       ]
     };
-  }, [clients, filteredRecords, records]);
+  }, [clients, filteredRecords, records, selectedReportingPeriod]);
 
   const periodRecordsForZor = useMemo(
     () => storedActivityRecords.filter((record) => isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod)),
@@ -2527,7 +2555,8 @@ function App() {
       therapy: 'Terapeut',
       cv: 'Pracovní poradce',
       simulator: 'Pracovní poradce'
-    };    const consultationWorkers = ['Soci\u00e1ln\u00ed pracovn\u00edk', 'Case manager'];
+    };
+    const consultationWorkers = ['Soci\u00e1ln\u00ed pracovn\u00edk', 'Case manager'];
     const targetWorker = workerByDocument[generatorDraft.selectedKey];
     setGeneratorDraft((prev) => {
       if (targetWorker && prev.worker !== targetWorker) return { ...prev, worker: targetWorker };
@@ -2806,11 +2835,13 @@ function App() {
     }
 
     if (record.entityType === 'plans') {
-      const sourceGoals = Array.isArray(payload.structuredGoals)
-        ? payload.structuredGoals
+      const sourceGoals = Array.isArray(record.goals)
+        ? record.goals
         : Array.isArray(payload.goals)
           ? payload.goals
-          : [];
+          : Array.isArray(payload.structuredGoals)
+            ? payload.structuredGoals
+            : [];
       const normalizedGoals = sourceGoals.length
         ? sourceGoals.map((goal, index) => ({
             goalId: goal.goalId || goal.id || ('goal-' + (index + 1)),
@@ -2835,8 +2866,7 @@ function App() {
         individualPlan: {
           plan_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
           klient_id: record.clientId || '',
-          silne_stranky_limity: payload.strengthsAndLimits || payload.currentSituation || '',
-          identifikovane_bariery_potreby: payload.identifiedBarriers || payload.barriers || '',
+          popis_situace: payload.situationDescription || payload.currentSituation || '',
           cile_json: JSON.stringify(normalizedGoals),
           zaverecne_vyhodnoceni: payload.finalEvaluation || '',
           accepted_plan_text: payload.acceptedPlanText || record.documentText || '',
@@ -2852,6 +2882,10 @@ function App() {
     }
 
     if (record.clientId && payload.caseManagementMode) {
+      const manualPartnerNames = Array.isArray(payload.manualPartnerNames) ? payload.manualPartnerNames.map((name) => String(name || '').trim()).filter(Boolean) : [];
+      const participantNames = Array.isArray(payload.partnerNames) ? payload.partnerNames.map((name) => String(name || '').trim()).filter(Boolean) : [];
+      const registeredPartnerNames = Array.isArray(payload.registeredPartnerNames) && payload.registeredPartnerNames.length ? payload.registeredPartnerNames : participantNames.filter((name) => !manualPartnerNames.includes(name));
+
       const result = await postGoogleSheetAction({
         action: 'saveMeeting',
         meeting: {
@@ -2863,14 +2897,14 @@ function App() {
           cas_do: payload.endTime || payload.ka02EndTime || '',
           pocet_hodin: payload.durationMinutes ? Math.round((Number(payload.durationMinutes) / 60) * 100) / 100 : '',
           pracovnik: record.worker || '',
-          typ_podpory: payload.consultationType || 'case management - individu\u00e1ln\u00ed pr\u00e1ce s klientem',
+          typ_podpory: payload.consultationType || 'koordinace podpory klienta',
           tema_podpory: payload.supportArea || '',
           forma_poskytovani: 'ambulantn\u00ed',
           cil_ip_id: payload.linkedPlanGoalId || '',
           cil_ip: payload.linkedPlanGoalLabel || '',
           partner_ids: Array.isArray(payload.selectedPartnerIds) ? payload.selectedPartnerIds.join(';') : payload.selectedPartnerIds || '',
-          partneri: Array.isArray(payload.partnerNames) ? payload.partnerNames.join('; ') : payload.partners || payload.partnerNames || '',
-          ucastnici: Array.isArray(payload.partnerNames) ? payload.partnerNames.join('; ') : payload.partners || '',
+          partneri: registeredPartnerNames.join('; '),
+          ucastnici: participantNames.join('; '),
           pocet_akteru: Number(payload.participantCount || 0),
           popis: payload.topics || '',
           vysledek: payload.outcome || '',
@@ -3023,6 +3057,8 @@ function App() {
     let action = '';
     if (record.entityType === 'consultations') {
       action = record.ka === 'KA2' || record.payload?.caseManagementMode ? 'deleteMeeting' : 'deletePerformance';
+    } else if (record.entityType === 'plans') {
+      action = 'deleteIndividualPlan';
     } else if (record.entityType === 'actor_registry') {
       action = 'deletePartner';
     } else if (record.entityType === 'network_activities') {
@@ -3144,10 +3180,9 @@ function App() {
     setIsGenerating(true);
     setAiGenerationStatus('loading');
     setGeneratedText('');
-    setGenerationNotice('Generuji text přes Gemini 2.5...');
-
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-    const aiModel = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash';
+    const aiModel = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash-lite';
+    setGenerationNotice(`Generuji text přes ${aiModel}...`);
     const maxOutputTokens = generatorDraft.selectedKey === 'therapy' ? 8192 : 4096;
     if (!apiKey) {
       const fallback = buildFallbackGeneratedText(generatorConfig.label, generatorClient, generatorDraft);
@@ -3161,12 +3196,12 @@ function App() {
       return;
     }
 
-    const previousRecordContext = buildPreviousRecordContext(previousGeneratorRecord);
-    const styleMemoryContext = buildStyleMemoryContext(records, {
+    const previousRecordContext = redactClientIdentifiers(buildPreviousRecordContext(previousGeneratorRecord), generatorClient);
+    const styleMemoryContext = redactClientIdentifiers(buildStyleMemoryContext(records, {
       selectedKey: generatorDraft.selectedKey,
       worker: generatorDraft.worker,
       maxItems: generatorDraft.selectedKey === 'therapy' ? 1 : 3
-    });
+    }), generatorClient);
     const isPersonalDevelopmentPlan = generatorDraft.selectedKey === 'plan';
     const kaActivityContext = generatorConfig.ka === 'KA02'
       ? KA02_ACTIVITY_AI_CONTEXT
@@ -3219,10 +3254,7 @@ function App() {
         text: exactGeneratorFacts
       },
       {
-        text: generatorConfig.buildUserPrompt({
-          client: generatorClient,
-          fields: generatorDraft
-        })
+        text: buildSafeGeneratorUserPrompt(generatorConfig, generatorClient, generatorDraft)
       },
       {
         text: outputModeInstruction
@@ -3237,7 +3269,7 @@ function App() {
     ];
     if (generatorDraft.bulletNotes.trim()) {
       promptParts.push({
-        text: `Poznámky pracovníka v bodech nebo heslech:\n${generatorDraft.bulletNotes.trim()}\n\nZ těchto bodů vytvoř souvislý, čistý a věcný zápis.`
+        text: `Poznámky pracovníka v bodech nebo heslech:\n${redactClientIdentifiers(generatorDraft.bulletNotes.trim(), generatorClient)}\n\nZ těchto bodů vytvoř souvislý, čistý a věcný zápis.`
       });
     }
     if (previousRecordContext) {
@@ -3260,7 +3292,7 @@ function App() {
       contents: [
         {
           role: 'user',
-          parts: promptParts /* 
+          parts: promptParts /*
             {
               text: generatorConfig.buildUserPrompt({
                 client: generatorClient,
@@ -3279,7 +3311,7 @@ function App() {
             text: `Závazná data z formuláře: datum aktivity je "${generatorDraft.date || todayIso()}" a délka podpory je "${formatSupportDuration(getGeneratorSupportMinutes(generatorDraft))}". Tyto hodnoty ve výstupu použij přesně, neměň je a nedoplňuj jiné datum ani jiný rozsah podpory.`
           },
           {
-            text: `${generatorConfig.buildSystemPrompt()}${kaContextInstruction ?`\n\n${kaContextInstruction}` : ''}\n\nNadřazené pravidlo pro typ výstupu: ${
+            text: `${generatorConfig.buildSystemPrompt({ fields: sanitizeAiInput(generatorDraft) })}${kaContextInstruction ?`\n\n${kaContextInstruction}` : ''}\n\nNadřazené pravidlo pro typ výstupu: ${
               isPersonalDevelopmentPlan
                 ? 'u Plánu osobního rozvoje vytváříš plánový projektový dokument; nejde o běžný zápis z konzultace, ale pořád musí odpovídat zadaným údajům, zaměření podpory a zvolenému pracovníkovi.'
                 : 'vytváříš zápis o poskytnuté podpoře a pracovní aktivitě v projektu. Nevytvářej finální externí dokument pro klienta, pokud by to odporovalo zápisu do klientské složky.'
@@ -3288,14 +3320,27 @@ function App() {
         ]
       },
       generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens
+        temperature: 0.18,
+        topP: 0.9,
+        maxOutputTokens: generatorDraft.selectedKey === 'consultation' ? 1200 : Math.min(maxOutputTokens, 2500),
+        ...(generatorDraft.selectedKey === 'consultation' ? {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              consultationType: { type: 'STRING' },
+              recordText: { type: 'STRING' },
+              warnings: { type: 'ARRAY', items: { type: 'STRING' } }
+            },
+            required: ['consultationType', 'recordText']
+          }
+        } : {})
       }
     };
 
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`;
-      const response = await fetch(url, {
+      const response = await fetchGemini(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -3326,7 +3371,7 @@ function App() {
             maxOutputTokens: Math.max(maxOutputTokens, 8192)
           }
         };
-        const retryResponse = await fetch(url, {
+        const retryResponse = await fetchGemini(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -3341,8 +3386,32 @@ function App() {
         finishReason = finalResult?.candidates?.[0]?.finishReason || '';
         usedRetry = true;
       }
-      let cleanText = cleanGeneratedText(extractGeminiText(finalResult));
-      let outputCheck = inspectAiOutputCompleteness(cleanText, { finishReason });
+      let cleanText;
+      let outputCheck;
+      if (generatorDraft.selectedKey === 'consultation') {
+        const rawOutput = extractGeminiText(finalResult);
+        let parsedOutput;
+        try {
+          parsedOutput = parseAiJson(rawOutput);
+        } catch (parseError) {
+          const repairPayload = {
+            ...payload,
+            contents: [{ role: 'user', parts: [{ text: `Oprav následující odpověď na validní JSON podle zadaného schématu. Nic věcně nepřidávej:
+${rawOutput}` }] }],
+            generationConfig: { ...payload.generationConfig, temperature: 0 }
+          };
+          const repairResponse = await fetchGemini(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(repairPayload) });
+          const repairResult = await repairResponse.json();
+          if (!repairResponse.ok) throw new Error(repairResult?.error?.message || 'Oprava JSON výstupu selhala.');
+          parsedOutput = parseAiJson(extractGeminiText(repairResult));
+        }
+        const validated = validateRecordOutput(parsedOutput, { consultationType: generatorDraft.consultationType, client: generatorClient });
+        cleanText = cleanGeneratedText(validated.recordText);
+        outputCheck = { isSuspicious: false, reasons: [] };
+      } else {
+        cleanText = cleanGeneratedText(extractGeminiText(finalResult));
+        outputCheck = inspectAiOutputCompleteness(cleanText, { finishReason });
+      }
       let continuationCount = 0;
 
       while (outputCheck.isSuspicious && continuationCount < 3) {
@@ -3352,10 +3421,7 @@ function App() {
               role: 'user',
               parts: [
                 {
-                  text: `Původní zadání dokumentu:\n${exactGeneratorFacts}\n\n${generatorConfig.buildUserPrompt({
-                    client: generatorClient,
-                    fields: generatorDraft
-                  })}`
+                  text: `Původní zadání dokumentu:\n${exactGeneratorFacts}\n\n${buildSafeGeneratorUserPrompt(generatorConfig, generatorClient, generatorDraft)}`
                 },
                 {
                   text: `Dosavadní text je pravděpodobně nedokončený. Navazuj přesně tam, kde skončil, neopakuj předchozí věty a vrať pouze pokračování textu.\n\nDosavadní text:\n${cleanText}`
@@ -3366,7 +3432,7 @@ function App() {
           systemInstruction: {
             parts: [
               {
-                text: `${generatorConfig.buildSystemPrompt()}\n\nVrať pouze pokračování již rozepsaného dokumentu. Neopakuj začátek, nepřidávej omluvu ani technické vysvětlení. Zachovej prostý text bez Markdownu a dokonči rozpracovanou myšlenku přirozeně česky.`
+                text: `${generatorConfig.buildSystemPrompt({ fields: sanitizeAiInput(generatorDraft) })}\n\nVrať pouze pokračování již rozepsaného dokumentu. Neopakuj začátek, nepřidávej omluvu ani technické vysvětlení. Zachovej prostý text bez Markdownu a dokonči rozpracovanou myšlenku přirozeně česky.`
               }
             ]
           },
@@ -3376,7 +3442,7 @@ function App() {
           }
         };
 
-        const continuationResponse = await fetch(url, {
+        const continuationResponse = await fetchGemini(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -3416,7 +3482,35 @@ function App() {
     }
   };
 
+  const getGeneratedOutputMissingFields = () => {
+    const missing = [];
+    if (!generatorClient) missing.push('klient');
+    if (!String(generatorDraft.date || '').trim()) missing.push('datum aktivity');
+    if (!String(generatorDraft.worker || '').trim()) missing.push('pracovník');
+    if (generatorDraft.selectedKey === 'mentor' && !tpmRecords.some((record) => record.id === generatorDraft.tpmRecordId)) missing.push('uložené TPM');
+    if (generatorDraft.selectedKey !== 'plan' && !String(generatorDraft.linkedPlanGoalId || '').trim()) missing.push('cíl IP');
+    if (generatorDraft.selectedKey === 'consultation') {
+      if (!String(generatorDraft.ka02StartTime || '').trim()) missing.push('čas OD');
+      if (!String(generatorDraft.ka02EndTime || '').trim()) missing.push('čas DO');
+      if (generatorDraft.ka02StartTime && generatorDraft.ka02EndTime && generatorDraft.ka02EndTime <= generatorDraft.ka02StartTime) missing.push('platný čas OD–DO');
+      if (!String(generatorDraft.consultationType || '').trim()) missing.push('typ podpory');
+      if (!String(generatorDraft.supportArea || '').trim()) missing.push('oblast podpory');
+      if (!generatorDraft.caseManagementMode && !String(generatorDraft.ka02Place || '').trim()) missing.push('forma poskytování');
+    }
+    if (!String(generatedText || '').trim()) missing.push('výstup dokumentu');
+    return [...new Set(missing)];
+  };
+
   const handleSaveGeneratedOutput = async () => {
+    const missingFields = getGeneratedOutputMissingFields();
+    if (missingFields.length) {
+      const message = 'Dokument nelze uložit. Doplňte: ' + missingFields.join(', ') + '.';
+      setSaveNotice({ tone: 'error', text: message });
+      setFlash(message);
+      return false;
+    }
+    setSaveNotice({ tone: 'progress', text: 'Dokument se ukládá…' });
+
     const selectedTpmRecord =
       generatorDraft.selectedKey === 'mentor'
         ? tpmRecords.find((record) => record.id === generatorDraft.tpmRecordId) || null
@@ -3494,7 +3588,10 @@ function App() {
     } else {
       ok = await saveRecord(payload);
     }
-    if (!ok) return;
+    if (!ok) {
+      setSaveNotice({ tone: 'error', text: 'Uložení dokumentu selhalo. Zkontrolujte připojení a zkuste to znovu.' });
+      return false;
+    }
 
     if (editingGeneratedRecordId) {
       setEditingGeneratedRecordId('');
@@ -3504,13 +3601,11 @@ function App() {
       setGenerationNotice('');
       setAiGenerationStatus('idle');
       setFlash('Záznam byl upraven.');
-      return;
+      setSaveNotice({ tone: 'success', text: 'Dokument byl úspěšně upraven a uložen.' });
+      return true;
     }
 
-    const generatorPromptSnapshot = generatorConfig.buildUserPrompt({
-      client: generatorClient,
-      fields: generatorDraft
-    });
+    const generatorPromptSnapshot = buildSafeGeneratorUserPrompt(generatorConfig, generatorClient, generatorDraft);
     const styleMemoryRecord = buildAiStyleMemoryRecord({
       client: generatorClient,
       generatorDraft,
@@ -3526,9 +3621,12 @@ function App() {
     setAiGenerationStatus('idle');
     if (memoryOk) {
       setFlash('Strukturovaný záznam, dokument i anonymizovaná AI stylová paměť byly uloženy.');
-      return;
+      setSaveNotice({ tone: 'success', text: 'Dokument byl úspěšně uložen do evidence, klientské osy a Google Sheetu.' });
+      return true;
     }
     setFlash('Záznam a dokument byly uloženy, ale AI stylová paměť se neuložila.');
+    setSaveNotice({ tone: 'warning', text: 'Dokument byl uložen, ale nepodařilo se uložit pomocnou AI stylovou paměť.' });
+    return true;
   };
 
   const handleExportPlanTemplateDocx = async () => {
@@ -3596,6 +3694,9 @@ function App() {
       aiGenerationStatus={aiGenerationStatus}
       isGenerating={isGenerating}
       isSaving={isSaving}
+      saveNotice={saveNotice}
+      saveMissingFields={getGeneratedOutputMissingFields()}
+      onClearSaveNotice={() => setSaveNotice(null)}
       onGenerate={handleGenerateText}
       onSave={handleSaveGeneratedOutput}
       onExportPlan={handleExportPlanTemplateDocx}
@@ -3643,25 +3744,25 @@ function App() {
     }
 
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-    const aiModel = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash';
+    const aiModel = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash-lite';
     if (!apiKey) {
       setFlash('AI korektura aktivity tvorby s\u00edt\u011b nen\u00ed dostupn\u00e1, proto\u017ee nen\u00ed nastaven\u00fd Gemini API kl\u00ed\u010d. Aktivita nebyla ulo\u017eena.');
       return null;
     }
 
-    const isTeamMeeting = String(ka01Draft.networkType || '').trim().toLocaleLowerCase('cs') === 'porada';
     const currentParticipantNames = (ka01Draft.networkActorEntries || [])
       .map((entry) => getKa01ActorDisplayName(entry))
       .filter(Boolean);
     const currentParticipants = currentParticipantNames.join(', ') || String(ka01Draft.networkParticipants || '').trim();
     const currentParticipantCount = currentParticipantNames.length || Number(ka01Draft.networkCount || 0);
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
+      const response = await fetchGemini(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
+          systemInstruction: { parts: [{ text: KA2_NETWORK_SYSTEM_PROMPT }] },
           contents: [
             {
               role: 'user',
@@ -3670,7 +3771,7 @@ function App() {
                   text: [
                     'Vytvo\u0159 souvisl\u00fd projektov\u00fd z\u00e1pis aktivity KA02-Tvorba s\u00edt\u011b.',
                     KA01_ACTIVITY_AI_CONTEXT,
-                    KA01_AI_OUTPUT_RULES,
+                    'Piš česky, věcně a auditně obhajitelně. Rozsah přizpůsob typu a obsahu aktivity. Nevymýšlej osoby, rozhodnutí, úkoly, odpovědnosti ani termíny. Vrať pouze JSON se všemi poli description, outcome a nextSteps.',
                     getKa01PhaseGuidance(),
                     getKa01ActivityTypeGuidance(ka01Draft.networkType),
                     '',
@@ -3679,9 +3780,7 @@ function App() {
                     'Po\u010det \u00fa\u010dastn\u00edk\u016f: ' + currentParticipantCount,
                     'Zapojen\u00e9 osoby: ' + currentParticipants,
                     'M\u00edsto: ' + (ka01Draft.networkPlace || ''),
-                    'Obsah jedn\u00e1n\u00ed: ' + (ka01Draft.networkNotes || ''),
-                    (isTeamMeeting ? '\u00dakoly: ' : 'V\u00fdsledek jedn\u00e1n\u00ed: ') + (ka01Draft.networkOutcome || ''),
-                    (isTeamMeeting ? 'Term\u00edn a t\u00e9mata dal\u0161\u00edho jedn\u00e1n\u00ed: ' : 'Dal\u0161\u00ed kroky: ') + (ka01Draft.networkNextSteps || '')
+                    'Popis: ' + (ka01Draft.networkNotes || '')
                   ].join('\n')
                 }
               ]
@@ -3689,7 +3788,17 @@ function App() {
           ],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 4096
+            maxOutputTokens: 4096,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              required: ['description', 'outcome', 'nextSteps'],
+              properties: {
+                description: { type: 'STRING' },
+                outcome: { type: 'STRING' },
+                nextSteps: { type: 'STRING' }
+              }
+            }
           }
         })
       });
@@ -3699,27 +3808,22 @@ function App() {
       if (finishReason === 'MAX_TOKENS') {
         throw new Error('AI vrátila useknutý text kvůli limitu délky. Aktivita nebyla uložena, zkus text zkrátit nebo uložit znovu.');
       }
-      const rawText = extractGeminiText(result);
-      const aiDescription = cleanGeneratedText(rawText)
-        .replace(/^```(?:text)?/i, '')
-        .replace(/```$/i, '')
-        .replace(/^json\s*/i, '')
-        .replace(/^\{[\s\S]*\}$/i, '')
-        .replace(/(?:^|\s)Typ aktivity:\s*/gi, ' ')
-        .replace(/(?:^|\s)Počet účastníků:\s*/gi, ' ')
-        .replace(/(?:^|\s)Zapojení aktéři(?:\s*\/\s*Místo setkání| nebo účastníci)?:\s*/gi, ' ')
-        .replace(/(?:^|\s)Místo jednání:\s*/gi, ' ')
-        .replace(/(?:^|\s)Obsah a výsledek aktivity:\s*/gi, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!aiDescription) {
-        throw new Error('AI nevrátila ucelený popis aktivity. Aktivita nebyla uložena.');
-      }
-      if (!/[.!?]$/.test(aiDescription)) {
-        throw new Error('AI vrátila nedokončený popis aktivity. Aktivita nebyla uložena, zkus ji uložit znovu.');
-      }
+      const parsed = parseAiJson(extractGeminiText(result));
+      const description = cleanGeneratedText(parsed.description || '').trim() || 'Neuvedeno';
+      const outcome = cleanGeneratedText(parsed.outcome || '').trim() || 'Neuvedeno';
+      const nextSteps = cleanGeneratedText(parsed.nextSteps || '').trim() || 'Neuvedeno';
+      const isTeamMeeting = String(ka01Draft.networkType || '').trim().toLocaleLowerCase('cs') === 'porada';
+      const outcomeLabel = isTeamMeeting ? 'Úkoly' : 'Výsledek';
+      const nextStepsLabel = isTeamMeeting ? 'Termín a témata dalšího jednání' : 'Navazující krok';
+      const aiDescription = [
+        `Popis: ${description}`,
+        `${outcomeLabel}: ${outcome}`,
+        `${nextStepsLabel}: ${nextSteps}`
+      ].join('\n\n');
       return {
         ...ka01Draft,
+        networkOutcome: outcome,
+        networkNextSteps: nextSteps,
         networkDescription: aiDescription
       };
     } catch (error) {
@@ -3731,7 +3835,7 @@ function App() {
 
   const handleGenerateKa01NetworkDescription = async () => {
     if (!String(ka01Draft.networkNotes || '').trim()) {
-      setFlash('Nejprve vypl\u0148 obsah jedn\u00e1n\u00ed.');
+      setFlash('Nejprve vypl\u0148 popis.');
       return;
     }
     setIsSaving(true);
@@ -3750,7 +3854,7 @@ function App() {
       return;
     }
     if (!String(ka01Draft.networkNotes || '').trim()) {
-      setFlash('Vypl\u0148 obsah jedn\u00e1n\u00ed.');
+      setFlash('Vypl\u0148 popis.');
       return;
     }
     setKa01NetworkTimeError('');
@@ -4455,7 +4559,7 @@ function App() {
     if (!selectedClient) return;
     const fallbackSummary = buildClientCaseSummary(selectedClient, clientJourneyTimeline, selectedClientSupportBreakdown);
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-    const aiModel = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash';
+    const aiModel = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash-lite';
 
     if (!apiKey) {
       setClientCaseSummary(fallbackSummary);
@@ -4467,7 +4571,7 @@ function App() {
     setIsSummarizingCase(true);
     setFlash('Připravuji AI souhrn zakázky klienta...');
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
+      const response = await fetchGemini(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -4535,19 +4639,20 @@ function App() {
   const buildJourneyPlanAiPrompt = (record) => [
     'Vylepši Individuální plán rozvoje klienta ve stejné struktuře, jakou používá formulář KA02.',
     'Vrať pouze validní JSON bez Markdownu a bez komentáře.',
-    'JSON musí mít klíče: strengthsAndLimits, identifiedBarriers, goals, finalEvaluation, acceptedPlanText.',
+    'JSON musí mít klíče: situationDescription, goals, finalEvaluation, acceptedPlanText.',
     'Pole goals musí být pole objektů se stejnými goalId jako ve vstupu. Neměň goalId, nemaž cíle, nepřidávej nové cíle a neměň termíny. Termín můžeš opsat pouze do acceptedPlanText.',
-    'Smíš zlepšit a rozvést formulace v polích strengthsAndLimits, identifiedBarriers, goals[].goalDescription a goals[].actionSteps. Zachovej ale původní význam.',
-    'acceptedPlanText vytvoř jako čitelný souvislý plán pro klientskou složku podle těchto stejných polí. Neuváděj věty typu "Žádná specifická data nebyla poskytnuta".',
+    'Povinně zlepši a rozveď formulace nejen v acceptedPlanText, ale také přímo v situationDescription, v každém goals[].goalDescription a v každém goals[].actionSteps. Tato strukturovaná pole musí obsahově odpovídat acceptedPlanText a nesmějí zůstat jen jako původní hesla, pokud je v souvislém textu rozvedeš.',
+    'acceptedPlanText vytvoř jako čitelný souvislý plán výhradně ze stejných strukturovaných polí. Neuváděj věty typu "Žádná specifická data nebyla poskytnuta".',
+    'finalEvaluation zachovej přesně ze vstupu. Pokud je prázdné, vrať prázdný řetězec a do acceptedPlanText nevkládej závěrečné vyhodnocení ani tvrzení o dosaženém výsledku.',
     'Nepřidávej nová fakta, diagnózy, zaměstnavatele, termíny ani výsledky.',
     '',
-    'Aktuální struktura formuláře KA02:',
+    'Aktuální struktura individuálního plánu:',
     JSON.stringify(buildStructuredPlanForAi(record), null, 2)
   ].join('\n');
 
   const handleGenerateJourneyPlanDraft = async (record) => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-    const aiModel = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash';
+    const aiModel = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash-lite';
     if (!apiKey) {
       const fallbackRecord = buildPlanRecordWithStructuredDraft(record, buildStructuredPlanForAi(record), selectedClient);
       setJourneyPlanStructuredDrafts((prev) => ({ ...prev, [record.id]: buildStructuredPlanForAi(record) }));
@@ -4558,22 +4663,56 @@ function App() {
 
     setGeneratingJourneyPlanId(record.id);
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
+      const response = await fetchGemini(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: buildJourneyPlanAiPrompt(record) }] }],
           systemInstruction: {
-            parts: [{ text: 'Jsi zkušený pracovní poradce v projektu OPZ+. Vylepšuješ strukturovaný individuální plán rozvoje, ale zachováváš vazby na cíle. Vracej pouze validní JSON podle požadovaného schématu.' }]
+            parts: [{ text: `${AI_SAFETY_BASE} Vylepšuješ strukturovaný individuální plán, zachováváš vazby na cíle a vracíš pouze validní JSON podle požadovaného schématu.` }]
           },
-          generationConfig: { temperature: 0.45, maxOutputTokens: 6144 }
+          generationConfig: {
+            temperature: 0.18,
+            topP: 0.9,
+            maxOutputTokens: 2500,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                situationDescription: { type: 'STRING' },
+                goals: { type: 'ARRAY', items: { type: 'OBJECT', properties: { goalId: { type: 'STRING' }, goalDescription: { type: 'STRING' }, actionSteps: { type: 'STRING' }, deadline: { type: 'STRING' } }, required: ['goalId', 'goalDescription', 'actionSteps', 'deadline'] } },
+                finalEvaluation: { type: 'STRING' },
+                acceptedPlanText: { type: 'STRING' }
+              },
+              required: ['situationDescription', 'goals', 'finalEvaluation', 'acceptedPlanText']
+            }
+          }
         })
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result?.error?.message || `AI požadavek selhal se stavem ${response.status}.`);
-      const structuredDraft = parseStructuredPlanAiResult(extractGeminiText(result), record);
+      let structuredDraft;
+      const rawPlanOutput = extractGeminiText(result);
+      try {
+        structuredDraft = parseStructuredPlanAiResult(rawPlanOutput, record);
+      } catch (parseError) {
+        const repairResponse = await fetchGemini(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: `Oprav odpověď na validní JSON podle původního schématu. Neměň goalId, počet cílů ani termíny a nic věcně nepřidávej. Povinně rozpracuj heslovité goalDescription a actionSteps do profesionálních formulací při zachování původního významu:
+${rawPlanOutput}` }] }],
+            systemInstruction: { parts: [{ text: AI_SAFETY_BASE }] },
+            generationConfig: { temperature: 0, maxOutputTokens: 2500, responseMimeType: 'application/json' }
+          })
+        });
+        const repairResult = await repairResponse.json();
+        if (!repairResponse.ok) throw new Error(repairResult?.error?.message || 'Oprava JSON individuálního plánu selhala.');
+        structuredDraft = parseStructuredPlanAiResult(extractGeminiText(repairResult), record);
+      }
+      structuredDraft = { ...structuredDraft, acceptedPlanText: buildAcceptedPlanTextFromStructuredDraft(structuredDraft) };
       const previewRecord = buildPlanRecordWithStructuredDraft(record, structuredDraft, selectedClient);
-      const text = buildPersonalDevelopmentPlanText(previewRecord, selectedClient);
+      const text = structuredDraft.acceptedPlanText;
       setJourneyPlanStructuredDrafts((prev) => ({ ...prev, [record.id]: structuredDraft }));
       setJourneyPlanDrafts((prev) => ({ ...prev, [record.id]: text }));
       setFlash('AI návrh plánu osobního rozvoje je připravený v detailu záznamu.');
@@ -4655,6 +4794,8 @@ function App() {
         outcome: payload.outcome || '',
         nextSteps: payload.nextSteps || payload.progressSummary || '',
         selectedPartnerIds: payload.selectedPartnerIds || [],
+        registeredPartnerNames: payload.registeredPartnerNames || [],
+        manualPartnerNames: payload.manualPartnerNames || [],
         partnerNames: payload.partnerNames || (payload.partners ? String(payload.partners).split(';').map((item) => item.trim()).filter(Boolean) : []),
         participantCount: Number(payload.participantCount || 0),
         caseManagementMode: Boolean(payload.caseManagementMode),
@@ -4724,38 +4865,46 @@ function App() {
 
   const exportKa01NetworkDocx = async (record) => {
     if (!record) return;
-    const description = record.payload?.description || record.payload?.notes || '';
-    const filenameParts = [
-      record.activityDate || todayIso(),
-      'KA01',
-      record.payload?.type || record.title || 'aktivita'
-    ];
+    const payload = record.payload || {};
+    const activityType = payload.type || payload.networkType || record.title || 'aktivita';
+    const isTeamMeeting = String(activityType).trim().toLocaleLowerCase('cs') === 'porada';
+    const generatedText = String(payload.description || record.documentText || '').trim();
+    const extractSection = (labelPattern, nextLabelPattern) => {
+      const match = generatedText.match(new RegExp(`(?:^|\\n)\\s*(?:${labelPattern}):\\s*([\\s\\S]*?)(?=\\n\\s*(?:${nextLabelPattern}):|$)`, 'i'));
+      return String(match?.[1] || '').trim();
+    };
+    const description = extractSection('Popis', 'Výsledek|Úkoly') || String(payload.notes || '').trim() || generatedText || 'Neuvedeno';
+    const outcome = String(payload.outcome || '').trim()
+      || extractSection('Výsledek|Úkoly', 'Navazující krok|Termín a témata dalšího jednání')
+      || 'Neuvedeno';
+    const nextSteps = String(payload.nextSteps || '').trim()
+      || extractSection('Navazující krok|Termín a témata dalšího jednání', '(?!)')
+      || 'Neuvedeno';
+    const filenameParts = [record.activityDate || todayIso(), 'KA02', activityType];
 
     try {
       const response = await fetch('/api/export-record-docx', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           filename: `${slugify(filenameParts.join('-'))}.docx`,
-          title: record.title || 'KA2 - aktivita',
+          title: isTeamMeeting ? 'KA02 - Zápis z porady realizačního týmu' : (record.title || 'KA02 - aktivita sítě'),
           activityDate: record.activityDate || '',
-          ka: record.ka || 'KA01',
-          worker: record.worker || '',
-          text: description,
+          ka: 'KA02',
+          worker: '',
+          text: '',
           rows: [
             { label: 'Datum', value: record.activityDate || '' },
-            { label: 'Typ aktivity', value: record.payload?.type || record.payload?.networkType || record.title || '' },
-            { label: 'Počet účastníků', value: record.payload?.count ?? '' },
-            { label: 'OD', value: record.payload?.startTime || '' },
-            { label: 'DO', value: record.payload?.endTime || '' },
-            { label: 'Trvání', value: record.payload?.duration || formatDurationFromTimes(record.payload?.startTime, record.payload?.endTime) },
-            { label: 'Pracovník', value: record.worker || '' },
-            { label: 'Zapojení aktéři', value: record.payload?.participants || '' },
-            { label: 'Místo jednání', value: record.payload?.place || '' },
-            { label: 'Obsah a výsledek aktivity', value: record.payload?.notes || '' },
-            { label: 'Popis aktivity', value: description }
+            { label: 'Typ aktivity', value: activityType },
+            { label: 'Počet účastníků', value: payload.count ?? '' },
+            { label: 'OD', value: payload.startTime || '' },
+            { label: 'DO', value: payload.endTime || '' },
+            { label: 'Trvání', value: payload.duration || formatDurationFromTimes(payload.startTime, payload.endTime) },
+            { label: isTeamMeeting ? 'Přítomní členové realizačního týmu a další osoby' : 'Zapojení aktéři', value: payload.participants || '' },
+            { label: 'Místo jednání', value: payload.place || '' },
+            { label: 'Popis', value: description },
+            { label: isTeamMeeting ? 'Úkoly' : 'Výsledek', value: outcome },
+            { label: isTeamMeeting ? 'Termín a témata dalšího jednání' : 'Navazující krok', value: nextSteps }
           ]
         })
       });
@@ -4774,13 +4923,12 @@ function App() {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(href);
-      setFlash('Aktivita tvorby s\u00edt\u011b byla stažena do DOCX.');
+      setFlash(isTeamMeeting ? 'Zápis z porady byl stažen do DOCX.' : 'Aktivita tvorby sítě byla stažena do DOCX.');
     } catch (error) {
-      console.error('KA01 DOCX export error:', error);
-      setFlash(error.message || 'Export aktivity tvorby s\u00edt\u011b do DOCX selhal.');
+      console.error('KA02 DOCX export error:', error);
+      setFlash(error.message || 'Export aktivity tvorby sítě do DOCX selhal.');
     }
   };
-
   const exportKa01NetworkBulk = async () => {
     let exportRecords = ka01NetworkRecords;
     if (GOOGLE_SHEET_MACRO_URL) {
@@ -4964,7 +5112,16 @@ function App() {
               className="mx-auto h-20 w-auto max-w-[72px] object-contain lg:justify-self-center"
             />
             <div className="text-sm lg:justify-self-end">
-              <TopMetric label="Klienti v registru" value={String(clients.length)} icon={Users} tone="indigo" />              {false && <TopMetric
+              <button
+                type="button"
+                disabled
+                aria-label="Statistiky (zatim neaktivni)"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm font-semibold text-slate-500 opacity-70"
+              >
+                <BarChart3 className="h-4 w-4" />
+                Statistiky
+              </button>
+              {false && <TopMetric
                 label="Stav integrace"
                 value={sheetError ?'Sheets fallback' : 'Hybrid aktivní'}
                 icon={sheetError ?AlertCircle : CheckCircle2}
@@ -5117,6 +5274,7 @@ function App() {
                           {isSummarizingCase ?<Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCopy className="h-4 w-4" />}
                           Shrnout zakázku AI
                         </button>
+                        <HelpIcon help={HELP.clientsAiSummary} />
                         <button
                           onClick={() => provisionClientDriveFolder(selectedClient)}
                           disabled={isProvisioningClientFolder}
@@ -5125,6 +5283,7 @@ function App() {
                           {isProvisioningClientFolder ?<Loader2 className="h-4 w-4 animate-spin" /> : <DownloadCloud className="h-4 w-4" />}
                           Vytvoř složku klienta
                         </button>
+                        <HelpIcon help={HELP.clientsDriveFolder} />
                         <button
                           onClick={openClientEditForm}
                           className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
@@ -5267,7 +5426,7 @@ function App() {
                   </Panel>
 
                   <div className="grid gap-4">
-                    <Panel title="Podpory podle typu" description="Počet podpor a čas podpory za jednotlivé typy klientských aktivit." icon={BarChart3}>
+                    <Panel title="Podpory podle typu" description="Počet podpor a čas podpory za jednotlivé typy klientských aktivit." icon={BarChart3} help={HELP.clientsSupportHours}>
                       {selectedClientSupportBreakdown.byType.length === 0 ?(
                         <EmptyState icon={BarChart3} title="U klienta zatím nejsou evidované žádné podpory." />
                       ) : (

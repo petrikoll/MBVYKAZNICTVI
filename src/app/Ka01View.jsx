@@ -1,7 +1,8 @@
 import React from 'react';
 import { CalendarDays, Download, Save, Sparkles, Users } from 'lucide-react';
 
-import { EmptyState, InputField, Panel, SelectField, TextAreaField } from '../components/ui.jsx';
+import { EmptyState, HelpIcon, InputField, Panel, SelectField, TextAreaField } from '../components/ui.jsx';
+import { HELP } from '../config/helpCatalog.js';
 import { WORKERS } from '../config/projectConfig.js';
 import { truncate } from '../lib/projectUtils.js';
 
@@ -85,7 +86,7 @@ function Ka01View({
                 <button type="button" onClick={() => document.getElementById('ka02-network-date')?.showPicker?.()} className="rounded-lg border border-slate-300 bg-white px-3" title="Otevřít kalendář"><CalendarDays className="h-4 w-4" /></button>
               </div>
             </div>
-            <SelectField label="Typ aktivity" value={ka01Draft.networkType} onChange={(value) => setKa01Draft((previous) => ({ ...previous, networkType: value }))} options={ACTIVITY_OPTIONS} />
+            <SelectField label="Typ aktivity" help={HELP.networkType} value={ka01Draft.networkType} onChange={(value) => setKa01Draft((previous) => ({ ...previous, networkType: value }))} options={ACTIVITY_OPTIONS} />
             <div><label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">{'Po\u010det \u00fa\u010dastn\u00edk\u016f'}</label><input type="text" value={ka01Draft.networkCount} readOnly className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700" /></div>
           </div>
 
@@ -94,7 +95,7 @@ function Ka01View({
             <div><label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Do</label><select value={ka01Draft.networkEndTime} onChange={(event) => setKa01Draft((previous) => ({ ...previous, networkEndTime: event.target.value }))} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"><option value="">Čas</option>{timesWithCurrent(ka01Draft.networkEndTime).map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
             <div><label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Trvání</label><div className="flex h-9 items-center rounded-md border border-slate-300 bg-white px-2 text-sm font-semibold">{ka01NetworkDuration || '-'}</div></div>
             <div>
-              <label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Místo setkání</label>
+              <label className="mb-1 flex items-center gap-1 text-[11px] font-semibold uppercase text-slate-500">Místo setkání <HelpIcon help={HELP.networkPlace} /></label>
               <div className={`grid gap-2 ${ka01Draft.networkPlaceType === ka01PlaceCustomValue ? 'sm:grid-cols-2' : 'grid-cols-1'}`}>
                 <select value={ka01Draft.networkPlaceType || ''} onChange={(event) => updateKa01PlaceSelection(event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"><option value="">Vyber místo</option>{ka01PlaceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
                 {ka01Draft.networkPlaceType === ka01PlaceCustomValue && <input type="text" value={ka01Draft.networkPlaceCustom || ''} onChange={(event) => updateKa01PlaceCustom(event.target.value)} placeholder="Jiné místo" className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm" />}
@@ -114,12 +115,10 @@ function Ka01View({
             </div>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-3">
-            <TextAreaField label="Obsah jednání" value={ka01Draft.networkNotes} onChange={(value) => setKa01Draft((previous) => ({ ...previous, networkNotes: value }))} rows={4} />
-            <TextAreaField label={isTeamMeeting ? '\u00dakoly' : 'V\u00fdsledek jedn\u00e1n\u00ed'} value={ka01Draft.networkOutcome || ''} onChange={(value) => setKa01Draft((previous) => ({ ...previous, networkOutcome: value }))} rows={4} />
-            <TextAreaField label={isTeamMeeting ? 'Term\u00edn a t\u00e9mata dal\u0161\u00edho jedn\u00e1n\u00ed' : 'Dal\u0161\u00ed kroky'} value={ka01Draft.networkNextSteps || ''} onChange={(value) => setKa01Draft((previous) => ({ ...previous, networkNextSteps: value }))} rows={4} />
+          <div>
+            <TextAreaField label="Popis" value={ka01Draft.networkNotes} onChange={(value) => setKa01Draft((previous) => ({ ...previous, networkNotes: value }))} rows={6} />
           </div>
-          <TextAreaField label="Výstup zápisu" value={ka01Draft.networkDescription || ''} onChange={(value) => setKa01Draft((previous) => ({ ...previous, networkDescription: value }))} rows={5} />
+          <TextAreaField label="Výstup zápisu" help={HELP.networkOutput} value={ka01Draft.networkDescription || ''} onChange={(value) => setKa01Draft((previous) => ({ ...previous, networkDescription: value }))} rows={5} placeholder="Po vygenerování se zde zobrazí návrh textu dokumentu" />
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={handleGenerateKa01NetworkDescription} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"><Sparkles className="h-4 w-4" />Vygenerovat návrh AI</button>
             <button onClick={handleSaveKa01Network} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"><Save className="h-4 w-4" />{editingKa01NetworkRecordId ? 'Uložit úpravu' : 'Uložit aktivitu'}</button>
@@ -144,8 +143,8 @@ function Ka01View({
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <InputField label="Název subjektu" value={ka01ActorDraft.name} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, name: value }))} />
             <SelectField label="Typ aktéra" value={ka01ActorDraft.actorType} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, actorType: value }))} options={actorTypeOptions} />
-            <SelectField label="Zapojení aktéra" value={ka01ActorDraft.networkOrigin || ''} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, networkOrigin: value, joinedNetworkDate: value.includes('nov') ? previous.joinedNetworkDate : '' }))} options={[{ value: '', label: 'Vyberte p\u016fvod' }, { value: 'st\u00e1vaj\u00edc\u00ed', label: 'St\u00e1vaj\u00edc\u00ed' }, { value: 'nov\u011b zapojen\u00fd', label: 'Nov\u011b zapojen\u00fd' }, { value: 'potencion\u00e1ln\u00ed', label: 'Potencion\u00e1ln\u00ed' }]} />
-            {isNewActor && <InputField label="Datum zapojení" type="date" value={ka01ActorDraft.joinedNetworkDate || ''} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, joinedNetworkDate: value }))} />}
+            <SelectField label="Zapojení aktéra" help={HELP.actorOrigin} value={ka01ActorDraft.networkOrigin || ''} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, networkOrigin: value, joinedNetworkDate: value.includes('nov') ? previous.joinedNetworkDate : '' }))} options={[{ value: '', label: 'Vyberte p\u016fvod' }, { value: 'st\u00e1vaj\u00edc\u00ed', label: 'St\u00e1vaj\u00edc\u00ed' }, { value: 'nov\u011b zapojen\u00fd', label: 'Nov\u011b zapojen\u00fd' }, { value: 'potencion\u00e1ln\u00ed', label: 'Potencion\u00e1ln\u00ed' }]} />
+            {isNewActor && <InputField label="Datum zapojení" help={HELP.actorDate} type="date" value={ka01ActorDraft.joinedNetworkDate || ''} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, joinedNetworkDate: value }))} />}
             <InputField label="Kontaktní osoba" value={ka01ActorDraft.contactName} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, contactName: value }))} />
             <InputField label="Funkce" value={ka01ActorDraft.contactRole} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, contactRole: value }))} />
             <InputField label="Telefon" type="tel" value={ka01ActorDraft.phone} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, phone: value }))} />
@@ -154,7 +153,7 @@ function Ka01View({
           <button onClick={handleSaveKa01ActorRegistry} disabled={isSaving} className="inline-flex w-fit items-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"><Save className="h-4 w-4" />{ka01ActorDraft.id ? 'Uložit úpravu aktéra' : 'Uložit aktéra do registru'}</button>
 
           <div>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-bold">Uložený registr aktérů</div><button type="button" onClick={exportKa01AttendanceSheet} disabled={attendanceCount === 0} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Vytvořit prezenční listinu ({attendanceCount})</button></div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-bold">Uložený registr aktérů</div><button type="button" onClick={exportKa01AttendanceSheet} disabled={attendanceCount === 0} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Vytvořit prezenční listinu ({attendanceCount})</button><HelpIcon help={HELP.attendanceExport} /></div>
             {sortedActors.length === 0 ? <EmptyState icon={Users} title="Zatím není uložen žádný aktér v síti." /> : (
               <div className="overflow-auto rounded-lg border border-slate-200 bg-white"><table className="min-w-[1100px] w-full divide-y divide-slate-200 text-xs"><thead className="sticky top-0 bg-sky-50 font-semibold uppercase text-sky-800"><tr><th className="px-2 py-2 text-left">Subjekt</th><th className="px-2 py-2 text-left">Typ</th><th className="px-2 py-2 text-left">Kontaktní osoba</th><th className="px-2 py-2 text-left">Funkce</th><th className="px-2 py-2 text-left">Kontakt</th><th className="px-2 py-2 text-left">Původ</th><th className="px-2 py-2 text-left">Datum zapojení</th><th className="px-2 py-2 text-left">Prezenční listina</th><th className="px-2 py-2 text-right">Akce</th></tr></thead><tbody className="divide-y divide-slate-100">
                 {sortedActors.map((record) => { const payload = record.payload || {}; const contactName = String(payload.contactName || '').trim(); const canAttend = Boolean(payload.name && contactName.split(/\s+/).filter(Boolean).length >= 2); const expanded = expandedActorIds.includes(record.id); return <React.Fragment key={record.id}><tr className="even:bg-slate-50/60"><td className="px-2 py-2 font-semibold">{payload.name || '-'}</td><td className="px-2 py-2">{payload.actorType || '-'}</td><td className="px-2 py-2">{contactName || '-'}</td><td className="px-2 py-2">{payload.contactRole || '-'}</td><td className="px-2 py-2">{[payload.phone, payload.email].filter(Boolean).join(' / ') || '-'}</td><td className="px-2 py-2">{payload.networkOrigin || '-'}</td><td className="px-2 py-2">{String(payload.networkOrigin || '').toLowerCase().includes('nov') ? payload.joinedNetworkDate || '-' : '-'}</td><td className="px-2 py-2"><label className="inline-flex items-center gap-2"><input type="checkbox" checked={Boolean(ka01AttendanceSelection?.[record.id])} onChange={(event) => toggleKa01ActorAttendance(record.id, event.target.checked)} disabled={!canAttend} className="h-4 w-4" /><span>{canAttend ? 'Ano' : 'Doplňte jméno'}</span></label></td><td className="whitespace-nowrap px-2 py-2 text-right"><button type="button" onClick={() => toggleActor(record.id)} className="mr-1 rounded-full border border-slate-200 px-2 py-1 font-semibold">{expanded ? 'Skrýt' : 'Detail'}</button><button type="button" onClick={() => handleEditKa01ActorRegistry(record)} className="mr-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-blue-700">Upravit</button><button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700">Smazat</button></td></tr>{expanded && <tr><td colSpan={9} className="bg-white px-3 py-2 text-slate-600">{[payload.contactName, payload.contactRole, payload.phone, payload.email].filter(Boolean).join(' | ') || 'Žádné další údaje.'}</td></tr>}</React.Fragment>; })}

@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { handleDocxExportRequest } from './docxExport.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const distDir = resolve(__dirname, 'dist');
@@ -90,6 +91,12 @@ const server = createServer((request, response) => {
   const url = new URL(request.url || '/', `http://${request.headers.host}`);
   const requestedPath = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
   const staticPath = join(distDir, requestedPath);
+
+  const isDocxExport = url.pathname === '/api/export-record-docx' || url.pathname === '/api/export-plan-docx';
+  if (request.method === 'POST' && isDocxExport) {
+    void handleDocxExportRequest(request, response);
+    return;
+  }
 
   if (staticPath.startsWith(distDir) && existsSync(staticPath) && statSync(staticPath).isFile()) {
     sendFile(response, staticPath);

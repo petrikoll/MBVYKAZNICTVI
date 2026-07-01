@@ -29,6 +29,8 @@ function Ka02View({
       ...prev,
       selectedKey: 'consultation',
       clientId: ka02Draft.selectedClientId || prev.clientId,
+      linkedPlanGoalId: prev.linkedPlanGoalId || 'one-time-order',
+      linkedPlanGoalLabel: prev.linkedPlanGoalLabel || 'Jednor\u00e1zov\u00e1 zak\u00e1zka',
       caseManagementMode: false
     }));
   }, [ka02Draft.selectedClientId, setGeneratorDraft]);
@@ -55,8 +57,8 @@ function Ka02View({
             setGeneratorDraft((prev) => ({
               ...prev,
               clientId,
-              linkedPlanGoalId: '',
-              linkedPlanGoalLabel: '',
+              linkedPlanGoalId: 'one-time-order',
+              linkedPlanGoalLabel: 'Jednor\u00e1zov\u00e1 zak\u00e1zka',
               selectedKey: 'consultation',
               caseManagementMode: false
             }));

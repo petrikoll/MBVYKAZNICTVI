@@ -2,11 +2,10 @@ import React from 'react';
 import { ClipboardList } from 'lucide-react';
 
 import { Panel, SelectField } from '../components/ui.jsx';
+import { selectLatestClientPlan } from '../lib/planSelection.js';
 
 function ReadOnlyPlan({ clients, records, selectedClientId, onClientChange }) {
-  const plan = records
-    .filter((record) => record.entityType === 'plans' && record.clientId === selectedClientId)
-    .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0))[0];
+  const plan = selectLatestClientPlan(records, selectedClientId);
   const goals = Array.isArray(plan?.goals) && plan.goals.length ? plan.goals : plan?.payload?.structuredGoals || plan?.payload?.goals || [];
   const text = (value, fallback = 'Nevyplněno.') => String(value || '').trim() || fallback;
 
@@ -24,22 +23,21 @@ function ReadOnlyPlan({ clients, records, selectedClientId, onClientChange }) {
         <Panel title="Individuální plán" description="Přebráno z KA1-Individuální podpora. Náhled v KA2 není editovatelný." icon={ClipboardList}>
           {plan ? (
             <div className="space-y-3 text-sm">
-              <div><strong className="block text-slate-800">Silné stránky a limity</strong><p className="mt-1 whitespace-pre-wrap text-slate-600">{text(plan.payload?.strengthsAndLimits || plan.payload?.currentSituation)}</p></div>
-              <div><strong className="block text-slate-800">Identifikované bariéry / potřeby</strong><p className="mt-1 whitespace-pre-wrap text-slate-600">{text(plan.payload?.identifiedBarriers || plan.payload?.barriers)}</p></div>
+              <div><strong className="block text-slate-800">Popis situace</strong><p className="mt-1 whitespace-pre-wrap text-slate-600">{text(plan.payload?.situationDescription || plan.situationDescription)}</p></div>
               <div>
                 <strong className="block text-slate-800">Cíle</strong>
                 <div className="mt-2 space-y-2">
                   {goals.length ? goals.map((goal, index) => (
                     <div key={goal.goalId || goal.id || index} className="rounded-lg border border-slate-200 bg-white p-2">
                       <span className="text-xs font-semibold text-indigo-700">Cíl {index + 1}</span>
-                      <p className="mt-1 whitespace-pre-wrap text-slate-700">{text(goal.goalDescription || goal.description)}</p>
-                      {(goal.actionSteps || goal.plannedSteps) && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{goal.actionSteps || goal.plannedSteps}</p>}
+                      <p className="mt-1 whitespace-pre-wrap text-slate-700"><strong>Popis cíle:</strong> {text(goal.goalDescription || goal.description)}</p>
+                      {(goal.actionSteps || goal.plannedSteps) && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600"><strong>Akční kroky:</strong> {Array.isArray(goal.actionSteps) ? goal.actionSteps.join('\n') : goal.actionSteps || goal.plannedSteps}</p>}
+                      {(goal.targetDate || goal.deadline) && <p className="mt-1 text-xs text-slate-500"><strong>Termín:</strong> {String(goal.targetDate || goal.deadline).slice(0, 10)}</p>}
                     </div>
                   )) : <p className="text-slate-500">Není zadaný žádný cíl.</p>}
                 </div>
               </div>
               <div><strong className="block text-slate-800">Závěrečné vyhodnocení plánu</strong><p className="mt-1 whitespace-pre-wrap text-slate-600">{text(plan.payload?.finalEvaluation)}</p></div>
-              <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-3"><strong className="block text-slate-800">Výstup dokumentu</strong><p className="mt-1 whitespace-pre-wrap text-slate-600">{text(plan.payload?.acceptedPlanText || plan.documentText, 'Zatím není přijatý žádný AI návrh individuálního plánu.')}</p></div>
             </div>
           ) : <p className="text-sm text-slate-500">Klient zatím nemá uložený individuální plán v KA1.</p>}
         </Panel>
@@ -71,6 +69,8 @@ function Ka2CaseManagementView({ clients, records, ka02Draft, setKa02Draft, setG
       linkedPlanGoalId: '',
       linkedPlanGoalLabel: '',
       selectedPartnerIds: [],
+      registeredPartnerNames: [],
+      manualPartnerNames: [],
       partnerNames: [],
       participantCount: 0,
       ka02Place: 'ambulantní',

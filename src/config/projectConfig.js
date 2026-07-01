@@ -71,75 +71,26 @@ const CLIENT_STATUS_OPTIONS = ['Aktivn\u00ed', 'Ukon\u010den\u00fd', 'Rozpracova
 const YES_NO_OPTIONS = ['Ano', 'Ne'];
 
 const COMMON_AI_QUALITY_RULES = [
-  'Pou\u017e\u00edvej pouze fakta ze zad\u00e1n\u00ed a projektov\u00e9ho kontextu.',
-  'Neodes\u00edlej ani neopakuj jm\u00e9no, p\u0159\u00edjmen\u00ed ani datum narozen\u00ed klienta.',
-  'Nevym\u00fd\u0161lej diagn\u00f3zy, v\u00fdsledky jedn\u00e1n\u00ed, dluhy, zam\u011bstn\u00e1n\u00ed ani motivaci klienta.',
-  'Kdy\u017e \u00fadaj chyb\u00ed nebo nen\u00ed podstatn\u00fd, vynech ho m\u00edsto psan\u00ed \u0159\u00e1dk\u016f typu Neuvedeno.',
-  'Pi\u0161 \u010desky, v\u011bcn\u011b, auditn\u011b obhajiteln\u011b, bez Markdownu a bez k\u00f3dov\u00fdch blok\u016f.'
+  'Jsi odborn\u00fd asistent pro zpracov\u00e1n\u00ed intern\u00edch z\u00e1znam\u016f projektu \u201ePodpora soci\u00e1ln\u00ed pr\u00e1ce v Moravsk\u00e9m Beroun\u011b II\u201c.',
+  'V\u00fdstupy slou\u017e\u00ed jako podklad pro soci\u00e1ln\u00ed pr\u00e1ci, klientskou dokumentaci a projektovou evidenci.',
+  'Pracuj pouze s \u00fadaji, kter\u00e9 jsou v\u00fdslovn\u011b uvedeny ve vstupu.',
+  'Nevym\u00fd\u0161lej osoby, diagn\u00f3zy, zam\u011bstn\u00e1n\u00ed, dluhy, motivaci, v\u00fdsledky, rozhodnut\u00ed, term\u00edny ani n\u00e1vazn\u00e9 slu\u017eby.',
+  'Neodes\u00edlej ani neopakuj jm\u00e9no, p\u0159\u00edjmen\u00ed ani datum narozen\u00ed klienta a vyh\u00fdbej se zbyte\u010dn\u00e9 nep\u0159\u00edm\u00e9 identifikaci.',
+  'Chyb\u011bj\u00edc\u00ed nebo nepodstatn\u00e9 \u00fadaje vynech.',
+  'Pi\u0161 \u010desky, v\u011bcn\u011b, profesion\u00e1ln\u011b a auditn\u011b obhajiteln\u011b.'
 ].join('\n');
 
 const SUPPORT_SPECIFIC_LABELS = {
-  contactPlace: 'Misto depistaze',
-  contactMethod: 'Zpusob kontaktu',
-  contactReason: 'Duvod osloveni',
-  helpOffered: 'Pomoc nabidnuta',
-  counsellingProvided: 'Poradenstvi poskytnuto',
-  contactsGiven: 'Kontakty predany',
-  cooperationInterest: 'Zajem o dalsi spolupraci',
-  mappedAreas: 'Hlavni zjistene oblasti',
-  risks: 'Rizika',
-  clientResources: 'Zdroje klienta',
-  clientNeeds: 'Potreby klienta',
-  agreedProcedure: 'Dohoda na dalsim postupu',
-  counsellingTopic: 'Tema poradenstvi',
-  providedInformation: 'Poskytnute informace',
-  recommendedProcedure: 'Doporuceny postup',
-  fieldWorkPlace: 'Misto vykonu',
-  visitPurpose: 'Ucel navstevy',
-  clientReaction: 'Reakce klienta',
-  nextContactAgreement: 'Dohoda na dalsim kontaktu',
-  problemType: 'Druh problemu',
-  solutionStatus: 'Orientacni stav reseni',
-  agreedStep: 'Domluveny krok',
-  recommendedService: 'Doporucena navazna sluzba',
-  housingSituation: 'Typ bytove situace',
-  housingProblem: 'Problem v bydleni',
-  contactedSubject: 'Kontaktovany subjekt',
-  workStatus: 'Pracovni status',
-  workTopic: 'Resene tema',
-  performedStep: 'Provedeny krok',
-  followupSubject: 'Navazny subjekt',
-  benefitType: 'Druh davky/rizeni',
-  applicationStatus: 'Stav zadosti',
-  neededDocuments: 'Potrebne doklady',
-  nextStep: 'Dalsi krok',
-  familyArea: 'Resena oblast',
-  involvedPersons: 'Zapojene osoby',
-  followupNeed: 'Potreba navazne podpory',
-  clientAgreement: 'Dohoda s klientem',
-  healthNeed: 'Resena potreba',
-  recommendedContact: 'Doporuceny kontakt',
-  orderingAssistance: 'Asistence pri objednani',
-  nextProcedure: 'Dalsi postup',
-  accompanimentPlace: 'Kam doprovod probehl',
-  accompanimentPurpose: 'Ucel doprovodu',
-  meetingResult: 'Vysledek jednani',
-  institution: 'Instituce',
-  contactForm: 'Forma kontaktu',
-  meetingTopic: 'Tema jednani',
-  clientPresent: 'Klient byl pritomen',
-  crisisType: 'Typ krize',
-  urgency: 'Mira akutnosti',
-  measures: 'Prijata opatreni',
-  followupHelp: 'Predani navazne pomoci',
-  contactResult: 'Vysledek kontaktu',
-  adminType: 'Typ administrativy',
-  documentAction: 'Dokument/ukon',
-  withClient: 'Provedeno s klientem',
-  evaluationReason: 'Duvod vyhodnoceni/ukonceni',
-  achievedProgress: 'Dosazeny posun',
-  unresolvedAreas: 'Nedoresene oblasti',
-  recommendation: 'Doporuceni'
+  contactPlace: 'Misto depistaze', contactMethod: 'Zpusob kontaktu', contactReason: 'Duvod osloveni',
+  cooperationInterest: 'Zajem o dalsi spolupraci', mappedAreas: 'Dalsi zjistene oblasti', risks: 'Rizika',
+  clientResources: 'Zdroje klienta', clientNeeds: 'Potreby klienta', providedInformation: 'Poskytnute informace',
+  recommendedProcedure: 'Doporuceny postup', fieldWorkPlace: 'Misto vykonu', visitPurpose: 'Ucel navstevy',
+  accompanimentPlace: 'Kam doprovod probehl', accompanimentPurpose: 'Ucel doprovodu', accompanimentResult: 'Vysledek doprovodu',
+  institution: 'Instituce', contactForm: 'Forma kontaktu', meetingTopic: 'Tema jednani', clientPresent: 'Klient byl pritomen',
+  crisisType: 'Typ krize', urgency: 'Mira akutnosti', measures: 'Prijata opatreni', followupHelp: 'Predani navazne pomoci',
+  contactedFollowupServices: 'Kontaktovana navazna sluzba', adminType: 'Typ administrativy', documentAction: 'Dokument/ukon',
+  withClient: 'Provedeno s klientem', evaluationReason: 'Duvod vyhodnoceni/ukonceni', achievedProgress: 'Dosazeny posun',
+  unresolvedAreas: 'Nedoresene oblasti', recommendation: 'Doporuceni'
 };
 
 function formatSupportSpecificForPrompt(values = {}) {
@@ -150,77 +101,57 @@ function formatSupportSpecificForPrompt(values = {}) {
 }
 
 const KA1_CONTEXT = [
-  'KA1-Individu\u00e1ln\u00ed podpora je p\u0159\u00edm\u00e1 pr\u00e1ce s klientem v ter\u00e9nn\u00ed nebo ambulantn\u00ed form\u011b.',
-  'C\u00edlem je prevence soci\u00e1ln\u00edho vylou\u010den\u00ed, stabilizace situace klienta, pos\u00edlen\u00ed sob\u011bsta\u010dnosti a dostupnosti soci\u00e1ln\u00ed podpory.',
-  'Podpora m\u016f\u017ee zahrnovat depist\u00e1\u017e, soci\u00e1ln\u00ed \u0161et\u0159en\u00ed, z\u00e1kladn\u00ed soci\u00e1ln\u00ed poradenstv\u00ed, doprovod, n\u00e1cvik dovednost\u00ed, jedn\u00e1n\u00ed s institucemi a n\u00e1vazn\u00e9 kroky dle individu\u00e1ln\u00edho pl\u00e1nu.',
-  'M\u00edstem realizace je Moravsk\u00fd Beroun a p\u0159ilehl\u00e9 \u010d\u00e1sti: Ondr\u00e1\u0161ov, Sedm Dvor\u016f, \u010cabov\u00e1, Nov\u00e9 Valte\u0159ice, Norber\u010dany, Star\u00e1 Libav\u00e1, Trhavice a Nov\u00e1 V\u00e9ska.'
+  'Vytv\u00e1\u0159\u00ed\u0161 z\u00e1pis individu\u00e1ln\u00ed podpory klienta v r\u00e1mci KA1.',
+  'Z\u00e1pis zachycuje poskytnutou podporu, n\u00e1vaznost na individu\u00e1ln\u00ed pl\u00e1n, pr\u016fb\u011bh, v\u00fdsledek a dal\u0161\u00ed krok.',
+  'Typ podpory je uzam\u010den\u00fd a nesm\u00ed b\u00fdt zm\u011bn\u011bn, zobecn\u011bn ani nahrazen oblast\u00ed podpory.',
+  'Oblast podpory popisuje obsah, ale nenahrazuje typ podpory.'
 ].join('\n');
 
 const KA2_CASE_CONTEXT = [
-  'KA2-Case management je koordinovan\u00e1 podpora klienta, u kter\u00e9 je zapojeno v\u00edce slu\u017eeb, instituc\u00ed nebo odborn\u00edk\u016f.',
-  'Z\u00e1pis m\u00e1 zachytit zak\u00e1zku klienta, zapojen\u00e9 akt\u00e9ry, koordinaci postupu, domluven\u00e9 kroky a v\u00fdsledek jedn\u00e1n\u00ed.',
-  'Individu\u00e1ln\u00ed pl\u00e1n z KA1 je kontextem pro n\u00e1vazn\u00e9 kroky, ale case management nem\u00e1 opisovat cel\u00fd pl\u00e1n.'
+  'Vytv\u00e1\u0159\u00ed\u0161 z\u00e1pis case managementu v r\u00e1mci KA2.',
+  'Z\u00e1pis se t\u00fdk\u00e1 koordinace podpory klienta, zapojen\u00ed akt\u00e9r\u016f, n\u00e1vaznosti na c\u00edl individu\u00e1ln\u00edho pl\u00e1nu a domluven\u00fdch dal\u0161\u00edch krok\u016f.',
+  'Zachovej uveden\u00fd c\u00edl IP, oblast podpory a akt\u00e9ry. Nevytv\u00e1\u0159ej nov\u00e9 \u00fakoly, odpov\u011bdnosti, slu\u017eby ani term\u00edny.'
 ].join('\n');
 
 const REPORT_PROMPTS = {
   plan: {
-    label: 'Individu\u00e1ln\u00ed pl\u00e1n',
-    ka: 'KA1',
-    entityType: 'plans',
-    buildSystemPrompt: () => [
-      'Jsi soci\u00e1ln\u00ed pracovn\u00edk v projektu Podpora soci\u00e1ln\u00ed pr\u00e1ce v Moravsk\u00e9m Beroun\u011b.',
-      'Vytv\u00e1\u0159\u00ed\u0161 nebo upravuje\u0161 individu\u00e1ln\u00ed pl\u00e1n klienta jako intern\u00ed projektov\u00fd dokument.',
-      'Struktura m\u00e1 odpov\u00eddat formul\u00e1\u0159i: siln\u00e9 str\u00e1nky a limity, identifikovan\u00e9 bari\u00e9ry/pot\u0159eby, c\u00edle, ak\u010dn\u00ed kroky, term\u00edny a z\u00e1v\u011bre\u010dn\u00e9 vyhodnocen\u00ed.',
-      KA1_CONTEXT,
-      COMMON_AI_QUALITY_RULES
-    ].join('\n\n'),
-    buildUserPrompt: ({ client, fields }) => [
-      'Klient je v evidenci projektu. Osobn\u00ed identifika\u010dn\u00ed \u00fadaje neopakuj.',
+    label: 'Individu\u00e1ln\u00ed pl\u00e1n', ka: 'KA1', entityType: 'plans',
+    buildSystemPrompt: () => [COMMON_AI_QUALITY_RULES, 'Vytv\u00e1\u0159\u00ed\u0161 nebo upravuje\u0161 individu\u00e1ln\u00ed pl\u00e1n klienta jako intern\u00ed dokument projektu. Pot\u0159eby a bari\u00e9ry uve\u010f pouze tehdy, pokud jsou v\u00fdslovn\u011b obsa\u017eeny v poli Popis situace. Nic psychologicky ani soci\u00e1ln\u011b nedovozuj.'].join('\n\n'),
+    buildUserPrompt: ({ fields }) => [
+      'Vytvo\u0159 nebo uprav individu\u00e1ln\u00ed pl\u00e1n klienta jako intern\u00ed dokument projektu.',
       'Datum: ' + (fields.date || todayIso()),
-      'Siln\u00e9 str\u00e1nky a limity: ' + (fields.currentSituation || ''),
-      'Identifikovan\u00e9 bari\u00e9ry / pot\u0159eby: ' + (fields.barriers || ''),
+      'Popis situace: ' + (fields.situationDescription || fields.currentSituation || ''),
       'C\u00edle: ' + (fields.goals || ''),
-      'Ak\u010dn\u00ed kroky: ' + (fields.plannedSteps || ''),
-      'Postaven\u00ed na trhu pr\u00e1ce jako tich\u00fd kontext: ' + (client.postaveniNaTrhu || ''),
-      'Vzd\u011bl\u00e1n\u00ed jako tich\u00fd kontext: ' + (client.vzdelani || ''),
-      'Znev\u00fdhodn\u011bn\u00ed jako tich\u00fd kontext: ' + (client.znevyhodneni || '')
+      'Pl\u00e1novan\u00e9 kroky: ' + (fields.plannedSteps || ''),
+      'Z\u00e1v\u011bre\u010dn\u00e9 vyhodnocen\u00ed: ' + (fields.finalEvaluation || ''),
+      'Nep\u0159id\u00e1vej nov\u00e9 skute\u010dnosti, term\u00edny, slu\u017eby, diagn\u00f3zy, zam\u011bstnavatele ani v\u00fdsledky.'
     ].join('\n')
   },
   consultation: {
-    label: 'Z\u00e1pis podpory',
-    ka: 'KA1',
-    entityType: 'consultations',
+    label: 'Z\u00e1pis podpory', ka: 'KA1', entityType: 'consultations',
     buildSystemPrompt: ({ fields } = {}) => [
+      COMMON_AI_QUALITY_RULES,
       fields?.caseManagementMode ? KA2_CASE_CONTEXT : KA1_CONTEXT,
-      'Vytv\u00e1\u0159\u00ed\u0161 profesion\u00e1ln\u00ed z\u00e1pis poskytnut\u00e9 podpory do klientsk\u00e9 slo\u017eky.',
-      'Z\u00e1pis m\u00e1 zachytit datum a rozsah podpory, typ podpory, n\u00e1vaznost na c\u00edl IP, pr\u016fb\u011bh, v\u00fdsledek a dal\u0161\u00ed krok.',
-      'Neopisuj registra\u010dn\u00ed \u00fadaje klienta. Osobn\u00ed \u00fadaje klienta nepou\u017e\u00edvej.',
-      'Zvoleny typ podpory je zavazny. Nemen ho, nenahrazuj jinym typem a nezamenuj ho s oblasti podpory.',
-      'Povinne zohledni vyplnena specificka pole daneho typu podpory. Neignoruj je.',
-      COMMON_AI_QUALITY_RULES
+      'Vra\u0165 pouze JSON podle zadan\u00e9ho sch\u00e9matu. Hodnotu consultationType opi\u0161 p\u0159esn\u011b ze vstupu.'
     ].join('\n\n'),
-    buildUserPrompt: ({ client, fields }) => [
-      'Typ podpory: ' + (fields.consultationType || 'Z\u00e1kladn\u00ed soci\u00e1ln\u00ed poradenstv\u00ed'),
+    buildUserPrompt: ({ fields }) => [
+      'Typ podpory: ' + (fields.consultationType || ''),
       'Oblast podpory: ' + (fields.supportArea || ''),
-      'Specificka pole podle typu podpory:\n' + formatSupportSpecificForPrompt(fields.supportSpecific || {}),
+      'Specifick\u00e1 pole podle typu podpory:\n' + formatSupportSpecificForPrompt(fields.supportSpecific || {}),
       'Datum: ' + (fields.date || todayIso()),
       '\u010cas / d\u00e9lka: ' + (fields.durationMinutes || 0) + ' minut',
-      'Forma nebo m\u00edsto poskytov\u00e1n\u00ed: ' + (fields.place || fields.ka02Place || ''),
-      'Cil IP / zakazka: ' + (fields.linkedPlanGoalLabel || ''),
-      fields.caseManagementMode ? 'Zapojeni akteri: ' + ((fields.partnerNames || []).join('; ') || 'bez zapojenych akteru') : '',
-      'Popis prubehu / zadani pracovnika: ' + (fields.topics || ''),
-      'V\u00fdsledek / vyhodnocen\u00ed: ' + (fields.outcome || ''),
+      'Forma poskytov\u00e1n\u00ed: ' + (fields.place || fields.ka02Place || ''),
+      'C\u00edl IP / zak\u00e1zka: ' + (fields.linkedPlanGoalLabel || ''),
+      fields.caseManagementMode ? 'Zapojen\u00ed akt\u00e9\u0159i: ' + ((fields.partnerNames || []).join('; ') || 'bez zapojen\u00fdch akt\u00e9r\u016f') : '',
+      'Popis pr\u016fb\u011bhu: ' + (fields.topics || ''),
+      'Dolo\u017een\u00fd v\u00fdsledek: ' + (fields.outcome || ''),
       'Dal\u0161\u00ed kroky: ' + (fields.nextSteps || ''),
-      'Postaven\u00ed na trhu pr\u00e1ce jako tich\u00fd kontext: ' + (client.postaveniNaTrhu || ''),
-      'Znev\u00fdhodn\u011bn\u00ed jako tich\u00fd kontext: ' + (client.znevyhodneni || '')
-    ].join('\n')
-  },
-  debt: { label: 'Z\u00e1znam dluhov\u00e9ho poradenstv\u00ed', ka: 'KA1', entityType: 'debt_cases', buildSystemPrompt: () => COMMON_AI_QUALITY_RULES, buildUserPrompt: ({ fields }) => JSON.stringify(fields) },
-  therapy: { label: 'Terapeutick\u00e1 zpr\u00e1va', ka: 'KA1', entityType: 'therapy_sessions', buildSystemPrompt: () => COMMON_AI_QUALITY_RULES, buildUserPrompt: ({ fields }) => JSON.stringify(fields) },
-  cv: { label: 'CV a motiva\u010dn\u00ed dopis', ka: 'KA1', entityType: 'cv_outputs', buildSystemPrompt: () => COMMON_AI_QUALITY_RULES, buildUserPrompt: ({ fields }) => JSON.stringify(fields) },
-  simulator: { label: 'Zp\u011btn\u00e1 vazba z pracovn\u00edho simul\u00e1toru', ka: 'KA1', entityType: 'job_simulators', buildSystemPrompt: () => COMMON_AI_QUALITY_RULES, buildUserPrompt: ({ fields }) => JSON.stringify(fields) },
-  mentor: { label: 'Zpr\u00e1va mentora', ka: 'KA2', entityType: 'mentoring_records', buildSystemPrompt: () => COMMON_AI_QUALITY_RULES, buildUserPrompt: ({ fields }) => JSON.stringify(fields) }
+      'Pokud v\u00fdsledek nen\u00ed uveden, nedopl\u0148uj jej jako dosa\u017eenou zm\u011bnu.'
+    ].filter(Boolean).join('\n')
+  }
 };
+
+const ACTIVE_AI_DOCUMENT_KEYS = ['plan', 'consultation'];
 
 const APP_VIEWS = [
   { id: 'clients', name: 'Klienti', icon: Users, tone: 'indigo' },
@@ -248,12 +179,12 @@ const emptyClientDraft = {
 const emptyGeneratorDraft = {
   selectedKey: 'plan', clientId: '', tpmRecordId: '', linkedPlanGoalId: '', linkedPlanGoalLabel: '',
   worker: 'Soci\u00e1ln\u00ed pracovn\u00edk', date: todayIso(), ka02StartTime: '', ka02EndTime: '', ka02Place: '', bulletNotes: '',
-  currentSituation: '', goals: '', barriers: '', plannedSteps: '', planDurationMinutes: '60',
+  situationDescription: '', goals: '', plannedSteps: '', finalEvaluation: '', planDurationMinutes: '60',
   consultationType: 'Z\u00e1kladn\u00ed soci\u00e1ln\u00ed poradenstv\u00ed', supportArea: '', supportSpecific: {}, topics: '', outcome: '', nextSteps: '', durationMinutes: '',
   debtSummary: '', debtCauses: '', debtStage: 'Mapov\u00e1n\u00ed', solutionPlan: '', educationTopic: '', sessionOrder: '1',
   themes: '', mentalState: '', recommendations: '', targetJob: '', cvDurationMinutes: '', experience: '', skills: '',
   position: '', feedback: '', strengths: '', developmentAreas: '', workplace: '', progressSummary: '', aiStyleRating: '3',
-  aiStyleFeedback: '', generatedText: '', caseManagementMode: false, selectedPartnerIds: [], partnerNames: [], participantCount: 0
+  aiStyleFeedback: '', generatedText: '', caseManagementMode: false, selectedPartnerIds: [], registeredPartnerNames: [], manualPartnerNames: [], partnerNames: [], participantCount: 0
 };
 
 const emptyFilters = { period: 'all', ka: 'all', worker: 'all' };
@@ -270,6 +201,7 @@ export {
   CLIENT_STATUS_OPTIONS,
   YES_NO_OPTIONS,
   REPORT_PROMPTS,
+  ACTIVE_AI_DOCUMENT_KEYS,
   APP_VIEWS,
   REPORTING_PERIODS,
   emptyClientDraft,

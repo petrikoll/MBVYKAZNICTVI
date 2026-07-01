@@ -1,7 +1,9 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Target } from 'lucide-react';
 
-import { Panel } from '../components/ui.jsx';
+import { HelpIcon, Panel } from '../components/ui.jsx';
+import { HELP } from '../config/helpCatalog.js';
+import { selectLatestClientPlan } from '../lib/planSelection.js';
 
 const emptyGoal = {
   goalId: '',
@@ -13,8 +15,7 @@ const emptyGoal = {
 };
 
 const emptyPlan = {
-  strengthsAndLimits: '',
-  identifiedBarriers: '',
+  situationDescription: '',
   goals: [{ ...emptyGoal }],
   finalEvaluation: '',
   acceptedPlanText: ''
@@ -89,16 +90,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
     setLoading(false);
 
     if (!clientId) return;
-    const planRecord = records
-      .filter((record) => record.entityType === 'plans' && record.clientId === clientId)
-      .sort((a, b) => {
-        const aGoals = Array.isArray(a.goals) ? a.goals : a.payload?.structuredGoals || [];
-        const bGoals = Array.isArray(b.goals) ? b.goals : b.payload?.structuredGoals || [];
-        const aHasContent = Number(Boolean(a.payload?.strengthsAndLimits || a.payload?.currentSituation || aGoals.some((goal) => goal.goalDescription)));
-        const bHasContent = Number(Boolean(b.payload?.strengthsAndLimits || b.payload?.currentSituation || bGoals.some((goal) => goal.goalDescription)));
-        if (aHasContent !== bHasContent) return bHasContent - aHasContent;
-        return Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0);
-      })[0];
+    const planRecord = selectLatestClientPlan(records, clientId);
 
     if (!planRecord) return;
     const data = planRecord;
@@ -112,8 +104,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
 
     setPlanId(data.id);
     setPlan({
-      strengthsAndLimits: data.strengthsAndLimits || data.payload?.strengthsAndLimits || data.payload?.currentSituation || '',
-      identifiedBarriers: data.identifiedBarriers || data.payload?.identifiedBarriers || data.payload?.barriers || '',
+      situationDescription: data.situationDescription || data.payload?.situationDescription || data.payload?.currentSituation || '',
       goals: storedGoals.length
         ? storedGoals.map((goal, index) => ({
             goalId: ensureGoalId(goal, index),
@@ -159,8 +150,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
   };
 
   const buildStructuredPlan = () => ({
-    strengthsAndLimits: plan.strengthsAndLimits.trim(),
-    identifiedBarriers: plan.identifiedBarriers.trim(),
+    situationDescription: plan.situationDescription.trim(),
     goals: plan.goals.map((goal, index) => ({
       goalId: ensureGoalId(goal, index),
       goalDescription: goal.goalDescription.trim(),
@@ -188,13 +178,11 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
       clientIds: [clientId],
       clientName,
       documentText: [
-        `Silné stránky a limity: ${structuredPlan.strengthsAndLimits}`,
-        `Identifikované bariéry: ${structuredPlan.identifiedBarriers}`,
+        `Popis situace: ${structuredPlan.situationDescription}`,
         `První cíl: ${firstGoal}`,
         structuredPlan.finalEvaluation ? `Závěrečné vyhodnocení: ${structuredPlan.finalEvaluation}` : ''
       ].filter(Boolean).join('\n\n'),
-      strengthsAndLimits: structuredPlan.strengthsAndLimits,
-      identifiedBarriers: structuredPlan.identifiedBarriers,
+      situationDescription: structuredPlan.situationDescription,
       goals: structuredPlan.goals,
       finalEvaluation: structuredPlan.finalEvaluation,
       payload: {
@@ -244,33 +232,21 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">Načítám plán...</div>
         ) : (
           <>
-            <div className={`grid gap-3 ${compact ? '' : 'lg:grid-cols-2'}`}>
-              <div>
-                <label className={labelClassName}>Silné stránky a limity *</label>
-                <AutoResizeTextarea
-                  required
-                  rows={2}
-                  value={plan.strengthsAndLimits}
-                  onChange={(event) => updateField('strengthsAndLimits', event.target.value)}
-                  className={inputClassName}
-                />
-              </div>
-              <div>
-                <label className={labelClassName}>Identifikované bariéry *</label>
-                <AutoResizeTextarea
-                  required
-                  rows={2}
-                  value={plan.identifiedBarriers}
-                  onChange={(event) => updateField('identifiedBarriers', event.target.value)}
-                  placeholder="Např. dluhy, nízké vzdělání, zdravotní omezení..."
-                  className={inputClassName}
-                />
-              </div>
+            <div>
+              <label className={labelClassName}>Popis situace * <HelpIcon help={HELP.iprSituation} /></label>
+              <AutoResizeTextarea
+                required
+                rows={4}
+                value={plan.situationDescription}
+                onChange={(event) => updateField('situationDescription', event.target.value)}
+                placeholder="Popište situaci klienta, jeho zdroje, omezení, potřeby a bariéry."
+                className={inputClassName}
+              />
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-bold text-slate-900">Cíle</h3>
+                <h3 className="flex items-center gap-1 text-sm font-bold text-slate-900">Cíle <HelpIcon help={HELP.iprGoals} /></h3>
                 <button
                   type="button"
                   onClick={addGoal}
@@ -337,7 +313,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
 
                   {goal.isCompleted && (
                     <div className="mt-2">
-                      <label className={labelClassName}>Hodnocení cíle *</label>
+                      <label className={labelClassName}>Hodnocení cíle * <HelpIcon help={HELP.iprGoalEvaluation} /></label>
                       <AutoResizeTextarea
                         required
                         rows={2}
@@ -354,7 +330,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
 
             {goalsReadyForFinalEvaluation ? (
               <div>
-                <label className={labelClassName}>Závěrečné vyhodnocení plánu</label>
+                <label className={labelClassName}>Závěrečné vyhodnocení plánu <HelpIcon help={HELP.iprFinalEvaluation} /></label>
                 <AutoResizeTextarea
                   rows={2}
                   value={plan.finalEvaluation}
