@@ -1,0 +1,15 @@
+verze 2026-07-02 + finální kontrola před GitHubem
+
+- řízený AI kontext
+- dočasný výběr AI modelu
+- oprava promptu tlačítka Shrnout zakázku AI bez starých indikátorů
+- case štítek v registru klientů
+- upozornění na cíle k vyhodnocení
+- výběr pracovníka v horní liště se ukládá do paměti prohlížeče
+
+- úklidový balík: odstranění nepoužívaných prvků starší struktury z UI, dashboardu a AI kontextu
+
+- fix: globální volba pracovníka zůstává zachovaná při přepínání listů
++ výchozí AI model po restartu: Gemini 2.5 Flash
+
+Oprava načítání cílů a indikátoru 670 102: normalizace datumů ze sheetu a robustní práce s cíli IP.

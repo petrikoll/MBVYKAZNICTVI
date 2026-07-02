@@ -1,0 +1,165 @@
+import React from 'react';
+import { Activity, AlertTriangle, Archive, ClipboardCopy, FileSpreadsheet, FileText, Network, Target } from 'lucide-react';
+
+import { HelpIcon, Panel, SelectField } from '../components/ui.jsx';
+import { HELP } from '../config/helpCatalog.js';
+import { REPORTING_PERIODS, WORKERS } from '../config/projectConfig.js';
+
+const ProgressRow = ({ item }) => {
+  const hasTarget = Number(item.target) > 0;
+  const percent = hasTarget ? Math.min(100, Math.round((Number(item.current || 0) / item.target) * 100)) : 0;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-1 text-sm font-semibold text-slate-800">{item.label}<HelpIcon help={item.key === 'inclusion-short' ? HELP.dashboardInclusion : null} /></div>
+        <div className="shrink-0 text-sm font-bold text-slate-900">{item.current}{hasTarget ? ' / ' + item.target : ''}</div>
+      </div>
+      {item.note && <div className="mt-1 text-xs text-slate-500">{item.note}</div>}
+      {hasTarget && (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+          <div className="h-full rounded-full bg-indigo-500" style={{ width: percent + '%' }} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+const IndicatorCard = ({ item }) => {
+  const percent = Math.min(100, Math.round((Number(item.current || 0) / item.target) * 100));
+  return (
+    <div className="rounded-lg border border-slate-300 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-xs font-bold uppercase text-indigo-700">Indikátor {item.code}</div>
+          <div className="mt-1 flex items-center gap-1 text-base font-bold text-slate-900">{item.label}<HelpIcon help={item.key === '600000' ? HELP.dashboard600 : HELP.dashboard670} /></div>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-bold text-slate-900">{item.current} / {item.target}</div>
+          <div className="text-xs font-semibold text-slate-500">{percent} %</div>
+        </div>
+      </div>
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+        <div className="h-full rounded-full bg-indigo-600" style={{ width: percent + '%' }} />
+      </div>
+    </div>
+  );
+};
+
+function ReportingView({
+  dashboardOverview,
+  exportClientsCsv,
+  exportAllRecordsBackup,
+  supportExportCount,
+  dashboardFilters,
+  setDashboardFilters,
+  filteredRecords,
+  handleGenerateZorTexts,
+  zorTexts,
+  copyToClipboard,
+  setCopied,
+  copied
+}) {
+  const overview = dashboardOverview || { indicators: [], longGoals: [], shortGoals: [], activityGoals: [], partnerMetrics: [], risks: [] };
+  return (
+    <div className="space-y-5">
+      <Panel
+        title="Filtry reportingu"
+        description="Filtry ovlivňují hodiny, výkony a plnění zobrazené na dashboardu."
+        icon={Activity}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <button onClick={exportClientsCsv} className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100">
+              <FileSpreadsheet className="h-4 w-4" /> Klienti a podpora do IS ESF
+            </button><HelpIcon help={HELP.dashboardExport} />
+            <button onClick={exportAllRecordsBackup} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              <Archive className="h-4 w-4" /> Stáhnout zápisy ({supportExportCount || 0})
+            </button>
+          </div>
+        }
+      >
+        <div className="grid gap-3 md:grid-cols-4">
+          <SelectField label="Vykazované období" help={HELP.dashboardPeriod} value={dashboardFilters.period} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, period: value }))} options={REPORTING_PERIODS.map((period) => ({ value: period.value, label: period.label }))} />
+          <SelectField label="Klíčová aktivita" value={dashboardFilters.ka} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, ka: value }))} options={[{ value: 'all', label: 'Všechny KA' }, { value: 'KA1', label: 'KA1' }, { value: 'KA2', label: 'KA2' }]} />
+          <SelectField label="Pracovník" value={dashboardFilters.worker} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, worker: value }))} options={[{ value: 'all', label: 'Všichni pracovníci' }].concat(WORKERS.map((worker) => ({ value: worker, label: worker })))} />
+          <div className="flex flex-col justify-end">
+            <button type="button" onClick={handleGenerateZorTexts} disabled={dashboardFilters.period === 'all'} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">
+              <FileText className="h-4 w-4" /> Vytvořit texty pro ZOR
+            </button><HelpIcon help={HELP.dashboardZor} />
+          </div>
+        </div>
+        <div className="mt-3 text-xs text-slate-600">Aktivní filtr zahrnuje <strong>{filteredRecords.length}</strong> záznamů.</div>
+      </Panel>
+
+      <section>
+        <h2 className="mb-3 text-base font-bold text-slate-900">Hlavní indikátory</h2>
+        <div className="grid gap-4 md:grid-cols-2">{overview.indicators.map((item) => <IndicatorCard key={item.key} item={item} />)}</div>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-base font-bold text-slate-900">Cíle projektu</h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-slate-300 bg-slate-100 p-4">
+            <div className="mb-3 flex items-center gap-2"><Target className="h-4 w-4 text-indigo-600" /><h3 className="flex items-center gap-1 text-sm font-bold text-slate-900">Dlouhodobá podpora – klienti 40+ hodin <HelpIcon help={HELP.dashboardLongGoals} /></h3></div>
+            <div className="space-y-2">{overview.longGoals.map((item) => <ProgressRow key={item.key} item={item} />)}</div>
+          </div>
+          <div className="rounded-lg border border-slate-300 bg-slate-100 p-4">
+            <div className="mb-3 flex items-center gap-2"><Target className="h-4 w-4 text-emerald-600" /><h3 className="text-sm font-bold text-slate-900">Krátkodobá podpora – klienti pod 40 hodin</h3></div>
+            <div className="space-y-2">{overview.shortGoals.map((item) => <ProgressRow key={item.key} item={item} />)}</div>
+          </div>
+        </div>
+        <div className="mt-4 rounded-lg border border-slate-300 bg-slate-100 p-4">
+          <div className="mb-3 text-sm font-bold text-slate-900">Doplňkové cíle KA1 / KA2</div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {overview.activityGoals.map((item) => <ProgressRow key={item.key} item={item} />)}
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-3 flex items-center gap-2">
+          <Network className="h-5 w-5 text-emerald-700" />
+          <h2 className="flex items-center gap-1 text-base font-bold text-slate-900">Partnerská síť <HelpIcon help={HELP.dashboardPartners} /></h2>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {overview.partnerMetrics.map((item) => (
+            <div key={item.key} className="rounded-lg border border-emerald-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="text-sm font-semibold text-slate-800">{item.label}</div>
+                <div className="text-2xl font-bold text-emerald-800">{item.current}</div>
+              </div>
+              <div className="mt-2 text-xs text-slate-500">{item.detail}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-3 flex items-center gap-1 text-base font-bold text-slate-900">Kontrolní upozornění <HelpIcon help={HELP.dashboardRisks} /></h2>
+        <div className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-300 bg-white">
+          {overview.risks.map((risk) => (
+            <div key={risk.key} className="flex items-center gap-3 px-4 py-3">
+              <AlertTriangle className={'h-4 w-4 shrink-0 ' + (risk.count > 0 ? 'text-amber-600' : 'text-emerald-600')} />
+              <div className="min-w-0 flex-1"><div className="text-sm font-semibold text-slate-900">{risk.label}</div><div className="text-xs text-slate-500">{risk.detail}</div></div>
+              <div className={'min-w-10 text-right text-lg font-bold ' + (risk.count > 0 ? 'text-amber-700' : 'text-emerald-700')}>{risk.count}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {zorTexts && (
+        <Panel title={'Texty pro ZOR (' + zorTexts.periodLabel + ')'} description="Pracovní návrhy popisu pokroku za sledované období." icon={FileText}>
+          <div className="space-y-3">
+            {Object.entries(zorTexts.texts).map(([ka, value]) => (
+              <div key={ka} className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-3"><strong>{ka}</strong><button type="button" onClick={() => copyToClipboard(value, setCopied)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold"><ClipboardCopy className="h-4 w-4" />{copied ? 'Zkopírováno' : 'Kopírovat'}</button></div>
+                <div className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{value}</div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+    </div>
+  );
+}
+
+export default ReportingView;
