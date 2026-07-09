@@ -3276,7 +3276,8 @@ function App() {
     return String(left.datumVstupu || '').trim() === String(right.datumVstupu || '').trim();
   };
 
-  const findDuplicateClient = (draft = {}) => clients.find((client) => isSameClientIdentity(draft, client));
+  const findDuplicateClient = (draft = {}, excludedClientId = '') =>
+    clients.find((client) => client.id !== excludedClientId && isSameClientIdentity(draft, client));
 
   const getDuplicateSaveMessage = (payload) => {
     if (payload.entityType === 'plans' && payload.clientId) {
@@ -3892,18 +3893,28 @@ function App() {
       return;
     }
 
+    const targetClientId = clientEditDraft.id || selectedClient.id;
+    const duplicateClient = findDuplicateClient(clientEditDraft, targetClientId);
+    if (duplicateClient) {
+      const message = `Klient s t\u011bmito \u00fadaji u\u017e v registru existuje: ${duplicateClient.fullName || 'bez jm\u00e9na'}.`;
+      setSaveButtonNotice('client-update', 'error', message);
+      setFlash(message);
+      return;
+    }
+
     setIsSaving(true);
     setSaveButtonNotice('client-update', 'progress', 'Ukládám úpravy…');
     try {
       const result = await postGoogleSheetAction({
         action: 'saveClient',
-        client: mapClientDraftToSheetClient(clientEditDraft, selectedClient.id)
+        client: mapClientDraftToSheetClient(clientEditDraft, targetClientId)
       });
       if (!result?.client?.klient_id) throw new Error('Google Sheet nevr\u00e1til ID klienta.');
-      const savedClient = mapSheetRowToClient(result.client, clients.findIndex((client) => client.id === selectedClient.id));
+      const savedClient = mapSheetRowToClient(result.client, clients.findIndex((client) => client.id === targetClientId));
       if (!savedClient) throw new Error('Upraven\u00e9ho klienta se nepoda\u0159ilo na\u010d\u00edst.');
 
-      setClients((prev) => prev.map((client) => (client.id === selectedClient.id ? savedClient : client)));
+      setClients((prev) => prev.map((client) => (client.id === targetClientId ? savedClient : client)));
+      setSelectedClientId(savedClient.id);
       setSheetError('');
       setSaveButtonNotice('client-update', 'success', 'Klient uložen');
       setFlash('Klient uložen');

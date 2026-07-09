@@ -288,9 +288,23 @@ function saveClient_(client) {
 
   const now = new Date();
   const incoming = Object.assign({}, client);
-  const duplicateRow = incoming.klient_id ? null : findDuplicateClientRow_(sheet, headers, incoming);
-  incoming.klient_id = incoming.klient_id || (duplicateRow ? String(sheet.getRange(duplicateRow, klientIdColumn).getValue() || '') : nextClientId_(sheet, klientIdColumn));
-  const existingRow = findClientRow_(sheet, klientIdColumn, incoming.klient_id) || duplicateRow;
+  incoming.klient_id = String(incoming.klient_id || '').trim();
+  const existingRow = incoming.klient_id ? findClientRow_(sheet, klientIdColumn, incoming.klient_id) : null;
+  if (incoming.klient_id && !existingRow) {
+    throw new Error('Klienta s ID ' + incoming.klient_id + ' nelze najit. Ulozeni zastaveno, aby nedoslo k prepsani jineho klienta.');
+  }
+
+  const duplicateIdRows = incoming.klient_id ? findClientRows_(sheet, klientIdColumn, incoming.klient_id) : [];
+  if (duplicateIdRows.length > 1) {
+    throw new Error('V listu Klienti existuje duplicitni klient_id ' + incoming.klient_id + '. Ulozeni zastaveno, nejdrive oprav duplicitni radky.');
+  }
+
+  const duplicateRow = findDuplicateClientRow_(sheet, headers, incoming, existingRow);
+  if (duplicateRow) {
+    throw new Error('Klient uz v registru existuje na radku ' + duplicateRow + '. Ulozeni zastaveno, aby nevznikla duplicita nebo prepsani jineho klienta.');
+  }
+
+  incoming.klient_id = incoming.klient_id || nextClientId_(sheet, klientIdColumn);
   const existing = existingRow
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
@@ -953,7 +967,7 @@ function normalizePhoneForDuplicate_(value) {
   return normalizeDuplicateText_(value).replace(/\s+/g, '');
 }
 
-function findDuplicateClientRow_(sheet, headers, incoming) {
+function findDuplicateClientRow_(sheet, headers, incoming, excludedRow) {
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return null;
 
@@ -967,7 +981,9 @@ function findDuplicateClientRow_(sheet, headers, incoming) {
   const incomingEntryDate = formatDateValue_(incoming.datum_vstupu_do_projektu || '');
   const values = sheet.getRange(CONFIG.headerRow + 1, 1, lastRow - CONFIG.headerRow, headers.length).getValues();
 
-  const index = values.findIndex((row) => {
+  const index = values.findIndex((row, index) => {
+    const sheetRow = CONFIG.headerRow + 1 + index;
+    if (excludedRow && sheetRow === excludedRow) return false;
     const existing = rowToObject_(headers, row);
     if (normalizeDuplicateText_(existing.jmeno) !== incomingFirstName) return false;
     if (normalizeDuplicateText_(existing.prijmeni) !== incomingLastName) return false;
@@ -982,7 +998,9 @@ function findDuplicateClientRow_(sheet, headers, incoming) {
     if (incomingPhone && existingPhone) return incomingPhone === existingPhone;
 
     const existingEntryDate = formatDateValue_(existing.datum_vstupu_do_projektu || '');
-    return incomingEntryDate && existingEntryDate && incomingEntryDate === existingEntryDate;
+    if (incomingEntryDate && existingEntryDate) return incomingEntryDate === existingEntryDate;
+
+    return true;
   });
 
   return index === -1 ? null : CONFIG.headerRow + 1 + index;
@@ -1013,11 +1031,20 @@ function findDuplicateRecordRow_(sheet, headers, incoming, idHeader) {
 }
 
 function findClientRow_(sheet, klientIdColumn, klientId) {
+  const rows = findClientRows_(sheet, klientIdColumn, klientId);
+  return rows[0] || null;
+}
+
+function findClientRows_(sheet, klientIdColumn, klientId) {
   const lastRow = sheet.getLastRow();
-  if (lastRow <= CONFIG.headerRow) return null;
+  if (lastRow <= CONFIG.headerRow) return [];
+  const targetId = String(klientId || '').trim();
+  if (!targetId) return [];
   const values = sheet.getRange(CONFIG.headerRow + 1, klientIdColumn, lastRow - CONFIG.headerRow, 1).getValues();
-  const index = values.findIndex((row) => row[0] === klientId);
-  return index === -1 ? null : CONFIG.headerRow + 1 + index;
+  return values.reduce((rows, row, index) => {
+    if (String(row[0] || '').trim() === targetId) rows.push(CONFIG.headerRow + 1 + index);
+    return rows;
+  }, []);
 }
 
 function nextClientId_(sheet, klientIdColumn) {
