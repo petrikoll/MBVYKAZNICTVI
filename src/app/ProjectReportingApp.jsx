@@ -2660,6 +2660,36 @@ function App() {
     });
   }, [accessibleClients, filteredRecords]);
 
+  const professionalDevelopmentRecords = useMemo(() => {
+    const normalize = (value) =>
+      String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+
+    return records.filter((record) => {
+      if (!['education_records', 'supervision_records'].includes(record.entityType)) return false;
+
+      const payload = record.payload || {};
+      const activityDate = record.activityDate || payload.date || '';
+      if (!isDateWithinPeriod(activityDate, selectedReportingPeriod)) return false;
+      if (dashboardFilters.worker === 'all') return true;
+
+      const workers = Array.isArray(payload.workers)
+        ? payload.workers
+        : [
+          record.worker,
+          payload.worker,
+          payload.workerName,
+          payload.jmeno_pracovnika,
+          payload.jmenoPracovnika
+        ].filter(Boolean);
+
+      return workers.some((worker) => normalize(worker) === normalize(dashboardFilters.worker));
+    });
+  }, [dashboardFilters.worker, records, selectedReportingPeriod]);
+
   const dashboardOverview = useMemo(() => {
     const normalize = (value) =>
       String(value || '')
@@ -2777,11 +2807,13 @@ function App() {
         supervisionTotalHours: 0
       };
 
-      records
+      professionalDevelopmentRecords
         .filter((record) => record.entityType === 'education_records')
         .forEach((record) => {
           const payload = record.payload || {};
-          const workers = Array.isArray(payload.workers) ? payload.workers : [record.worker || payload.worker].filter(Boolean);
+          const workers = Array.isArray(payload.workers)
+            ? payload.workers
+            : [record.worker, payload.worker, payload.workerName, payload.jmeno_pracovnika, payload.jmenoPracovnika].filter(Boolean);
           if (!workers.some((item) => normalize(item) === normalizedWorker)) return;
           const hours = hoursValue(payload.hours);
           const year = String(payload.date || record.activityDate || '').slice(0, 4);
@@ -2791,11 +2823,13 @@ function App() {
           stats.educationTotalHours += hours;
         });
 
-      records
+      professionalDevelopmentRecords
         .filter((record) => record.entityType === 'supervision_records')
         .forEach((record) => {
           const payload = record.payload || {};
-          const workers = Array.isArray(payload.workers) ? payload.workers : [record.worker].filter(Boolean);
+          const workers = Array.isArray(payload.workers)
+            ? payload.workers
+            : [record.worker, payload.worker, payload.workerName, payload.jmeno_pracovnika, payload.jmenoPracovnika].filter(Boolean);
           if (!workers.some((item) => normalize(item) === normalizedWorker)) return;
           const hours = hoursValue(payload.hours);
           const supervisionType = normalize(payload.type || record.title);
@@ -2868,7 +2902,7 @@ function App() {
         { key: 'missing-evaluation', label: 'Chyb\u00ed vyhodnocen\u00ed c\u00edle', count: missingGoalEvaluationCount, detail: 'Spln\u011bn\u00fd c\u00edl nem\u00e1 slovn\u00ed vyhodnocen\u00ed' }
       ]
     };
-  }, [clients, filteredRecords, records, selectedReportingPeriod]);
+  }, [clients, filteredRecords, professionalDevelopmentRecords, records, selectedReportingPeriod]);
 
   const periodRecordsForZor = useMemo(
     () => storedActivityRecords.filter((record) => isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod)),
