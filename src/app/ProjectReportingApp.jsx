@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import {
   Activity,
   AlertCircle,
@@ -4727,7 +4729,148 @@ ${rawOutput}` }] }],
   };
 
   const exportKa01AttendanceSheet = async () => {
-    setFlash('Tento export není v této verzi používán.');
+    const selected = ka01ActorRegistryRecords.filter((record) => {
+      if (!ka01AttendanceSelection[record.id]) return false;
+      const payload = record.payload || {};
+      const fullName = String(payload.contactName || '').trim();
+      const fallbackTokens = fullName.split(/\s+/).filter(Boolean);
+      const titleRegex = /^(Mgr\.?|Ing\.?|Bc\.?|JUDr\.?|MUDr\.?|PhDr\.?|doc\.?|prof\.?|DiS\.?)$/i;
+      const title = String(payload.contactTitle || '').trim()
+        || (fallbackTokens.length > 0 && titleRegex.test(fallbackTokens[0]) ? fallbackTokens[0] : '');
+      const firstName = String(payload.contactFirstName || '').trim()
+        || (fallbackTokens.length > 0 ? (title ? (fallbackTokens[1] || '') : fallbackTokens[0]) : '');
+      const lastName = String(payload.contactLastName || '').trim()
+        || (fallbackTokens.length > 0 ? fallbackTokens.slice(title ? 2 : 1).join(' ') : '');
+      const subject = String(payload.name || '').trim();
+      return Boolean(firstName && lastName && subject);
+    });
+
+    if (selected.length === 0) {
+      setFlash('Označ alespoň jednoho aktéra s vyplněným jménem, příjmením a subjektem.');
+      return;
+    }
+
+    const rows = selected.map((record, index) => {
+      const payload = record.payload || {};
+      const fullName = String(payload.contactName || '').trim();
+      const fallbackTokens = fullName.split(/\s+/).filter(Boolean);
+      const titleRegex = /^(Mgr\.?|Ing\.?|Bc\.?|JUDr\.?|MUDr\.?|PhDr\.?|doc\.?|prof\.?|DiS\.?)$/i;
+      const title = String(payload.contactTitle || '').trim()
+        || (fallbackTokens.length > 0 && titleRegex.test(fallbackTokens[0]) ? fallbackTokens[0] : '');
+      const firstName = String(payload.contactFirstName || '').trim()
+        || (fallbackTokens.length > 0 ? (title ? (fallbackTokens[1] || '') : fallbackTokens[0]) : '');
+      const lastName = String(payload.contactLastName || '').trim()
+        || (fallbackTokens.length > 0 ? fallbackTokens.slice(title ? 2 : 1).join(' ') : '');
+      return {
+        order: String(index + 1),
+        firstName,
+        lastName,
+        organization: String(payload.name || '').trim(),
+        role: String(payload.contactRole || '').trim()
+      };
+    });
+
+    setFlash('Připravuji PDF prezenční listiny...');
+    let wrapper = null;
+    try {
+      const escapeHtml = (value) => String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+      const rowsHtml = rows.map((row) => `
+        <tr>
+          <td style="border:1px solid #cbd5e1;padding:6px;text-align:center;">${escapeHtml(row.order)}</td>
+          <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.firstName)}</td>
+          <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.lastName)}</td>
+          <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.organization)}</td>
+          <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.role)}</td>
+          <td style="border:1px solid #cbd5e1;padding:6px;height:30px;"></td>
+        </tr>
+      `).join('');
+
+      wrapper = document.createElement('div');
+      wrapper.style.position = 'fixed';
+      wrapper.style.left = '0';
+      wrapper.style.top = '0';
+      wrapper.style.pointerEvents = 'none';
+      wrapper.style.zIndex = '2147483647';
+      wrapper.style.width = '1123px';
+      wrapper.style.background = '#ffffff';
+      wrapper.style.color = '#0f172a';
+      wrapper.style.fontFamily = 'Arial, sans-serif';
+      wrapper.style.padding = '28px';
+      wrapper.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;">
+          <div>
+            <h1 style="margin:0 0 8px 0;font-size:34px;line-height:1.2;">KA2 - Prezenční listina aktérů sítě</h1>
+            <p style="margin:0 0 6px 0;font-size:18px;">Datum vytvoření: ${escapeHtml(todayIso())}</p>
+            <p style="margin:0;font-size:18px;">Schůzka dne: ........................................   Od: ....................   Do: ....................</p>
+          </div>
+          <img src="${sfLogoImage}" alt="Spolufinancováno" style="width:420px;height:auto;" />
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:16px;">
+          <thead>
+            <tr>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">#</th>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Jméno</th>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Příjmení</th>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Organizace</th>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Funkce v organizaci</th>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Podpis</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      `;
+      document.body.appendChild(wrapper);
+      const logoEl = wrapper.querySelector('img');
+      if (logoEl && !logoEl.complete) {
+        await new Promise((resolve) => {
+          logoEl.onload = () => resolve();
+          logoEl.onerror = () => resolve();
+        });
+      }
+
+      await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+      const canvas = await html2canvas(wrapper, {
+        scale: 2,
+        useCORS: false,
+        backgroundColor: '#ffffff'
+      });
+      wrapper.remove();
+      wrapper = null;
+
+      const imgData = canvas.toDataURL('image/png');
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 8;
+      const contentWidth = pageWidth - margin * 2;
+      const contentHeight = pageHeight - margin * 2;
+      const imgHeight = (canvas.height * contentWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let y = margin;
+      doc.addImage(imgData, 'PNG', margin, y, contentWidth, imgHeight);
+      heightLeft -= contentHeight;
+
+      while (heightLeft > 0) {
+        y = margin - (imgHeight - heightLeft);
+        doc.addPage();
+        doc.addImage(imgData, 'PNG', margin, y, contentWidth, imgHeight);
+        heightLeft -= contentHeight;
+      }
+
+      doc.save(`prezencni_listina_${todayIso()}.pdf`);
+      setFlash(`Prezenční listina byla stažena do PDF pro ${selected.length} aktérů.`);
+    } catch (error) {
+      wrapper?.remove();
+      console.error('KA01 attendance PDF export error:', error);
+      setFlash(error.message || 'Export prezenční listiny do PDF selhal.');
+    }
   };
 
 
