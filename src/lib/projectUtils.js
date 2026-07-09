@@ -66,6 +66,7 @@ function mapSheetRowToClient(row, index) {
       caseManagementDuvod: row.case_management_duvod || '',
       caseManagementOd: normalizeDateIso(row.case_management_od),
       poznamka: row.poznamka || '',
+      rodina: /^(ano|true|1)$/i.test(String(row.rodina || '').trim()),
       situacePoUkonceni: row.situace_po_ukonceni || '',
       driveFolderUrl: row.drive_folder_url || '',
       monitoringListUrl: row.monitoring_list_url || '',

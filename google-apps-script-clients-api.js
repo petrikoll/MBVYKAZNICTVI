@@ -6,6 +6,7 @@ const CONFIG = {
   meetingSheetName: 'Case_management_zapisy',
   networkMeetingSheetName: 'Schuzky_site',
   educationSheetName: 'Vzdelavani',
+  supervisionSheetName: 'Supervize',
   individualPlanSheetName: 'Individualni_plany',
   headerRow: 1,
   token: '',
@@ -40,6 +41,9 @@ function doGet(e) {
     }
     if (e.parameter.action === 'listEducation') {
       return json_({ ok: true, education: listEducation_() });
+    }
+    if (e.parameter.action === 'listSupervision') {
+      return json_({ ok: true, supervision: listSupervision_() });
     }
     return json_({ ok: false, error: 'Unknown action' });
   } catch (error) {
@@ -122,6 +126,16 @@ function doPost(e) {
       return json_({ ok: true });
     }
 
+    if (payload.action === 'saveSupervision') {
+      const supervision = saveSupervision_(payload.supervision || {});
+      return json_({ ok: true, supervision });
+    }
+
+    if (payload.action === 'deleteSupervision') {
+      deleteRecord_(CONFIG.supervisionSheetName, 'sepervize_id', payload.id);
+      return json_({ ok: true });
+    }
+
     if (payload.action === 'ensureClientFolder') {
       const client = ensureClientFolder_(payload.klient_id);
       return json_({ ok: true, client });
@@ -195,6 +209,8 @@ const KA1_SUPPORT_AREA_OPTIONS_ = [
 const KA1_SERVICE_FORM_OPTIONS_ = ['ambulantn\u00ed', 'ter\u00e9nn\u00ed', 'Telefonn\u00ed'];
 const WORKER_OPTIONS_ = ['Sociální pracovník', 'Case manager', 'Odborný garant'];
 
+const YES_NO_OPTIONS_ = ['Ano', 'Ne'];
+
 function syncKa01SheetStructure() {
   let sheet = getOrCreateSheet_(CONFIG.performanceSheetName, PERFORMANCE_HEADERS_);
   let headers = getHeaders_(sheet);
@@ -235,13 +251,19 @@ const NETWORK_MEETING_HEADERS_ = [
 ];
 const EDUCATION_HEADERS_ = [
   'vzdelavani_id', 'datum', 'pocet_hodin', 'nazev_vzdelavani', 'cislo_akreditace', 'jmeno_pracovnika',
+  'jmeno_pracovnika1', 'jmeno_pracovnika2', 'jmeno_pracovnika3',
   'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
 ];
+const SUPERVISION_HEADERS_ = [
+  'sepervize_id', 'datum', 'pocet_hodin', 'typ_supervize', 'jmeno_pracovnika1', 'jmeno_pracovnika2', 'jmeno_pracovnika3'
+];
+const SUPERVISION_TYPE_OPTIONS_ = ['individuální', 'skupinová'];
 
 function listClients_() {
   const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
   if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
   ensureHeader_(sheet, getHeaders_(sheet), 'klicovy_pracovnik');
+  ensureHeader_(sheet, getHeaders_(sheet), 'rodina');
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -257,8 +279,10 @@ function saveClient_(client) {
   const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
   if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
   ensureHeader_(sheet, getHeaders_(sheet), 'klicovy_pracovnik');
+  ensureHeader_(sheet, getHeaders_(sheet), 'rodina');
   const headers = getHeaders_(sheet);
   setColumnListValidation_(sheet, headers, 'klicovy_pracovnik', WORKER_OPTIONS_);
+  setColumnListValidation_(sheet, headers, 'rodina', YES_NO_OPTIONS_);
   const klientIdColumn = headers.indexOf('klient_id') + 1;
   if (!klientIdColumn) throw new Error('Missing klient_id column');
 
@@ -536,6 +560,9 @@ function saveEducation_(education) {
   const sheet = getOrCreateSheet_(CONFIG.educationSheetName, EDUCATION_HEADERS_);
   const headers = getHeaders_(sheet);
   setColumnListValidation_(sheet, headers, 'jmeno_pracovnika', WORKER_OPTIONS_);
+  setColumnListValidation_(sheet, headers, 'jmeno_pracovnika1', WORKER_OPTIONS_);
+  setColumnListValidation_(sheet, headers, 'jmeno_pracovnika2', WORKER_OPTIONS_);
+  setColumnListValidation_(sheet, headers, 'jmeno_pracovnika3', WORKER_OPTIONS_);
   const educationIdColumn = headers.indexOf('vzdelavani_id') + 1;
   if (!educationIdColumn) throw new Error('Missing vzdelavani_id column');
 
@@ -543,6 +570,8 @@ function saveEducation_(education) {
   const normalized = Object.assign({}, education);
   const incomingEducationId = String(normalized.vzdelavani_id || '').trim();
   normalized.vzdelavani_id = normalized.vzdelavani_id || nextPrefixedId_(sheet, educationIdColumn, 'VZDELAVANI');
+  normalized.jmeno_pracovnika = normalized.jmeno_pracovnika || normalized.jmeno_pracovnika1 || '';
+  normalized.jmeno_pracovnika1 = normalized.jmeno_pracovnika1 || normalized.jmeno_pracovnika || '';
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
   normalized.created_at = normalized.created_at || now;
@@ -551,6 +580,45 @@ function saveEducation_(education) {
 
   const existingRow = findRowById_(sheet, educationIdColumn, normalized.vzdelavani_id);
   const duplicateRow = incomingEducationId ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'vzdelavani_id');
+  if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
+
+  const targetRow = existingRow || sheet.getLastRow() + 1;
+  const values = headers.map((header) => normalized[header] ?? '');
+  const savedRange = sheet.getRange(targetRow, 1, 1, headers.length);
+  savedRange.setValues([values]);
+
+  return rowToObject_(headers, savedRange.getValues()[0], savedRange.getDisplayValues()[0]);
+}
+
+function listSupervision_() {
+  const sheet = getOrCreateSheet_(CONFIG.supervisionSheetName, SUPERVISION_HEADERS_);
+  const headers = getHeaders_(sheet);
+  setColumnListValidation_(sheet, headers, 'typ_supervize', SUPERVISION_TYPE_OPTIONS_);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= CONFIG.headerRow) return [];
+
+  const range = sheet.getRange(CONFIG.headerRow + 1, 1, lastRow - CONFIG.headerRow, headers.length);
+  const values = range.getValues();
+  const displayValues = range.getDisplayValues();
+  return values
+    .map((row, index) => ({ row: row, displayRow: displayValues[index] }))
+    .filter((item) => item.row.some((cell) => cell !== ''))
+    .map((item) => rowToObject_(headers, item.row, item.displayRow));
+}
+
+function saveSupervision_(supervision) {
+  const sheet = getOrCreateSheet_(CONFIG.supervisionSheetName, SUPERVISION_HEADERS_);
+  const headers = getHeaders_(sheet);
+  setColumnListValidation_(sheet, headers, 'typ_supervize', SUPERVISION_TYPE_OPTIONS_);
+  const supervisionIdColumn = headers.indexOf('sepervize_id') + 1;
+  if (!supervisionIdColumn) throw new Error('Missing sepervize_id column');
+
+  const normalized = Object.assign({}, supervision);
+  const incomingSupervisionId = String(normalized.sepervize_id || '').trim();
+  normalized.sepervize_id = normalized.sepervize_id || nextPrefixedId_(sheet, supervisionIdColumn, 'SUPERVIZE');
+
+  const existingRow = findRowById_(sheet, supervisionIdColumn, normalized.sepervize_id);
+  const duplicateRow = incomingSupervisionId ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'sepervize_id');
   if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
@@ -1030,7 +1098,3 @@ function json_(payload) {
     .createTextOutput(JSON.stringify(payload))
     .setMimeType(ContentService.MimeType.JSON);
 }
-
-
-
-

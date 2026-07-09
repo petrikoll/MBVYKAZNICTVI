@@ -173,7 +173,8 @@ const emptyClientDraft = {
   jmeno: '', prijmeni: '', datumNarozeni: '', ulice: '', cisloPopisne: '', mesto: '', psc: '', spadoveMesto: '',
   email: '', datovaSchranka: '', telefon: '', pohlavi: '', postaveniNaTrhu: '', vzdelani: '', znevyhodneni: '',
   datumVstupu: todayIso(), datumVystupu: '', stavKlienta: 'Aktivn\u00ed', keyWorker: '', caseManagementPotreba: 'Ne',
-  caseManagementDuvod: '', caseManagementOd: '', poznamka: '', situacePoUkonceni: '', projectStatus: 'active'
+  caseManagementDuvod: '', caseManagementOd: '', poznamka: '', situacePoUkonceni: '', projectStatus: 'active',
+  rodina: false
 };
 
 const emptyGeneratorDraft = {

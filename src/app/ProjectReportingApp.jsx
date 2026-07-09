@@ -132,6 +132,7 @@ const LazyViewFallback = () => (
 
 const KA02_AI_DOCUMENT_KEYS = ['plan', 'consultation'];
 const KA02_STRUCTURED_FORM_KEYS = ['consultation'];
+const SUPERVISION_TYPE_OPTIONS = ['individuální', 'skupinová'];
 const KA1_SUPPORT_SPECIFIC_SHEET_COLUMNS = [
   ['contactPlace', 'misto_depistaze'],
   ['contactMethod', 'zpusob_kontaktu'],
@@ -1400,7 +1401,7 @@ function stringifyPlanGoals(goals) {
     .join('\n\n');
 }
 
-function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], meetings = [], networkMeetings = [], partners = [], education = [] }, clientIndex = {}) {
+function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], meetings = [], networkMeetings = [], partners = [], education = [], supervision = [] }, clientIndex = {}) {
   const clientName = (clientId) => clientIndex[clientId]?.fullName || clientId || '';
   const statusOk = (row) => !String(row.status || '').toLowerCase().includes('smaz');
   const records = [];
@@ -1602,7 +1603,11 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
     const id = asSheetText(row.vzdelavani_id);
     const title = asSheetText(row.nazev_vzdelavani);
     if (!id && !title) return;
-    const worker = asSheetWorker(row.jmeno_pracovnika);
+    const workers = [
+      row.jmeno_pracovnika1 || row.jmeno_pracovnika,
+      row.jmeno_pracovnika2,
+      row.jmeno_pracovnika3
+    ].map(asSheetWorker).filter(Boolean);
     records.push({
       id: id || 'vzdelavani-' + title,
       remoteSource: 'google-sheet',
@@ -1610,7 +1615,7 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       ka: 'VZDELAVANI',
       title: title || 'Vzdělávání',
       activityDate: asSheetDate(row.datum || row.created_at),
-      worker,
+      worker: workers[0] || '',
       clientIds: [],
       documentText: title || '',
       payload: {
@@ -1618,11 +1623,41 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
         hours: asSheetText(row.pocet_hodin),
         title,
         accreditationNumber: asSheetText(row.cislo_akreditace),
-        worker
+        worker: workers[0] || '',
+        workers
       },
       indicatorFlags: {},
       createdAt: Date.parse(asSheetText(row.created_at)) || 0,
       updatedAt: Date.parse(asSheetText(row.updated_at)) || 0
+    });
+  });
+
+  supervision.filter(statusOk).forEach((row) => {
+    const id = asSheetText(row.sepervize_id);
+    const type = asSheetText(row.typ_supervize);
+    if (!id && !type) return;
+    const workers = [row.jmeno_pracovnika1, row.jmeno_pracovnika2, row.jmeno_pracovnika3]
+      .map(asSheetWorker)
+      .filter(Boolean);
+    records.push({
+      id: id || 'supervize-' + type + '-' + asSheetDate(row.datum),
+      remoteSource: 'google-sheet',
+      entityType: 'supervision_records',
+      ka: 'SUPERVIZE',
+      title: type ? 'Supervize - ' + type : 'Supervize',
+      activityDate: asSheetDate(row.datum),
+      worker: workers[0] || '',
+      clientIds: [],
+      documentText: type || '',
+      payload: {
+        date: asSheetDate(row.datum),
+        hours: asSheetText(row.pocet_hodin),
+        type,
+        workers
+      },
+      indicatorFlags: {},
+      createdAt: Date.parse(asSheetText(row.datum)) || 0,
+      updatedAt: Date.parse(asSheetText(row.datum)) || 0
     });
   });
 
@@ -1674,6 +1709,7 @@ function mapClientDraftToSheetClient(draft, klientId = '') {
     case_management_duvod: caseManagementPotreba === 'Ano' ? String(draft.caseManagementDuvod || '').trim() : '',
     case_management_od: caseManagementPotreba === 'Ano' ? normalizeClientDateForSheet(draft.caseManagementOd) : '',
     poznamka: String(draft.poznamka || '').trim(),
+    rodina: draft.rodina ? 'Ano' : 'Ne',
     drive_folder_url: draft.driveFolderUrl || '',
     monitoring_list_url: draft.monitoringListUrl || ''
   };
@@ -1757,7 +1793,10 @@ function ClientRegistrationFields({ draft, setDraft, compact = false }) {
               <TextAreaField label="Důvod case managementu" help={HELP.clientsCaseReason} value={draft.caseManagementDuvod} onChange={(value) => update('caseManagementDuvod', value)} rows={2} />
             </>
           )}
-          <TextAreaField label="Poznámka" help={HELP.clientsNote} value={draft.poznamka} onChange={(value) => update('poznamka', value)} rows={2} />
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+            <TextAreaField label="Poznámka" help={HELP.clientsNote} value={draft.poznamka} onChange={(value) => update('poznamka', value)} rows={2} />
+            <CheckboxField label="Rodina" checked={Boolean(draft.rodina)} onChange={(value) => update('rodina', value)} compact />
+          </div>
         </div>
       </div>
     );
@@ -1802,10 +1841,28 @@ function ClientRegistrationFields({ draft, setDraft, compact = false }) {
       {caseManagementValue === 'Ano' && (
         <TextAreaField label="Důvod case managementu" help={HELP.clientsCaseReason} value={draft.caseManagementDuvod} onChange={(value) => update('caseManagementDuvod', value)} rows={2} />
       )}
-      <TextAreaField label="Poznámka" help={HELP.clientsNote} value={draft.poznamka} onChange={(value) => update('poznamka', value)} rows={2} />
+      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+        <TextAreaField label="Poznámka" help={HELP.clientsNote} value={draft.poznamka} onChange={(value) => update('poznamka', value)} rows={2} />
+        <CheckboxField label="Rodina" checked={Boolean(draft.rodina)} onChange={(value) => update('rodina', value)} compact />
+      </div>
     </div>
   );
 }
+
+const SaveInlineNotice = ({ notice }) => {
+  if (!notice?.text) return null;
+  const toneClasses = {
+    success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    error: 'border-red-200 bg-red-50 text-red-700',
+    warning: 'border-amber-200 bg-amber-50 text-amber-700',
+    progress: 'border-slate-200 bg-white text-slate-600'
+  };
+  return (
+    <span className={`inline-flex min-h-9 items-center rounded-lg border px-3 py-2 text-xs font-semibold ${toneClasses[notice.tone] || toneClasses.progress}`}>
+      {notice.text}
+    </span>
+  );
+};
 
 const createKa01Draft = () => ({
   date: todayIso(),
@@ -2046,6 +2103,7 @@ function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveNotice, setSaveNotice] = useState(null);
+  const [saveButtonNotices, setSaveButtonNotices] = useState({});
   const pendingRecordSaveSignaturesRef = useRef(new Set());
   const pendingClientSaveSignaturesRef = useRef(new Set());
   const [isProvisioningClientFolder, setIsProvisioningClientFolder] = useState(false);
@@ -2221,8 +2279,19 @@ function App() {
     hours: '',
     title: '',
     accreditationNumber: '',
-    worker: readStoredGlobalWorker()
+    worker1: readStoredGlobalWorker(),
+    worker2: '',
+    worker3: ''
   });
+  const [supervisionDraft, setSupervisionDraft] = useState({
+    date: todayIso(),
+    hours: '',
+    type: 'individuální',
+    worker1: readStoredGlobalWorker(),
+    worker2: '',
+    worker3: ''
+  });
+  const isIndividualSupervision = supervisionDraft.type === 'individuální';
 
   useEffect(() => {
     if (!hasFirebaseConfig || !auth) {
@@ -2369,7 +2438,7 @@ function App() {
 
     const fetchSheetRecords = async () => {
       try {
-        const [plans, performances, meetings, networkMeetings, partners, education] = await Promise.all([
+        const [plans, performances, meetings, networkMeetings, partners, education, supervision] = await Promise.all([
           fetchAction('listIndividualPlans'),
           fetchAction('listPerformances'),
           fetchAction('listMeetings'),
@@ -2378,6 +2447,10 @@ function App() {
           fetchAction('listEducation').catch((error) => {
             console.warn('Education records load skipped:', error);
             return { education: [], educations: [], vzdelavani: [] };
+          }),
+          fetchAction('listSupervision').catch((error) => {
+            console.warn('Supervision records load skipped:', error);
+            return { supervision: [], supervisions: [], supervize: [] };
           })
         ]);
         if (cancelled) return;
@@ -2387,7 +2460,8 @@ function App() {
           meetings: meetings.meetings || [],
           networkMeetings: networkMeetings.networkMeetings || [],
           partners: partners.partners || [],
-          education: education.education || education.educations || education.vzdelavani || []
+          education: education.education || education.educations || education.vzdelavani || [],
+          supervision: supervision.supervision || supervision.supervisions || supervision.supervize || []
         }, clientIndex);
         setRecords((prev) => {
           const remoteIds = new Set(remoteRecords.map((record) => record.id));
@@ -2685,6 +2759,63 @@ function App() {
     const outreachCount = filteredRecords.filter((record) =>
       normalize(record.payload?.consultationType || record.title).includes('depist')
     ).length;
+    const hoursValue = (value) => {
+      const minutes = hoursToMinutes(value);
+      return minutes > 0 ? minutes / 60 : 0;
+    };
+    const roundHours = (value) => Math.round(Number(value || 0) * 100) / 100;
+    const professionalDevelopmentStats = WORKERS.map((worker) => {
+      const normalizedWorker = normalize(worker);
+      const stats = {
+        key: normalizedWorker || worker,
+        worker,
+        individualSupervisionHours: 0,
+        groupSupervisionHours: 0,
+        education2026Hours: 0,
+        education2027Hours: 0,
+        education2028Hours: 0,
+        educationTotalHours: 0,
+        supervisionTotalHours: 0
+      };
+
+      records
+        .filter((record) => record.entityType === 'education_records')
+        .forEach((record) => {
+          const payload = record.payload || {};
+          const workers = Array.isArray(payload.workers) ? payload.workers : [record.worker || payload.worker].filter(Boolean);
+          if (!workers.some((item) => normalize(item) === normalizedWorker)) return;
+          const hours = hoursValue(payload.hours);
+          const year = String(payload.date || record.activityDate || '').slice(0, 4);
+          if (year === '2026') stats.education2026Hours += hours;
+          if (year === '2027') stats.education2027Hours += hours;
+          if (year === '2028') stats.education2028Hours += hours;
+          stats.educationTotalHours += hours;
+        });
+
+      records
+        .filter((record) => record.entityType === 'supervision_records')
+        .forEach((record) => {
+          const payload = record.payload || {};
+          const workers = Array.isArray(payload.workers) ? payload.workers : [record.worker].filter(Boolean);
+          if (!workers.some((item) => normalize(item) === normalizedWorker)) return;
+          const hours = hoursValue(payload.hours);
+          const supervisionType = normalize(payload.type || record.title);
+          if (supervisionType.includes('skupin')) stats.groupSupervisionHours += hours;
+          else stats.individualSupervisionHours += hours;
+          stats.supervisionTotalHours += hours;
+        });
+
+      return {
+        ...stats,
+        individualSupervisionHours: roundHours(stats.individualSupervisionHours),
+        groupSupervisionHours: roundHours(stats.groupSupervisionHours),
+        education2026Hours: roundHours(stats.education2026Hours),
+        education2027Hours: roundHours(stats.education2027Hours),
+        education2028Hours: roundHours(stats.education2028Hours),
+        educationTotalHours: roundHours(stats.educationTotalHours),
+        supervisionTotalHours: roundHours(stats.supervisionTotalHours)
+      };
+    });
     const missingPlanCount = longTermClients.filter(
       (client) => !(contextRecordsByClient.get(client.id) || []).some((record) => record.entityType === 'plans')
     ).length;
@@ -2723,6 +2854,7 @@ function App() {
         { key: 'outreach', label: 'Depist\u00e1\u017en\u00ed z\u00e1znamy', current: outreachCount, target: 100 },
         { key: 'case-meetings', label: 'P\u0159\u00edpadov\u00e1 / multioborov\u00e1 setk\u00e1n\u00ed', current: caseMeetingCount, target: 15 }
       ],
+      professionalDevelopmentStats,
       partnerMetrics: [
         { key: 'partners-active', label: 'Spolupracující partneři', current: activePartners.length, detail: 'Alespoň jedna doložená aktivita' },
         { key: 'partners-new', label: 'Nově zapojení partneři', current: activePartners.filter((partner) => partner.isNewInProject).length, detail: 'Nově zapojení od zahájení projektu' },
@@ -2909,6 +3041,10 @@ function App() {
     () => records.filter((record) => record.entityType === 'education_records').sort(compareTimelineRecordsDesc),
     [records]
   );
+  const supervisionRecords = useMemo(
+    () => records.filter((record) => record.entityType === 'supervision_records').sort(compareTimelineRecordsDesc),
+    [records]
+  );
   const ka01ActorOptions = useMemo(() => {
     const names = ka01ActorRegistryRecords
       .map((record) => String(record.payload?.name || '').trim())
@@ -3047,6 +3183,27 @@ function App() {
   const setFlash = (message) => {
     setStatusMessage(message);
     window.setTimeout(() => setStatusMessage(''), 3000);
+  };
+
+  const setSaveButtonNotice = (key, tone, text) => {
+    setSaveButtonNotices((previous) => ({
+      ...previous,
+      [key]: { tone, text }
+    }));
+  };
+
+  const clearSaveButtonNotice = (key) => {
+    setSaveButtonNotices((previous) => {
+      if (!previous[key]) return previous;
+      const next = { ...previous };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const saveErrorMessage = (fallback, error) => {
+    const detail = String(error?.message || '').trim();
+    return detail ? `${fallback}: ${detail}` : fallback;
   };
 
   const normalizeDuplicateText = (value) =>
@@ -3350,6 +3507,7 @@ function App() {
     }
 
     if (record.entityType === 'education_records') {
+      const workers = Array.isArray(payload.workers) ? payload.workers : [record.worker || payload.worker].filter(Boolean);
       const result = await postGoogleSheetAction({
         action: 'saveEducation',
         education: {
@@ -3358,11 +3516,31 @@ function App() {
           pocet_hodin: payload.hours || '',
           nazev_vzdelavani: payload.title || record.title || '',
           cislo_akreditace: payload.accreditationNumber || '',
-          jmeno_pracovnika: record.worker || payload.worker || '',
+          jmeno_pracovnika: workers[0] || '',
+          jmeno_pracovnika1: workers[0] || '',
+          jmeno_pracovnika2: workers[1] || '',
+          jmeno_pracovnika3: workers[2] || '',
           status: 'Platný'
         }
       });
       return { ...record, id: result?.education?.vzdelavani_id || result?.vzdelavani?.vzdelavani_id || record.id };
+    }
+
+    if (record.entityType === 'supervision_records') {
+      const workers = Array.isArray(payload.workers) ? payload.workers : [];
+      const result = await postGoogleSheetAction({
+        action: 'saveSupervision',
+        supervision: {
+          sepervize_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
+          datum: record.activityDate || payload.date || '',
+          pocet_hodin: payload.hours || '',
+          typ_supervize: payload.type || '',
+          jmeno_pracovnika1: workers[0] || '',
+          jmeno_pracovnika2: workers[1] || '',
+          jmeno_pracovnika3: workers[2] || ''
+        }
+      });
+      return { ...record, id: result?.supervision?.sepervize_id || result?.supervize?.sepervize_id || record.id };
     }
 
     if (record.entityType === 'plans') {
@@ -3603,6 +3781,8 @@ function App() {
       action = 'deleteNetworkMeeting';
     } else if (record.entityType === 'education_records') {
       action = 'deleteEducation';
+    } else if (record.entityType === 'supervision_records') {
+      action = 'deleteSupervision';
     }
     if (action) await postGoogleSheetAction({ action, id: record.id });
   };
@@ -3636,8 +3816,11 @@ function App() {
   };
 
   const handleClientCreate = async () => {
+    clearSaveButtonNotice('client-create');
     if (!clientDraft.jmeno.trim() || !clientDraft.prijmeni.trim()) {
-      setFlash('Vypl\u0148 alespo\u0148 jm\u00e9no a p\u0159\u00edjmen\u00ed klienta.');
+      const message = 'Vyplň alespoň jméno a příjmení klienta.';
+      setSaveButtonNotice('client-create', 'error', message);
+      setFlash(message);
       return;
     }
 
@@ -3646,18 +3829,23 @@ function App() {
     const duplicateClient = findDuplicateClient(clientToSave);
     if (duplicateClient) {
       setSelectedClientId(duplicateClient.id);
-      setFlash(`Klient už v registru existuje: ${duplicateClient.fullName || 'bez jména'}.`);
+      const message = `Klient už v registru existuje: ${duplicateClient.fullName || 'bez jména'}.`;
+      setSaveButtonNotice('client-create', 'error', message);
+      setFlash(message);
       return;
     }
 
     const pendingSignature = buildClientDuplicateSignature(clientToSave);
     if (pendingClientSaveSignaturesRef.current.has(pendingSignature)) {
-      setFlash('Tento klient se už ukládá. Vyčkej na dokončení ukládání.');
+      const message = 'Tento klient se už ukládá. Vyčkej na dokončení ukládání.';
+      setSaveButtonNotice('client-create', 'progress', message);
+      setFlash(message);
       return;
     }
 
     pendingClientSaveSignaturesRef.current.add(pendingSignature);
     setIsSaving(true);
+    setSaveButtonNotice('client-create', 'progress', 'Ukládám klienta…');
     try {
       const result = await postGoogleSheetAction({
         action: 'saveClient',
@@ -3669,13 +3857,15 @@ function App() {
 
       setClients((prev) => [savedClient, ...prev.filter((client) => client.id !== savedClient.id)]);
       setSelectedClientId(savedClient.id);
-      setShowClientForm(false);
       setClientDraft({ ...emptyClientDraft, datumVstupu: todayIso(), keyWorker: isGarantWorker(currentWorker) ? '' : currentWorker });
       setSheetError('');
-      setFlash('Klient byl ulo\u017een do Google Sheetu.');
+      setSaveButtonNotice('client-create', 'success', 'Klient uložen');
+      setFlash('Klient uložen');
     } catch (error) {
       console.error('Google Sheets client save error:', error);
-      setFlash('Klienta se nepoda\u0159ilo ulo\u017eit do Google Sheetu.');
+      const message = saveErrorMessage('Klient nebyl uložen', error);
+      setSaveButtonNotice('client-create', 'error', message);
+      setFlash(message);
     } finally {
       pendingClientSaveSignaturesRef.current.delete(pendingSignature);
       setIsSaving(false);
@@ -3684,6 +3874,7 @@ function App() {
 
   const openClientEditForm = () => {
     if (!selectedClient) return;
+    clearSaveButtonNotice('client-update');
     setClientEditDraft({
       ...emptyClientDraft,
       ...selectedClient
@@ -3693,12 +3884,16 @@ function App() {
 
   const handleClientUpdate = async () => {
     if (!selectedClient) return;
+    clearSaveButtonNotice('client-update');
     if (!clientEditDraft.jmeno.trim() || !clientEditDraft.prijmeni.trim()) {
-      setFlash('Vypl\u0148 alespo\u0148 jm\u00e9no a p\u0159\u00edjmen\u00ed klienta.');
+      const message = 'Vyplň alespoň jméno a příjmení klienta.';
+      setSaveButtonNotice('client-update', 'error', message);
+      setFlash(message);
       return;
     }
 
     setIsSaving(true);
+    setSaveButtonNotice('client-update', 'progress', 'Ukládám úpravy…');
     try {
       const result = await postGoogleSheetAction({
         action: 'saveClient',
@@ -3709,12 +3904,14 @@ function App() {
       if (!savedClient) throw new Error('Upraven\u00e9ho klienta se nepoda\u0159ilo na\u010d\u00edst.');
 
       setClients((prev) => prev.map((client) => (client.id === selectedClient.id ? savedClient : client)));
-      setShowClientEditForm(false);
       setSheetError('');
-      setFlash('Klient byl upraven v Google Sheetu.');
+      setSaveButtonNotice('client-update', 'success', 'Klient uložen');
+      setFlash('Klient uložen');
     } catch (error) {
       console.error('Google Sheets client update error:', error);
-      setFlash('Zm\u011bny klienta se nepoda\u0159ilo ulo\u017eit do Google Sheetu.');
+      const message = saveErrorMessage('Klient nebyl uložen', error);
+      setSaveButtonNotice('client-update', 'error', message);
+      setFlash(message);
     } finally {
       setIsSaving(false);
     }
@@ -4982,10 +5179,14 @@ ${rawOutput}` }] }],
     const title = String(educationDraft.title || '').trim();
     const date = String(educationDraft.date || '').trim();
     const hours = String(educationDraft.hours || '').trim();
-    const worker = String(educationDraft.worker || '').trim();
+    const workers = [
+      educationDraft.worker1,
+      educationDraft.worker2,
+      educationDraft.worker3
+    ].map((worker) => String(worker || '').trim()).filter(Boolean);
 
-    if (!date || !title || !hours || !worker) {
-      setFlash('Vyplň datum, počet hodin, název vzdělávání a pracovníka.');
+    if (!date || !title || !hours || workers.length === 0) {
+      setFlash('Vyplň datum, počet hodin, název vzdělávání a alespoň prvního pracovníka.');
       return;
     }
 
@@ -4995,7 +5196,7 @@ ${rawOutput}` }] }],
       ka: 'VZDELAVANI',
       title,
       activityDate: date,
-      worker,
+      worker: workers[0],
       clientIds: [],
       documentText: title,
       payload: {
@@ -5003,7 +5204,8 @@ ${rawOutput}` }] }],
         hours,
         title,
         accreditationNumber: String(educationDraft.accreditationNumber || '').trim(),
-        worker
+        worker: workers[0],
+        workers
       },
       indicatorFlags: {}
     };
@@ -5015,9 +5217,57 @@ ${rawOutput}` }] }],
       hours: '',
       title: '',
       accreditationNumber: '',
-      worker: readStoredGlobalWorker()
+      worker1: readStoredGlobalWorker(),
+      worker2: '',
+      worker3: ''
     });
     setFlash('Vzdělávací akce byla uložena.');
+  };
+
+  const handleSaveSupervision = async () => {
+    const date = String(supervisionDraft.date || '').trim();
+    const hours = String(supervisionDraft.hours || '').trim();
+    const type = String(supervisionDraft.type || '').trim();
+    const workers = [
+      supervisionDraft.worker1,
+      isIndividualSupervision ? '' : supervisionDraft.worker2,
+      isIndividualSupervision ? '' : supervisionDraft.worker3
+    ].map((worker) => String(worker || '').trim()).filter(Boolean);
+
+    if (!date || !hours || !type || workers.length === 0) {
+      setFlash('Vyplň datum, počet hodin, typ supervize a alespoň prvního pracovníka.');
+      return;
+    }
+
+    const recordPayload = {
+      id: 'SUPERVIZE-WEB-' + Date.now() + '-' + Math.random().toString(16).slice(2, 8),
+      entityType: 'supervision_records',
+      ka: 'SUPERVIZE',
+      title: 'Supervize - ' + type,
+      activityDate: date,
+      worker: workers[0],
+      clientIds: [],
+      documentText: type,
+      payload: {
+        date,
+        hours,
+        type,
+        workers
+      },
+      indicatorFlags: {}
+    };
+
+    const ok = await saveRecord(recordPayload);
+    if (!ok) return;
+    setSupervisionDraft({
+      date: todayIso(),
+      hours: '',
+      type: 'individuální',
+      worker1: readStoredGlobalWorker(),
+      worker2: '',
+      worker3: ''
+    });
+    setFlash('Supervize byla uložena.');
   };
 
   const openClient = (clientId, nextView = 'clients') => {
@@ -5906,6 +6156,7 @@ ${rawPlanOutput}` }] }],
                     <button
                       onClick={() => {
                         setClientDraft((prev) => ({ ...prev, keyWorker: prev.keyWorker || (isGarantWorker(currentWorker) ? '' : currentWorker) }));
+                        clearSaveButtonNotice('client-create');
                         setShowClientForm((prev) => !prev);
                       }}
                       className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
@@ -5933,7 +6184,7 @@ ${rawPlanOutput}` }] }],
                 {showClientForm && (
                   <div className="mb-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3">
                     <ClientRegistrationFields draft={clientDraft} setDraft={setClientDraft} compact />
-                    <div className="mt-3 flex justify-end">
+                    <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
                       <button
                         onClick={handleClientCreate}
                         disabled={isSaving}
@@ -5942,6 +6193,7 @@ ${rawPlanOutput}` }] }],
                         <Save className="h-4 w-4" />
                         Uložit klienta
                       </button>
+                      <SaveInlineNotice notice={saveButtonNotices['client-create']} />
                     </div>
                   </div>
                 )}
@@ -5978,7 +6230,9 @@ ${rawPlanOutput}` }] }],
                             <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                           </div>
                           <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-xs">
-                            <MiniBadge icon={Database} label={`ID ${client.id}`} tone="slate" />
+                            {client.rodina
+                              ? <MiniBadge icon={Users} label="Rodina" tone="emerald" />
+                              : <MiniBadge icon={Database} label={`ID ${client.id}`} tone="slate" />}
                             <MiniBadge icon={User} label={client.keyWorker || 'Bez klíč. prac.'} tone="indigo" />
                             <MiniBadge icon={Clock} label={`${stats.supportHours.toFixed(1)} h`} tone="indigo" />
                             {showCaseManagementBadge && <MiniBadge icon={User} label="case" tone="emerald" />}
@@ -6031,10 +6285,13 @@ ${rawPlanOutput}` }] }],
                     {showClientEditForm && (
                       <div className="mb-2 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
                         <ClientRegistrationFields draft={clientEditDraft} setDraft={setClientEditDraft} />
-                        <div className="mt-2 flex justify-end gap-2">
+                        <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
                           <button
                             type="button"
-                            onClick={() => setShowClientEditForm(false)}
+                            onClick={() => {
+                              clearSaveButtonNotice('client-update');
+                              setShowClientEditForm(false);
+                            }}
                             className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                           >
                             Zrušit
@@ -6048,6 +6305,7 @@ ${rawPlanOutput}` }] }],
                             <Save className="h-3.5 w-3.5" />
                             Uložit úpravy
                           </button>
+                          <SaveInlineNotice notice={saveButtonNotices['client-update']} />
                         </div>
                       </div>
                     )}
@@ -6680,12 +6938,14 @@ ${rawPlanOutput}` }] }],
         {mainView === 'education' && (
           <div className="space-y-4">
             <Panel title="Vzdělávání" description="Evidence vzdělávacích akcí pracovníků projektu." icon={GraduationCap}>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
                 <InputField label="Datum" type="date" value={educationDraft.date} onChange={(value) => setEducationDraft((prev) => ({ ...prev, date: value }))} />
-                <InputField label="Počet hodin" value={educationDraft.hours} onChange={(value) => setEducationDraft((prev) => ({ ...prev, hours: value }))} placeholder="např. 8" />
+                <InputField label="Počet hodin" help={{ title: 'Počet hodin', text: 'Hodinou se myslí 60 minut.' }} value={educationDraft.hours} onChange={(value) => setEducationDraft((prev) => ({ ...prev, hours: value }))} placeholder="např. 8" />
                 <InputField label="Název vzdělávání" value={educationDraft.title} onChange={(value) => setEducationDraft((prev) => ({ ...prev, title: value }))} />
                 <InputField label="Číslo akreditace" value={educationDraft.accreditationNumber} onChange={(value) => setEducationDraft((prev) => ({ ...prev, accreditationNumber: value }))} />
-                <SelectField label="Jméno pracovníka" value={educationDraft.worker} onChange={(value) => setEducationDraft((prev) => ({ ...prev, worker: value }))} options={WORKERS.map((worker) => ({ value: worker, label: worker }))} />
+                <SelectField label="Pracovník 1" value={educationDraft.worker1} onChange={(value) => setEducationDraft((prev) => ({ ...prev, worker1: value }))} options={WORKERS.map((worker) => ({ value: worker, label: worker }))} />
+                <SelectField label="Pracovník 2" value={educationDraft.worker2} onChange={(value) => setEducationDraft((prev) => ({ ...prev, worker2: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
+                <SelectField label="Pracovník 3" value={educationDraft.worker3} onChange={(value) => setEducationDraft((prev) => ({ ...prev, worker3: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
               </div>
               <div className="mt-3">
                 <button type="button" onClick={handleSaveEducation} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60">
@@ -6707,20 +6967,89 @@ ${rawPlanOutput}` }] }],
                         <th className="px-2 py-2 text-left">Počet hodin</th>
                         <th className="px-2 py-2 text-left">Název vzdělávání</th>
                         <th className="px-2 py-2 text-left">Číslo akreditace</th>
-                        <th className="px-2 py-2 text-left">Pracovník</th>
+                        <th className="px-2 py-2 text-left">Pracovník 1</th>
+                        <th className="px-2 py-2 text-left">Pracovník 2</th>
+                        <th className="px-2 py-2 text-left">Pracovník 3</th>
                         <th className="px-2 py-2 text-right">Akce</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {educationRecords.map((record) => {
                         const payload = record.payload || {};
+                        const workers = Array.isArray(payload.workers) ? payload.workers : [record.worker || payload.worker].filter(Boolean);
                         return (
                           <tr key={record.id} className="even:bg-slate-50/60">
                             <td className="px-2 py-2">{record.activityDate || payload.date || '-'}</td>
                             <td className="px-2 py-2">{payload.hours || '-'}</td>
                             <td className="px-2 py-2 font-semibold">{payload.title || record.title || '-'}</td>
                             <td className="px-2 py-2">{payload.accreditationNumber || '-'}</td>
-                            <td className="px-2 py-2">{record.worker || payload.worker || '-'}</td>
+                            <td className="px-2 py-2">{workers[0] || '-'}</td>
+                            <td className="px-2 py-2">{workers[1] || '-'}</td>
+                            <td className="px-2 py-2">{workers[2] || '-'}</td>
+                            <td className="whitespace-nowrap px-2 py-2 text-right">
+                              <button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700 disabled:opacity-50">
+                                Smazat
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+
+            <Panel title="Supervize" description="Evidence individuálních a skupinových supervizí." icon={Brain}>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                <InputField label="Datum" type="date" value={supervisionDraft.date} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, date: value }))} />
+                <InputField label="Počet hodin" help={{ title: 'Počet hodin', text: 'Hodinou se myslí 60 minut.' }} value={supervisionDraft.hours} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, hours: value }))} placeholder="např. 2" />
+                <SelectField label="Typ supervize" value={supervisionDraft.type} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, type: value, worker2: value === 'individuální' ? '' : prev.worker2, worker3: value === 'individuální' ? '' : prev.worker3 }))} options={SUPERVISION_TYPE_OPTIONS.map((type) => ({ value: type, label: type }))} />
+                <SelectField label="Pracovník 1" value={supervisionDraft.worker1} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, worker1: value }))} options={WORKERS.map((worker) => ({ value: worker, label: worker }))} />
+                {!isIndividualSupervision && (
+                  <>
+                    <SelectField label="Pracovník 2" value={supervisionDraft.worker2} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, worker2: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
+                    <SelectField label="Pracovník 3" value={supervisionDraft.worker3} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, worker3: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
+                  </>
+                )}
+              </div>
+              <div className="mt-3">
+                <button type="button" onClick={handleSaveSupervision} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60">
+                  <Save className="h-4 w-4" />
+                  Uložit supervizi
+                </button>
+              </div>
+            </Panel>
+
+            <Panel title="Uložené supervize" description="Přehled supervizí uložených do evidence." icon={FileSpreadsheet}>
+              {supervisionRecords.length === 0 ? (
+                <EmptyState icon={Brain} title="Zatím není uložena žádná supervize." />
+              ) : (
+                <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
+                  <table className="min-w-[900px] w-full divide-y divide-slate-200 text-xs">
+                    <thead className="sticky top-0 bg-amber-50 font-semibold uppercase text-amber-800">
+                      <tr>
+                        <th className="px-2 py-2 text-left">Datum</th>
+                        <th className="px-2 py-2 text-left">Počet hodin</th>
+                        <th className="px-2 py-2 text-left">Typ supervize</th>
+                        <th className="px-2 py-2 text-left">Pracovník 1</th>
+                        <th className="px-2 py-2 text-left">Pracovník 2</th>
+                        <th className="px-2 py-2 text-left">Pracovník 3</th>
+                        <th className="px-2 py-2 text-right">Akce</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {supervisionRecords.map((record) => {
+                        const payload = record.payload || {};
+                        const workers = Array.isArray(payload.workers) ? payload.workers : [];
+                        return (
+                          <tr key={record.id} className="even:bg-slate-50/60">
+                            <td className="px-2 py-2">{record.activityDate || payload.date || '-'}</td>
+                            <td className="px-2 py-2">{payload.hours || '-'}</td>
+                            <td className="px-2 py-2 font-semibold">{payload.type || record.title || '-'}</td>
+                            <td className="px-2 py-2">{workers[0] || '-'}</td>
+                            <td className="px-2 py-2">{workers[1] || '-'}</td>
+                            <td className="px-2 py-2">{workers[2] || '-'}</td>
                             <td className="whitespace-nowrap px-2 py-2 text-right">
                               <button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700 disabled:opacity-50">
                                 Smazat
