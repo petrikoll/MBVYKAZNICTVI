@@ -21,7 +21,6 @@ import {
   Filter,
   GraduationCap,
   History,
-  Home,
   Lightbulb,
   Loader2,
   MapPin,
@@ -6341,7 +6340,7 @@ ${rawPlanOutput}` }] }],
                         {[
                           { key: 'address', icon: MapPin, label: 'Adresa', value: buildAddress(selectedClient) },
                           { key: 'contact', icon: Phone, label: 'Kontakt', value: selectedClient.telefon || selectedClient.email || 'Neuvedeno' },
-                          { key: 'city', icon: Home, label: 'Spádové město', value: selectedClient.spadoveMesto || 'Neuvedeno' },
+                          { key: 'case-management', icon: Workflow, label: 'Klient case managementu', value: hasCaseManagementNeed(selectedClient) ? 'ANO' : 'NE' },
                           { key: 'edu', icon: GraduationCap, label: 'Vzdělání', value: selectedClient.vzdelani || 'Neuvedeno' },
                           { key: 'job', icon: Briefcase, label: 'Postavení na trhu práce', value: selectedClient.postaveniNaTrhu || 'Neuvedeno' },
                           { key: 'disadv', icon: AlertCircle, label: 'Znevýhodnění', value: selectedClient.znevyhodneni || 'Neuvedeno' }
