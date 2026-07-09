@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarDays, Download, Loader2, Save, Sparkles } from 'lucide-react';
+import { Download, Loader2, Save, Sparkles } from 'lucide-react';
 
 import { CheckboxField, HelpIcon, InputField, Panel, SelectField, TextAreaField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
@@ -344,24 +344,14 @@ function AiDocumentPanel({
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Datum aktivity
             </label>
-            <div className="grid grid-cols-[1fr_auto] gap-2">
+            <div>
               <input
                 id="ka-date-input"
                 type="date"
                 value={generatorDraft.date}
                 onChange={(event) => updateDraft({ date: event.target.value })}
-                onFocus={(event) => event.currentTarget.showPicker?.()}
                 className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-[inset_0_0_0_1px_rgba(148,163,184,0.18)] outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
-              <button
-                type="button"
-                onClick={() => document.getElementById('ka-date-input')?.showPicker?.()}
-                className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-slate-700 hover:bg-slate-50"
-                aria-label="Otevřít kalendář"
-                title="Otevřít kalendář"
-              >
-                <CalendarDays className="h-4 w-4" />
-              </button>
             </div>
           </div>
           {(isKa02Form || isMentorForm) && generatorDraft.selectedKey !== 'plan' && (

@@ -3,7 +3,6 @@ import { CalendarDays, Download, Save, Sparkles, Users } from 'lucide-react';
 
 import { EmptyState, HelpIcon, InputField, Panel, SelectField, TextAreaField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
-import { WORKERS } from '../config/projectConfig.js';
 import { truncate } from '../lib/projectUtils.js';
 
 const ACTIVITY_OPTIONS = [
@@ -45,14 +44,27 @@ function Ka01View({
     [ka01ActorRegistryRecords]
   );
   const participantOptions = React.useMemo(() => {
-    const actorNames = sortedActors.map((record) => String(record.payload?.name || '').trim()).filter(Boolean);
-    const options = isTeamMeeting
-      ? [...WORKERS.filter((worker) => worker !== ka01Draft.worker), ...actorNames]
-      : actorNames;
+    const actorNames = sortedActors
+      .map((record) => {
+        const payload = record.payload || {};
+        const institutionName = String(payload.name || '').trim();
+        const contactName = String(payload.contactName || '').trim();
+        if (!institutionName) return '';
+        return contactName ? `${institutionName} — ${contactName}` : institutionName;
+      })
+      .filter(Boolean)
+      .sort((first, second) => {
+        const normalize = (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('cs');
+        const firstIsMoravskyBeroun = normalize(first).includes('moravsky beroun');
+        const secondIsMoravskyBeroun = normalize(second).includes('moravsky beroun');
+        if (firstIsMoravskyBeroun !== secondIsMoravskyBeroun) return firstIsMoravskyBeroun ? -1 : 1;
+        return String(first).localeCompare(String(second), 'cs');
+      });
+    const options = actorNames;
     return Array.from(new Set(options)).map((value) => ({ value, label: value })).concat([
       { value: ka01ActorCustomValue, label: 'Dal\u0161\u00ed osoba (ru\u010dn\u011b)' }
     ]);
-  }, [isTeamMeeting, ka01Draft.worker, ka01ActorCustomValue, sortedActors]);
+  }, [ka01ActorCustomValue, sortedActors]);
   const actorOrigin = (record) => String(record.payload?.networkOrigin || '').toLocaleLowerCase('cs');
   const networkActors = sortedActors.filter((record) => !actorOrigin(record).includes('potenci'));
   const currentActors = networkActors.filter((record) => actorOrigin(record).includes('stávaj')).length;

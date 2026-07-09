@@ -5,6 +5,7 @@ const CONFIG = {
   performanceSheetName: 'Vykony_KA1',
   meetingSheetName: 'Case_management_zapisy',
   networkMeetingSheetName: 'Schuzky_site',
+  educationSheetName: 'Vzdelavani',
   individualPlanSheetName: 'Individualni_plany',
   headerRow: 1,
   token: '',
@@ -36,6 +37,9 @@ function doGet(e) {
     }
     if (e.parameter.action === 'listNetworkMeetings') {
       return json_({ ok: true, networkMeetings: listNetworkMeetings_() });
+    }
+    if (e.parameter.action === 'listEducation') {
+      return json_({ ok: true, education: listEducation_() });
     }
     return json_({ ok: false, error: 'Unknown action' });
   } catch (error) {
@@ -106,6 +110,16 @@ function doPost(e) {
     if (payload.action === 'saveNetworkMeeting') {
       const networkMeeting = saveNetworkMeeting_(payload.networkMeeting || {});
       return json_({ ok: true, networkMeeting });
+    }
+
+    if (payload.action === 'saveEducation') {
+      const education = saveEducation_(payload.education || {});
+      return json_({ ok: true, education });
+    }
+
+    if (payload.action === 'deleteEducation') {
+      deleteRecord_(CONFIG.educationSheetName, 'vzdelavani_id', payload.id);
+      return json_({ ok: true });
     }
 
     if (payload.action === 'ensureClientFolder') {
@@ -217,6 +231,10 @@ const MEETING_HEADERS_ = [
 const NETWORK_MEETING_HEADERS_ = [
   'schuzka_site_id', 'datum', 'cas_od', 'cas_do', 'typ_schuzky', 'misto', 'pracovnik',
   'partner_ids', 'rt_clenove', 'dalsi_osoby', 'partneri', 'obsah_jednani', 'vystup', 'dalsi_kroky', 'dokument_text',
+  'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
+];
+const EDUCATION_HEADERS_ = [
+  'vzdelavani_id', 'datum', 'pocet_hodin', 'nazev_vzdelavani', 'cislo_akreditace', 'jmeno_pracovnika',
   'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
 ];
 
@@ -492,6 +510,50 @@ function saveNetworkMeeting_(networkMeeting) {
   normalized.created_by = normalized.created_by || '';
 
   const targetRow = findNetworkMeetingRow_(sheet, meetingIdColumn, normalized.schuzka_site_id) || sheet.getLastRow() + 1;
+  const values = headers.map((header) => normalized[header] ?? '');
+  const savedRange = sheet.getRange(targetRow, 1, 1, headers.length);
+  savedRange.setValues([values]);
+
+  return rowToObject_(headers, savedRange.getValues()[0], savedRange.getDisplayValues()[0]);
+}
+
+function listEducation_() {
+  const sheet = getOrCreateSheet_(CONFIG.educationSheetName, EDUCATION_HEADERS_);
+  const headers = getHeaders_(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= CONFIG.headerRow) return [];
+
+  const range = sheet.getRange(CONFIG.headerRow + 1, 1, lastRow - CONFIG.headerRow, headers.length);
+  const values = range.getValues();
+  const displayValues = range.getDisplayValues();
+  return values
+    .map((row, index) => ({ row: row, displayRow: displayValues[index] }))
+    .filter((item) => item.row.some((cell) => cell !== ''))
+    .map((item) => rowToObject_(headers, item.row, item.displayRow));
+}
+
+function saveEducation_(education) {
+  const sheet = getOrCreateSheet_(CONFIG.educationSheetName, EDUCATION_HEADERS_);
+  const headers = getHeaders_(sheet);
+  setColumnListValidation_(sheet, headers, 'jmeno_pracovnika', WORKER_OPTIONS_);
+  const educationIdColumn = headers.indexOf('vzdelavani_id') + 1;
+  if (!educationIdColumn) throw new Error('Missing vzdelavani_id column');
+
+  const now = new Date();
+  const normalized = Object.assign({}, education);
+  const incomingEducationId = String(normalized.vzdelavani_id || '').trim();
+  normalized.vzdelavani_id = normalized.vzdelavani_id || nextPrefixedId_(sheet, educationIdColumn, 'VZDELAVANI');
+  normalized.updated_at = now;
+  normalized.updated_by = normalized.updated_by || '';
+  normalized.created_at = normalized.created_at || now;
+  normalized.created_by = normalized.created_by || '';
+  normalized.status = normalized.status || 'Platn\u00fd';
+
+  const existingRow = findRowById_(sheet, educationIdColumn, normalized.vzdelavani_id);
+  const duplicateRow = incomingEducationId ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'vzdelavani_id');
+  if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
+
+  const targetRow = existingRow || sheet.getLastRow() + 1;
   const values = headers.map((header) => normalized[header] ?? '');
   const savedRange = sheet.getRange(targetRow, 1, 1, headers.length);
   savedRange.setValues([values]);
@@ -968,7 +1030,6 @@ function json_(payload) {
     .createTextOutput(JSON.stringify(payload))
     .setMimeType(ContentService.MimeType.JSON);
 }
-
 
 
 

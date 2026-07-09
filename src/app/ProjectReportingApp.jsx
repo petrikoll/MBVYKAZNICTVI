@@ -1290,6 +1290,12 @@ const VIEW_THEMES = {
     accent: 'bg-violet-300/20',
     label: 'text-violet-700'
   },
+  education: {
+    page: 'bg-[radial-gradient(circle_at_top_left,#fef3c7_0,#f5ead2_36%,#eee8dc_62%,#e8edf0_100%)]',
+    header: 'border-amber-200 bg-amber-50/85',
+    accent: 'bg-amber-300/20',
+    label: 'text-amber-700'
+  },
   ka03: {
     page: 'bg-[radial-gradient(circle_at_top_left,#ffd7ba_0,#f7e5d2_34%,#eee4d8_62%,#e8edf1_100%)]',
     header: 'border-orange-200 bg-orange-50/85',
@@ -1320,6 +1326,10 @@ const NAV_THEMES = {
   ka01: {
     active: 'border-violet-300 bg-violet-600 text-white shadow-sm shadow-violet-200/70',
     idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-800'
+  },
+  education: {
+    active: 'border-amber-300 bg-amber-600 text-white shadow-sm shadow-amber-200/70',
+    idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800'
   },
   dashboard: {
     active: 'border-slate-400 bg-slate-700 text-white shadow-sm shadow-slate-300/70',
@@ -1390,7 +1400,7 @@ function stringifyPlanGoals(goals) {
     .join('\n\n');
 }
 
-function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], meetings = [], networkMeetings = [], partners = [] }, clientIndex = {}) {
+function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], meetings = [], networkMeetings = [], partners = [], education = [] }, clientIndex = {}) {
   const clientName = (clientId) => clientIndex[clientId]?.fullName || clientId || '';
   const statusOk = (row) => !String(row.status || '').toLowerCase().includes('smaz');
   const records = [];
@@ -1583,6 +1593,34 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
         cooperationStatus: asSheetText(row.status) || 'zapojen? akt?r'
       },
       indicatorFlags: { ka01ActorRegistry: true },
+      createdAt: Date.parse(asSheetText(row.created_at)) || 0,
+      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0
+    });
+  });
+
+  education.filter(statusOk).forEach((row) => {
+    const id = asSheetText(row.vzdelavani_id);
+    const title = asSheetText(row.nazev_vzdelavani);
+    if (!id && !title) return;
+    const worker = asSheetWorker(row.jmeno_pracovnika);
+    records.push({
+      id: id || 'vzdelavani-' + title,
+      remoteSource: 'google-sheet',
+      entityType: 'education_records',
+      ka: 'VZDELAVANI',
+      title: title || 'Vzdělávání',
+      activityDate: asSheetDate(row.datum || row.created_at),
+      worker,
+      clientIds: [],
+      documentText: title || '',
+      payload: {
+        date: asSheetDate(row.datum || row.created_at),
+        hours: asSheetText(row.pocet_hodin),
+        title,
+        accreditationNumber: asSheetText(row.cislo_akreditace),
+        worker
+      },
+      indicatorFlags: {},
       createdAt: Date.parse(asSheetText(row.created_at)) || 0,
       updatedAt: Date.parse(asSheetText(row.updated_at)) || 0
     });
@@ -2178,6 +2216,13 @@ function App() {
     mentorReportTitle: '',
     mentorReportText: ''
   });
+  const [educationDraft, setEducationDraft] = useState({
+    date: todayIso(),
+    hours: '',
+    title: '',
+    accreditationNumber: '',
+    worker: readStoredGlobalWorker()
+  });
 
   useEffect(() => {
     if (!hasFirebaseConfig || !auth) {
@@ -2324,12 +2369,16 @@ function App() {
 
     const fetchSheetRecords = async () => {
       try {
-        const [plans, performances, meetings, networkMeetings, partners] = await Promise.all([
+        const [plans, performances, meetings, networkMeetings, partners, education] = await Promise.all([
           fetchAction('listIndividualPlans'),
           fetchAction('listPerformances'),
           fetchAction('listMeetings'),
           fetchAction('listNetworkMeetings'),
-          fetchAction('listPartners')
+          fetchAction('listPartners'),
+          fetchAction('listEducation').catch((error) => {
+            console.warn('Education records load skipped:', error);
+            return { education: [], educations: [], vzdelavani: [] };
+          })
         ]);
         if (cancelled) return;
         const remoteRecords = mapSheetRecordsToAppRecords({
@@ -2337,7 +2386,8 @@ function App() {
           performances: performances.performances || [],
           meetings: meetings.meetings || [],
           networkMeetings: networkMeetings.networkMeetings || [],
-          partners: partners.partners || []
+          partners: partners.partners || [],
+          education: education.education || education.educations || education.vzdelavani || []
         }, clientIndex);
         setRecords((prev) => {
           const remoteIds = new Set(remoteRecords.map((record) => record.id));
@@ -2855,6 +2905,10 @@ function App() {
     },
     [records]
   );
+  const educationRecords = useMemo(
+    () => records.filter((record) => record.entityType === 'education_records').sort(compareTimelineRecordsDesc),
+    [records]
+  );
   const ka01ActorOptions = useMemo(() => {
     const names = ka01ActorRegistryRecords
       .map((record) => String(record.payload?.name || '').trim())
@@ -3295,6 +3349,22 @@ function App() {
       return { ...record, id: result?.networkMeeting?.schuzka_site_id || record.id };
     }
 
+    if (record.entityType === 'education_records') {
+      const result = await postGoogleSheetAction({
+        action: 'saveEducation',
+        education: {
+          vzdelavani_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
+          datum: record.activityDate || payload.date || '',
+          pocet_hodin: payload.hours || '',
+          nazev_vzdelavani: payload.title || record.title || '',
+          cislo_akreditace: payload.accreditationNumber || '',
+          jmeno_pracovnika: record.worker || payload.worker || '',
+          status: 'Platný'
+        }
+      });
+      return { ...record, id: result?.education?.vzdelavani_id || result?.vzdelavani?.vzdelavani_id || record.id };
+    }
+
     if (record.entityType === 'plans') {
       const sourceGoals = Array.isArray(record.goals)
         ? record.goals
@@ -3531,6 +3601,8 @@ function App() {
       action = 'deletePartner';
     } else if (record.entityType === 'network_activities') {
       action = 'deleteNetworkMeeting';
+    } else if (record.entityType === 'education_records') {
+      action = 'deleteEducation';
     }
     if (action) await postGoogleSheetAction({ action, id: record.id });
   };
@@ -4904,6 +4976,48 @@ ${rawOutput}` }] }],
       setEditingKa03RecordId('');
       setFlash(editingKa03RecordId ?'Záznam byl upraven.' : 'Záznam byl uložen.');
     }
+  };
+
+  const handleSaveEducation = async () => {
+    const title = String(educationDraft.title || '').trim();
+    const date = String(educationDraft.date || '').trim();
+    const hours = String(educationDraft.hours || '').trim();
+    const worker = String(educationDraft.worker || '').trim();
+
+    if (!date || !title || !hours || !worker) {
+      setFlash('Vyplň datum, počet hodin, název vzdělávání a pracovníka.');
+      return;
+    }
+
+    const recordPayload = {
+      id: 'VZDELAVANI-WEB-' + Date.now() + '-' + Math.random().toString(16).slice(2, 8),
+      entityType: 'education_records',
+      ka: 'VZDELAVANI',
+      title,
+      activityDate: date,
+      worker,
+      clientIds: [],
+      documentText: title,
+      payload: {
+        date,
+        hours,
+        title,
+        accreditationNumber: String(educationDraft.accreditationNumber || '').trim(),
+        worker
+      },
+      indicatorFlags: {}
+    };
+
+    const ok = await saveRecord(recordPayload);
+    if (!ok) return;
+    setEducationDraft({
+      date: todayIso(),
+      hours: '',
+      title: '',
+      accreditationNumber: '',
+      worker: readStoredGlobalWorker()
+    });
+    setFlash('Vzdělávací akce byla uložena.');
   };
 
   const openClient = (clientId, nextView = 'clients') => {
@@ -6561,6 +6675,66 @@ ${rawPlanOutput}` }] }],
               computedIndicators={computedIndicators}
             />
           </React.Suspense>
+        )}
+
+        {mainView === 'education' && (
+          <div className="space-y-4">
+            <Panel title="Vzdělávání" description="Evidence vzdělávacích akcí pracovníků projektu." icon={GraduationCap}>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <InputField label="Datum" type="date" value={educationDraft.date} onChange={(value) => setEducationDraft((prev) => ({ ...prev, date: value }))} />
+                <InputField label="Počet hodin" value={educationDraft.hours} onChange={(value) => setEducationDraft((prev) => ({ ...prev, hours: value }))} placeholder="např. 8" />
+                <InputField label="Název vzdělávání" value={educationDraft.title} onChange={(value) => setEducationDraft((prev) => ({ ...prev, title: value }))} />
+                <InputField label="Číslo akreditace" value={educationDraft.accreditationNumber} onChange={(value) => setEducationDraft((prev) => ({ ...prev, accreditationNumber: value }))} />
+                <SelectField label="Jméno pracovníka" value={educationDraft.worker} onChange={(value) => setEducationDraft((prev) => ({ ...prev, worker: value }))} options={WORKERS.map((worker) => ({ value: worker, label: worker }))} />
+              </div>
+              <div className="mt-3">
+                <button type="button" onClick={handleSaveEducation} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60">
+                  <Save className="h-4 w-4" />
+                  Uložit vzdělávání
+                </button>
+              </div>
+            </Panel>
+
+            <Panel title="Uložená vzdělávání" description="Přehled vzdělávacích akcí uložených do evidence." icon={FileSpreadsheet}>
+              {educationRecords.length === 0 ? (
+                <EmptyState icon={GraduationCap} title="Zatím není uložena žádná vzdělávací akce." />
+              ) : (
+                <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
+                  <table className="min-w-[900px] w-full divide-y divide-slate-200 text-xs">
+                    <thead className="sticky top-0 bg-amber-50 font-semibold uppercase text-amber-800">
+                      <tr>
+                        <th className="px-2 py-2 text-left">Datum</th>
+                        <th className="px-2 py-2 text-left">Počet hodin</th>
+                        <th className="px-2 py-2 text-left">Název vzdělávání</th>
+                        <th className="px-2 py-2 text-left">Číslo akreditace</th>
+                        <th className="px-2 py-2 text-left">Pracovník</th>
+                        <th className="px-2 py-2 text-right">Akce</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {educationRecords.map((record) => {
+                        const payload = record.payload || {};
+                        return (
+                          <tr key={record.id} className="even:bg-slate-50/60">
+                            <td className="px-2 py-2">{record.activityDate || payload.date || '-'}</td>
+                            <td className="px-2 py-2">{payload.hours || '-'}</td>
+                            <td className="px-2 py-2 font-semibold">{payload.title || record.title || '-'}</td>
+                            <td className="px-2 py-2">{payload.accreditationNumber || '-'}</td>
+                            <td className="px-2 py-2">{record.worker || payload.worker || '-'}</td>
+                            <td className="whitespace-nowrap px-2 py-2 text-right">
+                              <button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700 disabled:opacity-50">
+                                Smazat
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+          </div>
         )}
 
         {mainView === 'dashboard' && (

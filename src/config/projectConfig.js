@@ -1,4 +1,4 @@
-import { BarChart3, Network, Target, Users, Workflow } from 'lucide-react';
+import { BarChart3, GraduationCap, Network, Target, Users, Workflow } from 'lucide-react';
 
 function todayIso() {
   const now = new Date();
@@ -157,6 +157,7 @@ const APP_VIEWS = [
   { id: 'ka02', name: 'KA1-Individu\u00e1ln\u00ed podpora', icon: Target, tone: 'emerald' },
   { id: 'ka2case', name: 'KA2-Case management', icon: Network, tone: 'blue' },
   { id: 'ka01', name: 'KA2-Tvorba s\u00edt\u011b', icon: Workflow, tone: 'blue' },
+  { id: 'education', name: 'Vzd\u011bl\u00e1v\u00e1n\u00ed a supervize', icon: GraduationCap, tone: 'amber' },
   { id: 'dashboard', name: 'Dashboard', icon: BarChart3, tone: 'slate' }
 ];
 
