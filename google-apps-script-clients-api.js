@@ -96,6 +96,7 @@ function doPost(e) {
     }
 
     if (payload.action === 'deletePerformance') {
+      deactivatePerformanceStatistics_(payload.id);
       deleteRecord_(CONFIG.performanceSheetName, 'vykon_id', payload.id);
       return json_({ ok: true });
     }
@@ -199,35 +200,35 @@ const STATISTICS_HEADERS_ = [
 const KU_SUPPORT_STAT_TYPE_ = 'FORMA_POMOCI_KU';
 const KU_SUPPORT_DEFAULT_CODE_ = 'NONE';
 const KU_SUPPORT_TYPES_ = [
-  { code: 'DAVKY_SUPERDAVKA', group: 'DĂˇvky', name: 'DĂˇvka stĂˇtnĂ­ sociĂˇlnĂ­ pomoci â€“ superdĂˇvka' },
-  { code: 'DAVKY_MIMORADNA_OKAMZITA_POMOC', group: 'DĂˇvky', name: 'MimoĹ™ĂˇdnĂˇ okamĹľitĂˇ pomoc' },
-  { code: 'DAVKY_PRISPEVEK_NA_PECI', group: 'DĂˇvky', name: 'PĹ™Ă­spÄ›vek na pĂ©ÄŤi' },
-  { code: 'DAVKY_PRISPEVEK_NA_MOBILITU', group: 'DĂˇvky', name: 'PĹ™Ă­spÄ›vek na mobilitu' },
-  { code: 'DAVKY_JINE', group: 'DĂˇvky', name: 'JinĂ©' },
-  { code: 'DUCHODY_STAROBNI_DUCHOD', group: 'DĹŻchody a pojiĹˇtÄ›nĂ­', name: 'StarobnĂ­ dĹŻchod' },
-  { code: 'DUCHODY_INVALIDNI_DUCHOD', group: 'DĹŻchody a pojiĹˇtÄ›nĂ­', name: 'InvalidnĂ­ dĹŻchod' },
-  { code: 'DUCHODY_DUCHODOVE_POJISTENI', group: 'DĹŻchody a pojiĹˇtÄ›nĂ­', name: 'DĹŻchodovĂ© pojiĹˇtÄ›nĂ­' },
-  { code: 'BYDLENI_SOCIALNI_OBECNI_BYT', group: 'BydlenĂ­', name: 'SociĂˇlnĂ­ nebo obecnĂ­ byt' },
-  { code: 'BYDLENI_JINE_RESENI', group: 'BydlenĂ­', name: 'JinĂ© Ĺ™eĹˇenĂ­ bydlenĂ­' },
-  { code: 'ZDRAVOTNI_KOMPENZACNI_POMUCKY', group: 'ZdravotnĂ­ a kompenzaÄŤnĂ­ podpora', name: 'KompenzaÄŤnĂ­ pomĹŻcky' },
-  { code: 'ZDRAVOTNI_ZTP_TP', group: 'ZdravotnĂ­ a kompenzaÄŤnĂ­ podpora', name: 'ZTP, TP' },
-  { code: 'ZDRAVOTNI_PREVOZOVA_SLUZBA', group: 'ZdravotnĂ­ a kompenzaÄŤnĂ­ podpora', name: 'PĹ™evozovĂˇ sluĹľba' },
-  { code: 'ZDRAVOTNI_POBYTOVA_SLUZBA_LDN', group: 'ZdravotnĂ­ a kompenzaÄŤnĂ­ podpora', name: 'PobytovĂˇ sluĹľba / LDN' },
-  { code: 'ZDRAVOTNI_HOSPIC_PALIATIVNI_PECE', group: 'ZdravotnĂ­ a kompenzaÄŤnĂ­ podpora', name: 'Hospic / paliativnĂ­ pĂ©ÄŤe' },
-  { code: 'SOCIALNI_SLUZBY_PECOVATELSKA', group: 'SociĂˇlnĂ­ sluĹľby', name: 'PeÄŤovatelskĂˇ sluĹľba' },
-  { code: 'SOCIALNI_SLUZBY_SAS_RODINY', group: 'SociĂˇlnĂ­ sluĹľby', name: 'SAS pro rodiny s dÄ›tmi' },
-  { code: 'SOCIALNI_SLUZBY_RANA_PECE', group: 'SociĂˇlnĂ­ sluĹľby', name: 'RanĂˇ pĂ©ÄŤe' },
-  { code: 'SOCIALNI_SLUZBY_CDZ', group: 'SociĂˇlnĂ­ sluĹľby', name: 'Centrum duĹˇevnĂ­ho zdravĂ­' },
-  { code: 'SOCIALNI_SLUZBY_DLUHOVA_PORADNA', group: 'SociĂˇlnĂ­ sluĹľby', name: 'DluhovĂˇ poradna' },
-  { code: 'SOCIALNI_SLUZBY_OBCANSKO_PRAVNI_PORADNA', group: 'SociĂˇlnĂ­ sluĹľby', name: 'ObÄŤansko-prĂˇvnĂ­ poradna' },
-  { code: 'MATERIALNI_POTRAVINOVA_POMOC', group: 'MateriĂˇlnĂ­ a humanitĂˇrnĂ­ pomoc', name: 'PotravinovĂˇ pomoc' },
-  { code: 'MATERIALNI_OSACENI', group: 'MateriĂˇlnĂ­ a humanitĂˇrnĂ­ pomoc', name: 'OĹˇacenĂ­' },
-  { code: 'MATERIALNI_HUMANITARNI_POMOC_UA', group: 'MateriĂˇlnĂ­ a humanitĂˇrnĂ­ pomoc', name: 'HumanitĂˇrnĂ­ pomoc UA' },
-  { code: 'RODINA_OSPOD', group: 'Rodina, dÄ›ti a ochrana prĂˇv', name: 'OSPOD' },
-  { code: 'RODINA_SKOLNI_DOCHAZKA', group: 'Rodina, dÄ›ti a ochrana prĂˇv', name: 'Ĺ kolnĂ­ dochĂˇzka / podnÄ›t ZĹ  nebo MĹ ' },
-  { code: 'RODINA_RODINNE_PRAVO', group: 'Rodina, dÄ›ti a ochrana prĂˇv', name: 'RodinnĂ© prĂˇvo' },
-  { code: 'RODINA_OMEZENI_SVEPRAVNOSTI', group: 'Rodina, dÄ›ti a ochrana prĂˇv', name: 'OmezenĂ­ svĂ©prĂˇvnosti' },
-  { code: 'OSTATNI_JINE', group: 'OstatnĂ­', name: 'JinĂ©' }
+  { code: 'DAVKY_SUPERDAVKA', group: 'Dávky', name: 'Dávka státní sociální pomoci – superdávka' },
+  { code: 'DAVKY_MIMORADNA_OKAMZITA_POMOC', group: 'Dávky', name: 'Mimořádná okamžitá pomoc' },
+  { code: 'DAVKY_PRISPEVEK_NA_PECI', group: 'Dávky', name: 'Příspěvek na péči' },
+  { code: 'DAVKY_PRISPEVEK_NA_MOBILITU', group: 'Dávky', name: 'Příspěvek na mobilitu' },
+  { code: 'DAVKY_JINE', group: 'Dávky', name: 'Jiné' },
+  { code: 'DUCHODY_STAROBNI_DUCHOD', group: 'Důchody a pojištění', name: 'Starobní důchod' },
+  { code: 'DUCHODY_INVALIDNI_DUCHOD', group: 'Důchody a pojištění', name: 'Invalidní důchod' },
+  { code: 'DUCHODY_DUCHODOVE_POJISTENI', group: 'Důchody a pojištění', name: 'Důchodové pojištění' },
+  { code: 'BYDLENI_SOCIALNI_OBECNI_BYT', group: 'Bydlení', name: 'Sociální nebo obecní byt' },
+  { code: 'BYDLENI_JINE_RESENI', group: 'Bydlení', name: 'Jiné řešení bydlení' },
+  { code: 'ZDRAVOTNI_KOMPENZACNI_POMUCKY', group: 'Zdravotní a kompenzační podpora', name: 'Kompenzační pomůcky' },
+  { code: 'ZDRAVOTNI_ZTP_TP', group: 'Zdravotní a kompenzační podpora', name: 'ZTP, TP' },
+  { code: 'ZDRAVOTNI_PREVOZOVA_SLUZBA', group: 'Zdravotní a kompenzační podpora', name: 'Převozová služba' },
+  { code: 'ZDRAVOTNI_POBYTOVA_SLUZBA_LDN', group: 'Zdravotní a kompenzační podpora', name: 'Pobytová služba / LDN' },
+  { code: 'ZDRAVOTNI_HOSPIC_PALIATIVNI_PECE', group: 'Zdravotní a kompenzační podpora', name: 'Hospic / paliativní péče' },
+  { code: 'SOCIALNI_SLUZBY_PECOVATELSKA', group: 'Sociální služby', name: 'Pečovatelská služba' },
+  { code: 'SOCIALNI_SLUZBY_SAS_RODINY', group: 'Sociální služby', name: 'SAS pro rodiny s dětmi' },
+  { code: 'SOCIALNI_SLUZBY_RANA_PECE', group: 'Sociální služby', name: 'Raná péče' },
+  { code: 'SOCIALNI_SLUZBY_CDZ', group: 'Sociální služby', name: 'Centrum duševního zdraví' },
+  { code: 'SOCIALNI_SLUZBY_DLUHOVA_PORADNA', group: 'Sociální služby', name: 'Dluhová poradna' },
+  { code: 'SOCIALNI_SLUZBY_OBCANSKO_PRAVNI_PORADNA', group: 'Sociální služby', name: 'Občansko-právní poradna' },
+  { code: 'MATERIALNI_POTRAVINOVA_POMOC', group: 'Materiální a humanitární pomoc', name: 'Potravinová pomoc' },
+  { code: 'MATERIALNI_OSACENI', group: 'Materiální a humanitární pomoc', name: 'Ošacení' },
+  { code: 'MATERIALNI_HUMANITARNI_POMOC_UA', group: 'Materiální a humanitární pomoc', name: 'Humanitární pomoc UA' },
+  { code: 'RODINA_OSPOD', group: 'Rodina, děti a ochrana práv', name: 'OSPOD' },
+  { code: 'RODINA_SKOLNI_DOCHAZKA', group: 'Rodina, děti a ochrana práv', name: 'Školní docházka / podnět ZŠ nebo MŠ' },
+  { code: 'RODINA_RODINNE_PRAVO', group: 'Rodina, děti a ochrana práv', name: 'Rodinné právo' },
+  { code: 'RODINA_OMEZENI_SVEPRAVNOSTI', group: 'Rodina, děti a ochrana práv', name: 'Omezení svéprávnosti' },
+  { code: 'OSTATNI_JINE', group: 'Ostatní', name: 'Jiné' }
 ];
 
 
@@ -523,9 +524,44 @@ function listStatistics_() {
     .map((row) => rowToObject_(headers, row));
 }
 
+
+function getKuSupportTypeCode_(performance, payload) {
+  const candidates = [
+    payload.kuSupportTypeCode,
+    payload.typ_podpory_ku_kod,
+    payload.ku_support_type_code,
+    payload.supportSpecific && payload.supportSpecific.kuSupportTypeCode,
+    payload.supportSpecific && payload.supportSpecific.typ_podpory_ku_kod,
+    performance.kuSupportTypeCode,
+    performance.typ_podpory_ku_kod,
+    performance.ku_support_type_code
+  ];
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function getKuSupportTypeLabel_(performance, payload) {
+  const candidates = [
+    payload.kuSupportTypeLabel,
+    payload.typ_podpory_ku_text,
+    payload.hodnota_text,
+    performance.kuSupportTypeLabel,
+    performance.typ_podpory_ku_text,
+    performance.hodnota_text
+  ];
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
 function upsertPerformanceStatistics_(performance) {
   const payload = parseJsonObject_(performance.specificka_pole_json);
-  const selectedCode = String(payload.kuSupportTypeCode || '').trim();
+  const selectedCode = getKuSupportTypeCode_(performance, payload);
   const sheet = getOrCreateSheet_(CONFIG.statisticsSheetName, STATISTICS_HEADERS_);
   const headers = getHeaders_(sheet);
   const sourceId = String(performance.vykon_id || '').trim();
@@ -540,8 +576,8 @@ function upsertPerformanceStatistics_(performance) {
 
   const type = KU_SUPPORT_TYPES_.find((item) => item.code === selectedCode) || {
     code: selectedCode,
-    group: 'OstatnĂ­',
-    name: payload.kuSupportTypeLabel || selectedCode
+    group: 'Ostatní',
+    name: getKuSupportTypeLabel_(performance, payload) || selectedCode
   };
   const now = new Date();
   const idColumn = headers.indexOf('statistika_id') + 1;
@@ -602,6 +638,15 @@ function updateStatisticStatus_(sheet, headers, rowNumber, status) {
   if (!statusColumn) throw new Error('Missing status column in Statistiky');
   sheet.getRange(rowNumber, statusColumn).setValue(status);
   if (updatedAtColumn) sheet.getRange(rowNumber, updatedAtColumn).setValue(new Date());
+}
+
+function deactivatePerformanceStatistics_(performanceId) {
+  const sourceId = String(performanceId || '').trim();
+  if (!sourceId) return;
+  const sheet = getOrCreateSheet_(CONFIG.statisticsSheetName, STATISTICS_HEADERS_);
+  const headers = getHeaders_(sheet);
+  const rowNumber = findStatisticRow_(sheet, headers, sourceId, KU_SUPPORT_STAT_TYPE_);
+  if (rowNumber) updateStatisticStatus_(sheet, headers, rowNumber, 'smazany');
 }
 
 function buildStatisticsPeriod_(dateValue) {

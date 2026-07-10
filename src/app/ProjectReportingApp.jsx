@@ -1335,6 +1335,10 @@ const NAV_THEMES = {
   dashboard: {
     active: 'border-slate-400 bg-slate-700 text-white shadow-sm shadow-slate-300/70',
     idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-slate-400 hover:bg-slate-100 hover:text-slate-800'
+  },
+  statistics: {
+    active: 'border-cyan-300 bg-cyan-700 text-white shadow-sm shadow-cyan-200/70',
+    idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800'
   }
 };
 
@@ -1374,6 +1378,121 @@ function parseSheetJson(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function normalizeStatisticsRow(row = {}) {
+  const status = asSheetText(row.status).trim().toLowerCase();
+  return {
+    id: asSheetText(row.statistika_id || row.id),
+    sourceRecordId: asSheetText(row.zdrojovy_zaznam_id),
+    clientId: asSheetText(row.client_id),
+    clientName: asSheetText(row.client_name),
+    date: asSheetDate(row.datum || row.created_at),
+    period: asSheetText(row.obdobi),
+    type: asSheetText(row.typ_statistiky),
+    code: asSheetText(row.kod),
+    group: asSheetText(row.skupina) || 'Ostatní',
+    name: asSheetText(row.nazev) || asSheetText(row.hodnota_text) || asSheetText(row.kod),
+    valueText: asSheetText(row.hodnota_text),
+    status,
+    createdAt: asSheetText(row.created_at),
+    updatedAt: asSheetText(row.updated_at)
+  };
+}
+
+function isActiveStatistic(row = {}) {
+  const status = String(row.status || '').toLowerCase();
+  return !status.includes('smaz') && !status.includes('neaktiv');
+}
+
+function isDateWithinRange(dateValue, dateFrom, dateTo) {
+  const valueTime = parseDateForSort(dateValue);
+  const fromTime = parseDateForSort(dateFrom);
+  const toTime = parseDateForSort(dateTo);
+  if (!valueTime || !fromTime || !toTime) return false;
+  return valueTime >= fromTime && valueTime <= toTime;
+}
+
+function buildKuStatisticsOverview(statisticsRows = [], { dateFrom = '', dateTo = '' } = {}) {
+  const activeRows = statisticsRows
+    .map(normalizeStatisticsRow)
+    .filter((row) =>
+      row.type === 'FORMA_POMOCI_KU' &&
+      row.code &&
+      row.clientId &&
+      isActiveStatistic(row) &&
+      isDateWithinRange(row.date, dateFrom, dateTo)
+    );
+
+  const grouped = new Map();
+  activeRows.forEach((row) => {
+    const key = `${row.group}|||${row.code}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        key,
+        group: row.group,
+        code: row.code,
+        name: row.name,
+        clients: new Map(),
+        records: 0
+      });
+    }
+    const item = grouped.get(key);
+    item.records += 1;
+    item.clients.set(row.clientId, row.clientName || row.clientId);
+  });
+
+  const rows = Array.from(grouped.values())
+    .map((item) => ({
+      ...item,
+      clientCount: item.clients.size,
+      clientNames: Array.from(item.clients.values()).sort((a, b) => a.localeCompare(b, 'cs'))
+    }))
+    .sort((a, b) => a.group.localeCompare(b.group, 'cs') || a.name.localeCompare(b.name, 'cs'));
+
+  const groups = rows.reduce((accumulator, item) => {
+    if (!accumulator[item.group]) accumulator[item.group] = [];
+    accumulator[item.group].push(item);
+    return accumulator;
+  }, {});
+
+  const uniqueClients = new Set(activeRows.map((row) => row.clientId));
+  return {
+    rows,
+    groups,
+    totalUniqueClients: uniqueClients.size,
+    totalRecords: activeRows.length,
+    dateFrom,
+    dateTo
+  };
+}
+
+function buildKuStatisticsDocumentText(overview) {
+  const lines = [
+    'Přehled konkrétních forem pomoci lidem v rámci projektu',
+    `Období: ${formatDateLabel(overview.dateFrom)} – ${formatDateLabel(overview.dateTo)}`,
+    '',
+    `Celkový počet unikátních osob: ${overview.totalUniqueClients}`,
+    `Počet statistických záznamů: ${overview.totalRecords}`,
+    ''
+  ];
+
+  if (!overview.rows.length) {
+    lines.push('Ve zvoleném období nejsou evidovány žádné aktivní položky typu podpory dle KÚ.');
+    return lines.join('\n');
+  }
+
+  Object.entries(overview.groups).forEach(([group, items]) => {
+    lines.push(group);
+    items.forEach((item) => {
+      lines.push(`- ${item.name}: ${item.clientCount} ${item.clientCount === 1 ? 'osoba' : item.clientCount >= 2 && item.clientCount <= 4 ? 'osoby' : 'osob'}`);
+    });
+    const groupTotal = new Set(items.flatMap((item) => Array.from(item.clients.keys()))).size;
+    lines.push(`Celkem ${group.toLowerCase()}: ${groupTotal} ${groupTotal === 1 ? 'osoba' : groupTotal >= 2 && groupTotal <= 4 ? 'osoby' : 'osob'}`);
+    lines.push('');
+  });
+
+  return lines.join('\n');
 }
 
 function hoursToMinutes(value) {
@@ -2113,6 +2232,9 @@ function App() {
   const [clientCaseSummary, setClientCaseSummary] = useState('');
   const [goalAlertsExpanded, setGoalAlertsExpanded] = useState(false);
   const [dashboardFilters, setDashboardFilters] = useState({ period: 'all', ka: 'all', worker: 'all' });
+  const [statisticsRows, setStatisticsRows] = useState([]);
+  const [statisticsFilters, setStatisticsFilters] = useState({ dateFrom: '', dateTo: '' });
+  const [isExportingKuStatistics, setIsExportingKuStatistics] = useState(false);
   const [zorTexts, setZorTexts] = useState(null);
   const [expandedJourneyRecordIds, setExpandedJourneyRecordIds] = useState([]);
   const [selectedJourneyPrintIds, setSelectedJourneyPrintIds] = useState([]);
@@ -2438,7 +2560,7 @@ function App() {
 
     const fetchSheetRecords = async () => {
       try {
-        const [plans, performances, meetings, networkMeetings, partners, education, supervision] = await Promise.all([
+        const [plans, performances, meetings, networkMeetings, partners, education, supervision, statistics] = await Promise.all([
           fetchAction('listIndividualPlans'),
           fetchAction('listPerformances'),
           fetchAction('listMeetings'),
@@ -2451,9 +2573,14 @@ function App() {
           fetchAction('listSupervision').catch((error) => {
             console.warn('Supervision records load skipped:', error);
             return { supervision: [], supervisions: [], supervize: [] };
+          }),
+          fetchAction('listStatistics').catch((error) => {
+            console.warn('Statistics records load skipped:', error);
+            return { statistics: [] };
           })
         ]);
         if (cancelled) return;
+        setStatisticsRows(statistics.statistics || []);
         const remoteRecords = mapSheetRecordsToAppRecords({
           individualPlans: plans.individualPlans || [],
           performances: performances.performances || [],
@@ -6002,6 +6129,60 @@ ${rawPlanOutput}` }] }],
     downloadHtmlDocument(content, 'souhrnna-monitorovaci-dokumentace.doc');
   };
 
+  const kuStatisticsOverview = useMemo(
+    () => buildKuStatisticsOverview(statisticsRows, statisticsFilters),
+    [statisticsRows, statisticsFilters]
+  );
+
+  const hasValidKuStatisticsDateRange = Boolean(statisticsFilters.dateFrom && statisticsFilters.dateTo)
+    && parseDateForSort(statisticsFilters.dateFrom) <= parseDateForSort(statisticsFilters.dateTo);
+
+  const handleExportKuStatisticsDocx = async () => {
+    if (!hasValidKuStatisticsDateRange) {
+      setFlash('Vyber datum od a datum do pro statistiku KÚ.');
+      return;
+    }
+    setIsExportingKuStatistics(true);
+    try {
+      const response = await fetch('/api/export-record-docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: `statistika-ku-${statisticsFilters.dateFrom}-${statisticsFilters.dateTo}.docx`,
+          title: 'Statistika pro KÚ',
+          rows: [
+            { label: 'Datum od', value: formatDateLabel(statisticsFilters.dateFrom) },
+            { label: 'Datum do', value: formatDateLabel(statisticsFilters.dateTo) },
+            { label: 'Počet unikátních osob', value: kuStatisticsOverview.totalUniqueClients },
+            { label: 'Počet statistických záznamů', value: kuStatisticsOverview.totalRecords }
+          ],
+          text: buildKuStatisticsDocumentText(kuStatisticsOverview)
+        })
+      });
+
+      if (!response.ok) {
+        const errorResult = await response.json().catch(() => ({}));
+        throw new Error(errorResult.error || 'Export statistiky KÚ selhal.');
+      }
+
+      const blob = await response.blob();
+      const href = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = `statistika-ku-${statisticsFilters.dateFrom}-${statisticsFilters.dateTo}.docx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(href);
+      setFlash('Statistika pro KÚ byla stažena do DOCX.');
+    } catch (error) {
+      console.error('KU statistics DOCX export error:', error);
+      setFlash(error.message || 'Export statistiky KÚ selhal.');
+    } finally {
+      setIsExportingKuStatistics(false);
+    }
+  };
+
   const handleGenerateZorTexts = () => {
     if (!selectedReportingPeriod || selectedReportingPeriod.value === 'all') {
       setFlash('Nejprve vyber konkrétní vykazované období.');
@@ -6130,9 +6311,9 @@ ${rawPlanOutput}` }] }],
               <p className="text-right text-[11px] font-semibold text-slate-500">{APP_VERSION_LABEL} · AI test modelu</p>
               <button
                 type="button"
-                disabled
-                aria-label="Statistiky (zatim neaktivni)"
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm font-semibold text-slate-500 opacity-70"
+                onClick={() => switchMainView('statistics')}
+                aria-label="Statistiky"
+                className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold transition ${mainView === 'statistics' ? 'border-cyan-300 bg-cyan-700 text-white shadow-sm shadow-cyan-200/70' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800'}`}
               >
                 <BarChart3 className="h-4 w-4" />
                 Statistiky
@@ -7110,6 +7291,82 @@ ${rawPlanOutput}` }] }],
               )}
             </Panel>
           </div>
+        )}
+
+        {mainView === 'statistics' && (
+          <Panel
+            title="Statistiky"
+            description="Přehled pro KÚ se generuje z listu Statistiky. Do klientské osy se tyto položky samostatně nepromítají."
+            icon={BarChart3}
+          >
+            <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+              <InputField
+                label="Datum od"
+                type="date"
+                value={statisticsFilters.dateFrom}
+                onChange={(value) => setStatisticsFilters((prev) => ({ ...prev, dateFrom: value }))}
+              />
+              <InputField
+                label="Datum do"
+                type="date"
+                value={statisticsFilters.dateTo}
+                onChange={(value) => setStatisticsFilters((prev) => ({ ...prev, dateTo: value }))}
+              />
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportKuStatisticsDocx}
+                  disabled={!hasValidKuStatisticsDateRange || isExportingKuStatistics}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-cyan-200 bg-cyan-700 px-4 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  {isExportingKuStatistics ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  Statistika pro KÚ
+                </button>
+                {!statisticsFilters.dateFrom || !statisticsFilters.dateTo ? (
+                  <p className="text-xs text-slate-500">Tlačítko se aktivuje po vyplnění obou datumů.</p>
+                ) : !hasValidKuStatisticsDateRange ? (
+                  <p className="text-xs text-rose-600">Datum od nesmí být později než datum do.</p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-cyan-100 bg-cyan-50 p-4">
+                <div className="text-xs font-semibold uppercase text-cyan-700">Unikátní osoby</div>
+                <div className="mt-1 text-2xl font-bold text-slate-900">{kuStatisticsOverview.totalUniqueClients}</div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="text-xs font-semibold uppercase text-slate-500">Statistické záznamy</div>
+                <div className="mt-1 text-2xl font-bold text-slate-900">{kuStatisticsOverview.totalRecords}</div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="text-xs font-semibold uppercase text-slate-500">Načteno z listu Statistiky</div>
+                <div className="mt-1 text-2xl font-bold text-slate-900">{statisticsRows.length}</div>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {hasValidKuStatisticsDateRange && kuStatisticsOverview.rows.length === 0 && (
+                <EmptyState title="Bez dat pro zvolené období" text="V listu Statistiky nejsou pro zadaný rozsah aktivní položky typu podpory dle KÚ." icon={FileText} />
+              )}
+              {Object.entries(kuStatisticsOverview.groups).map(([group, items]) => (
+                <div key={group} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                  <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900">{group}</div>
+                  <div className="divide-y divide-slate-100">
+                    {items.map((item) => (
+                      <div key={item.key} className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[1fr_120px] md:items-center">
+                        <div>
+                          <div className="font-semibold text-slate-900">{item.name}</div>
+                          <div className="mt-1 text-xs text-slate-500">{item.clientNames.slice(0, 6).join(', ')}{item.clientNames.length > 6 ? ` a další ${item.clientNames.length - 6}` : ''}</div>
+                        </div>
+                        <div className="text-left text-lg font-bold text-cyan-800 md:text-right">{item.clientCount}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Panel>
         )}
 
         {mainView === 'dashboard' && (

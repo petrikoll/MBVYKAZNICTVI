@@ -491,6 +491,7 @@ function buildGeneratorRecord({ client, generatorDraft, generatedText, selectedT
         consultationType: generatorDraft.consultationType,
         supportArea: generatorDraft.supportArea || '',
         supportSpecific: generatorDraft.supportSpecific || {},
+        kuSupportTypeCode: generatorDraft.kuSupportTypeCode || 'NONE',
         topics: generatorDraft.topics,
         outcome: generatorDraft.outcome,
         nextSteps: generatorDraft.nextSteps,
