@@ -7,6 +7,7 @@ const CONFIG = {
   networkMeetingSheetName: 'Schuzky_site',
   educationSheetName: 'Vzdelavani',
   supervisionSheetName: 'Supervize',
+  statisticsSheetName: 'Statistiky',
   individualPlanSheetName: 'Individualni_plany',
   headerRow: 1,
   token: '',
@@ -44,6 +45,9 @@ function doGet(e) {
     }
     if (e.parameter.action === 'listSupervision') {
       return json_({ ok: true, supervision: listSupervision_() });
+    }
+    if (e.parameter.action === 'listStatistics') {
+      return json_({ ok: true, statistics: listStatistics_() });
     }
     return json_({ ok: false, error: 'Unknown action' });
   } catch (error) {
@@ -187,6 +191,43 @@ const PERFORMANCE_HEADERS_ = [
   ...PERFORMANCE_SPECIFIC_HEADERS_,
   'forma_poskytovani', 'cil_ip_id', 'cil_ip', 'popis', 'vysledek',
   'dalsi_krok', 'dokument_text', 'document_url', 'document_error', 'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
+];
+const STATISTICS_HEADERS_ = [
+  'statistika_id', 'zdrojovy_zaznam_id', 'client_id', 'client_name', 'datum', 'obdobi', 'typ_statistiky',
+  'kod', 'skupina', 'nazev', 'hodnota_text', 'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
+];
+const KU_SUPPORT_STAT_TYPE_ = 'FORMA_POMOCI_KU';
+const KU_SUPPORT_DEFAULT_CODE_ = 'NONE';
+const KU_SUPPORT_TYPES_ = [
+  { code: 'DAVKY_SUPERDAVKA', group: 'DĂˇvky', name: 'DĂˇvka stĂˇtnĂ­ sociĂˇlnĂ­ pomoci â€“ superdĂˇvka' },
+  { code: 'DAVKY_MIMORADNA_OKAMZITA_POMOC', group: 'DĂˇvky', name: 'MimoĹ™ĂˇdnĂˇ okamĹľitĂˇ pomoc' },
+  { code: 'DAVKY_PRISPEVEK_NA_PECI', group: 'DĂˇvky', name: 'PĹ™Ă­spÄ›vek na pĂ©ÄŤi' },
+  { code: 'DAVKY_PRISPEVEK_NA_MOBILITU', group: 'DĂˇvky', name: 'PĹ™Ă­spÄ›vek na mobilitu' },
+  { code: 'DAVKY_JINE', group: 'DĂˇvky', name: 'JinĂ©' },
+  { code: 'DUCHODY_STAROBNI_DUCHOD', group: 'DĹŻchody a pojiĹˇtÄ›nĂ­', name: 'StarobnĂ­ dĹŻchod' },
+  { code: 'DUCHODY_INVALIDNI_DUCHOD', group: 'DĹŻchody a pojiĹˇtÄ›nĂ­', name: 'InvalidnĂ­ dĹŻchod' },
+  { code: 'DUCHODY_DUCHODOVE_POJISTENI', group: 'DĹŻchody a pojiĹˇtÄ›nĂ­', name: 'DĹŻchodovĂ© pojiĹˇtÄ›nĂ­' },
+  { code: 'BYDLENI_SOCIALNI_OBECNI_BYT', group: 'BydlenĂ­', name: 'SociĂˇlnĂ­ nebo obecnĂ­ byt' },
+  { code: 'BYDLENI_JINE_RESENI', group: 'BydlenĂ­', name: 'JinĂ© Ĺ™eĹˇenĂ­ bydlenĂ­' },
+  { code: 'ZDRAVOTNI_KOMPENZACNI_POMUCKY', group: 'ZdravotnĂ­ a kompenzaÄŤnĂ­ podpora', name: 'KompenzaÄŤnĂ­ pomĹŻcky' },
+  { code: 'ZDRAVOTNI_ZTP_TP', group: 'ZdravotnĂ­ a kompenzaÄŤnĂ­ podpora', name: 'ZTP, TP' },
+  { code: 'ZDRAVOTNI_PREVOZOVA_SLUZBA', group: 'ZdravotnĂ­ a kompenzaÄŤnĂ­ podpora', name: 'PĹ™evozovĂˇ sluĹľba' },
+  { code: 'ZDRAVOTNI_POBYTOVA_SLUZBA_LDN', group: 'ZdravotnĂ­ a kompenzaÄŤnĂ­ podpora', name: 'PobytovĂˇ sluĹľba / LDN' },
+  { code: 'ZDRAVOTNI_HOSPIC_PALIATIVNI_PECE', group: 'ZdravotnĂ­ a kompenzaÄŤnĂ­ podpora', name: 'Hospic / paliativnĂ­ pĂ©ÄŤe' },
+  { code: 'SOCIALNI_SLUZBY_PECOVATELSKA', group: 'SociĂˇlnĂ­ sluĹľby', name: 'PeÄŤovatelskĂˇ sluĹľba' },
+  { code: 'SOCIALNI_SLUZBY_SAS_RODINY', group: 'SociĂˇlnĂ­ sluĹľby', name: 'SAS pro rodiny s dÄ›tmi' },
+  { code: 'SOCIALNI_SLUZBY_RANA_PECE', group: 'SociĂˇlnĂ­ sluĹľby', name: 'RanĂˇ pĂ©ÄŤe' },
+  { code: 'SOCIALNI_SLUZBY_CDZ', group: 'SociĂˇlnĂ­ sluĹľby', name: 'Centrum duĹˇevnĂ­ho zdravĂ­' },
+  { code: 'SOCIALNI_SLUZBY_DLUHOVA_PORADNA', group: 'SociĂˇlnĂ­ sluĹľby', name: 'DluhovĂˇ poradna' },
+  { code: 'SOCIALNI_SLUZBY_OBCANSKO_PRAVNI_PORADNA', group: 'SociĂˇlnĂ­ sluĹľby', name: 'ObÄŤansko-prĂˇvnĂ­ poradna' },
+  { code: 'MATERIALNI_POTRAVINOVA_POMOC', group: 'MateriĂˇlnĂ­ a humanitĂˇrnĂ­ pomoc', name: 'PotravinovĂˇ pomoc' },
+  { code: 'MATERIALNI_OSACENI', group: 'MateriĂˇlnĂ­ a humanitĂˇrnĂ­ pomoc', name: 'OĹˇacenĂ­' },
+  { code: 'MATERIALNI_HUMANITARNI_POMOC_UA', group: 'MateriĂˇlnĂ­ a humanitĂˇrnĂ­ pomoc', name: 'HumanitĂˇrnĂ­ pomoc UA' },
+  { code: 'RODINA_OSPOD', group: 'Rodina, dÄ›ti a ochrana prĂˇv', name: 'OSPOD' },
+  { code: 'RODINA_SKOLNI_DOCHAZKA', group: 'Rodina, dÄ›ti a ochrana prĂˇv', name: 'Ĺ kolnĂ­ dochĂˇzka / podnÄ›t ZĹ  nebo MĹ ' },
+  { code: 'RODINA_RODINNE_PRAVO', group: 'Rodina, dÄ›ti a ochrana prĂˇv', name: 'RodinnĂ© prĂˇvo' },
+  { code: 'RODINA_OMEZENI_SVEPRAVNOSTI', group: 'Rodina, dÄ›ti a ochrana prĂˇv', name: 'OmezenĂ­ svĂ©prĂˇvnosti' },
+  { code: 'OSTATNI_JINE', group: 'OstatnĂ­', name: 'JinĂ©' }
 ];
 
 
@@ -447,7 +488,13 @@ function savePerformance_(performance) {
 
   const existingRow = findRowById_(sheet, idColumn, normalized.vykon_id);
   const duplicateRow = incomingPerformanceId ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'vykon_id');
-  if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
+  if (duplicateRow && !existingRow) {
+    const duplicate = rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
+    upsertPerformanceStatistics_(Object.assign({}, duplicate, {
+      specificka_pole_json: normalized.specificka_pole_json || duplicate.specificka_pole_json
+    }));
+    return duplicate;
+  }
 
   try {
     normalized.document_url = upsertClientRecordDocument_(normalized, 'KA1-Individu\u00e1ln\u00ed podpora', normalized.typ_podpory || 'Z\u00e1pis v\u00fdkonu', normalized.document_url);
@@ -458,8 +505,121 @@ function savePerformance_(performance) {
   const targetRow = existingRow || sheet.getLastRow() + 1;
   const values = headers.map((header) => normalized[header] ?? '');
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
+  upsertPerformanceStatistics_(normalized);
 
   return rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
+}
+
+function listStatistics_() {
+  const sheet = getOrCreateSheet_(CONFIG.statisticsSheetName, STATISTICS_HEADERS_);
+  const headers = getHeaders_(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= CONFIG.headerRow) return [];
+
+  return sheet
+    .getRange(CONFIG.headerRow + 1, 1, lastRow - CONFIG.headerRow, headers.length)
+    .getValues()
+    .filter((row) => row.some((cell) => cell !== ''))
+    .map((row) => rowToObject_(headers, row));
+}
+
+function upsertPerformanceStatistics_(performance) {
+  const payload = parseJsonObject_(performance.specificka_pole_json);
+  const selectedCode = String(payload.kuSupportTypeCode || '').trim();
+  const sheet = getOrCreateSheet_(CONFIG.statisticsSheetName, STATISTICS_HEADERS_);
+  const headers = getHeaders_(sheet);
+  const sourceId = String(performance.vykon_id || '').trim();
+  if (!sourceId) return;
+
+  const existingRow = findStatisticRow_(sheet, headers, sourceId, KU_SUPPORT_STAT_TYPE_);
+  const isDefault = !selectedCode || selectedCode === KU_SUPPORT_DEFAULT_CODE_;
+  if (isDefault) {
+    if (existingRow) updateStatisticStatus_(sheet, headers, existingRow, 'smazany');
+    return;
+  }
+
+  const type = KU_SUPPORT_TYPES_.find((item) => item.code === selectedCode) || {
+    code: selectedCode,
+    group: 'OstatnĂ­',
+    name: payload.kuSupportTypeLabel || selectedCode
+  };
+  const now = new Date();
+  const idColumn = headers.indexOf('statistika_id') + 1;
+  if (!idColumn) throw new Error('Missing statistika_id column');
+  const existing = existingRow
+    ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
+    : {};
+  const clientId = String(performance.klient_id || performance.client_id || '').trim();
+  const date = formatDateValue_(performance.datum || payload.date || '');
+  const normalized = Object.assign({}, existing, {
+    statistika_id: existing.statistika_id || nextPrefixedId_(sheet, idColumn, 'STAT'),
+    zdrojovy_zaznam_id: sourceId,
+    client_id: clientId,
+    client_name: getClientNameById_(clientId),
+    datum: date,
+    obdobi: buildStatisticsPeriod_(date),
+    typ_statistiky: KU_SUPPORT_STAT_TYPE_,
+    kod: type.code,
+    skupina: type.group,
+    nazev: type.name,
+    hodnota_text: type.group ? type.group + ' / ' + type.name : type.name,
+    status: 'Platny',
+    created_at: existing.created_at || now,
+    created_by: existing.created_by || performance.created_by || performance.updated_by || '',
+    updated_at: now,
+    updated_by: performance.updated_by || performance.created_by || ''
+  });
+
+  const targetRow = existingRow || sheet.getLastRow() + 1;
+  sheet.getRange(targetRow, 1, 1, headers.length).setValues([headers.map((header) => normalized[header] ?? '')]);
+}
+
+function parseJsonObject_(value) {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function findStatisticRow_(sheet, headers, sourceId, statisticType) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= CONFIG.headerRow) return null;
+  const values = sheet.getRange(CONFIG.headerRow + 1, 1, lastRow - CONFIG.headerRow, headers.length).getValues();
+  const index = values.findIndex((row) => {
+    const item = rowToObject_(headers, row);
+    return String(item.zdrojovy_zaznam_id || '').trim() === sourceId &&
+      String(item.typ_statistiky || '').trim() === statisticType;
+  });
+  return index === -1 ? null : CONFIG.headerRow + 1 + index;
+}
+
+function updateStatisticStatus_(sheet, headers, rowNumber, status) {
+  const statusColumn = headers.indexOf('status') + 1;
+  const updatedAtColumn = headers.indexOf('updated_at') + 1;
+  if (!statusColumn) throw new Error('Missing status column in Statistiky');
+  sheet.getRange(rowNumber, statusColumn).setValue(status);
+  if (updatedAtColumn) sheet.getRange(rowNumber, updatedAtColumn).setValue(new Date());
+}
+
+function buildStatisticsPeriod_(dateValue) {
+  const date = formatDateValue_(dateValue);
+  return date ? date.slice(0, 7) : '';
+}
+
+function getClientNameById_(clientId) {
+  if (!clientId) return '';
+  const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
+  if (!sheet) return '';
+  const headers = getHeaders_(sheet);
+  const idColumn = headers.indexOf('klient_id') + 1;
+  if (!idColumn) return '';
+  const targetRow = findClientRow_(sheet, idColumn, clientId);
+  if (!targetRow) return '';
+  const client = rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
+  return [client.jmeno, client.prijmeni].filter(Boolean).join(' ').trim();
 }
 
 function listMeetings_() {

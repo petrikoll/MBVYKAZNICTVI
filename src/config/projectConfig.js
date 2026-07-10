@@ -65,6 +65,40 @@ const CLIENT_DISADVANTAGE_OPTIONS = [
 
 const CLIENT_STATUS_OPTIONS = ['Aktivn\u00ed', 'Ukon\u010den\u00fd', 'Rozpracovan\u00fd', 'Stornovan\u00fd'];
 const YES_NO_OPTIONS = ['Ano', 'Ne'];
+const KU_SUPPORT_DEFAULT_CODE = 'NONE';
+const KU_SUPPORT_DEFAULT_LABEL = 'Nevykazovat do statistik KÚ';
+const KU_SUPPORT_TYPE_OPTIONS = [
+  { code: KU_SUPPORT_DEFAULT_CODE, group: '', name: KU_SUPPORT_DEFAULT_LABEL },
+  { code: 'DAVKY_SUPERDAVKA', group: 'D\u00e1vky', name: 'D\u00e1vka st\u00e1tn\u00ed soci\u00e1ln\u00ed pomoci \u2013 superd\u00e1vka' },
+  { code: 'DAVKY_MIMORADNA_OKAMZITA_POMOC', group: 'D\u00e1vky', name: 'Mimo\u0159\u00e1dn\u00e1 okam\u017eit\u00e1 pomoc' },
+  { code: 'DAVKY_PRISPEVEK_NA_PECI', group: 'D\u00e1vky', name: 'P\u0159\u00edsp\u011bvek na p\u00e9\u010di' },
+  { code: 'DAVKY_PRISPEVEK_NA_MOBILITU', group: 'D\u00e1vky', name: 'P\u0159\u00edsp\u011bvek na mobilitu' },
+  { code: 'DAVKY_JINE', group: 'D\u00e1vky', name: 'Jin\u00e9' },
+  { code: 'DUCHODY_STAROBNI_DUCHOD', group: 'D\u016fchody a poji\u0161t\u011bn\u00ed', name: 'Starobn\u00ed d\u016fchod' },
+  { code: 'DUCHODY_INVALIDNI_DUCHOD', group: 'D\u016fchody a poji\u0161t\u011bn\u00ed', name: 'Invalidn\u00ed d\u016fchod' },
+  { code: 'DUCHODY_DUCHODOVE_POJISTENI', group: 'D\u016fchody a poji\u0161t\u011bn\u00ed', name: 'D\u016fchodov\u00e9 poji\u0161t\u011bn\u00ed' },
+  { code: 'BYDLENI_SOCIALNI_OBECNI_BYT', group: 'Bydlen\u00ed', name: 'Soci\u00e1ln\u00ed nebo obecn\u00ed byt' },
+  { code: 'BYDLENI_JINE_RESENI', group: 'Bydlen\u00ed', name: 'Jin\u00e9 \u0159e\u0161en\u00ed bydlen\u00ed' },
+  { code: 'ZDRAVOTNI_KOMPENZACNI_POMUCKY', group: 'Zdravotn\u00ed a kompenza\u010dn\u00ed podpora', name: 'Kompenza\u010dn\u00ed pom\u016fcky' },
+  { code: 'ZDRAVOTNI_ZTP_TP', group: 'Zdravotn\u00ed a kompenza\u010dn\u00ed podpora', name: 'ZTP, TP' },
+  { code: 'ZDRAVOTNI_PREVOZOVA_SLUZBA', group: 'Zdravotn\u00ed a kompenza\u010dn\u00ed podpora', name: 'P\u0159evozov\u00e1 slu\u017eba' },
+  { code: 'ZDRAVOTNI_POBYTOVA_SLUZBA_LDN', group: 'Zdravotn\u00ed a kompenza\u010dn\u00ed podpora', name: 'Pobytov\u00e1 slu\u017eba / LDN' },
+  { code: 'ZDRAVOTNI_HOSPIC_PALIATIVNI_PECE', group: 'Zdravotn\u00ed a kompenza\u010dn\u00ed podpora', name: 'Hospic / paliativn\u00ed p\u00e9\u010de' },
+  { code: 'SOCIALNI_SLUZBY_PECOVATELSKA', group: 'Soci\u00e1ln\u00ed slu\u017eby', name: 'Pe\u010dovatelsk\u00e1 slu\u017eba' },
+  { code: 'SOCIALNI_SLUZBY_SAS_RODINY', group: 'Soci\u00e1ln\u00ed slu\u017eby', name: 'SAS pro rodiny s d\u011btmi' },
+  { code: 'SOCIALNI_SLUZBY_RANA_PECE', group: 'Soci\u00e1ln\u00ed slu\u017eby', name: 'Ran\u00e1 p\u00e9\u010de' },
+  { code: 'SOCIALNI_SLUZBY_CDZ', group: 'Soci\u00e1ln\u00ed slu\u017eby', name: 'Centrum du\u0161evn\u00edho zdrav\u00ed' },
+  { code: 'SOCIALNI_SLUZBY_DLUHOVA_PORADNA', group: 'Soci\u00e1ln\u00ed slu\u017eby', name: 'Dluhov\u00e1 poradna' },
+  { code: 'SOCIALNI_SLUZBY_OBCANSKO_PRAVNI_PORADNA', group: 'Soci\u00e1ln\u00ed slu\u017eby', name: 'Ob\u010dansko-pr\u00e1vn\u00ed poradna' },
+  { code: 'MATERIALNI_POTRAVINOVA_POMOC', group: 'Materi\u00e1ln\u00ed a humanit\u00e1rn\u00ed pomoc', name: 'Potravinov\u00e1 pomoc' },
+  { code: 'MATERIALNI_OSACENI', group: 'Materi\u00e1ln\u00ed a humanit\u00e1rn\u00ed pomoc', name: 'O\u0161acen\u00ed' },
+  { code: 'MATERIALNI_HUMANITARNI_POMOC_UA', group: 'Materi\u00e1ln\u00ed a humanit\u00e1rn\u00ed pomoc', name: 'Humanit\u00e1rn\u00ed pomoc UA' },
+  { code: 'RODINA_OSPOD', group: 'Rodina, d\u011bti a ochrana pr\u00e1v', name: 'OSPOD' },
+  { code: 'RODINA_SKOLNI_DOCHAZKA', group: 'Rodina, d\u011bti a ochrana pr\u00e1v', name: '\u0160koln\u00ed doch\u00e1zka / podn\u011bt Z\u0160 nebo M\u0160' },
+  { code: 'RODINA_RODINNE_PRAVO', group: 'Rodina, d\u011bti a ochrana pr\u00e1v', name: 'Rodinn\u00e9 pr\u00e1vo' },
+  { code: 'RODINA_OMEZENI_SVEPRAVNOSTI', group: 'Rodina, d\u011bti a ochrana pr\u00e1v', name: 'Omezen\u00ed sv\u00e9pr\u00e1vnosti' },
+  { code: 'OSTATNI_JINE', group: 'Ostatn\u00ed', name: 'Jin\u00e9' }
+];
 
 const COMMON_AI_QUALITY_RULES = [
   'Jsi odborn\u00fd asistent pro zpracov\u00e1n\u00ed intern\u00edch z\u00e1znam\u016f projektu \u201ePodpora soci\u00e1ln\u00ed pr\u00e1ce v Moravsk\u00e9m Beroun\u011b II\u201c.',
@@ -181,7 +215,7 @@ const emptyGeneratorDraft = {
   selectedKey: 'plan', clientId: '', tpmRecordId: '', linkedPlanGoalId: '', linkedPlanGoalLabel: '',
   worker: 'Soci\u00e1ln\u00ed pracovn\u00edk', date: todayIso(), ka02StartTime: '', ka02EndTime: '', ka02Place: '', bulletNotes: '',
   situationDescription: '', goals: '', plannedSteps: '', finalEvaluation: '', planDurationMinutes: '60',
-  consultationType: 'Z\u00e1kladn\u00ed soci\u00e1ln\u00ed poradenstv\u00ed', supportArea: '', supportSpecific: {}, topics: '', outcome: '', nextSteps: '', durationMinutes: '',
+  consultationType: 'Z\u00e1kladn\u00ed soci\u00e1ln\u00ed poradenstv\u00ed', supportArea: '', kuSupportTypeCode: KU_SUPPORT_DEFAULT_CODE, supportSpecific: {}, topics: '', outcome: '', nextSteps: '', durationMinutes: '',
   debtSummary: '', debtCauses: '', debtStage: 'Mapov\u00e1n\u00ed', solutionPlan: '', educationTopic: '', sessionOrder: '1',
   themes: '', mentalState: '', recommendations: '', targetJob: '', cvDurationMinutes: '', experience: '', skills: '',
   position: '', feedback: '', strengths: '', developmentAreas: '', workplace: '', progressSummary: '', aiStyleRating: '3',
@@ -201,6 +235,9 @@ export {
   CLIENT_DISADVANTAGE_OPTIONS,
   CLIENT_STATUS_OPTIONS,
   YES_NO_OPTIONS,
+  KU_SUPPORT_DEFAULT_CODE,
+  KU_SUPPORT_DEFAULT_LABEL,
+  KU_SUPPORT_TYPE_OPTIONS,
   REPORT_PROMPTS,
   ACTIVE_AI_DOCUMENT_KEYS,
   APP_VIEWS,

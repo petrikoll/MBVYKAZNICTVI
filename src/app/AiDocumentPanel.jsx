@@ -3,6 +3,7 @@ import { Download, Loader2, Save, Sparkles } from 'lucide-react';
 
 import { CheckboxField, HelpIcon, InputField, Panel, SelectField, TextAreaField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
+import { KU_SUPPORT_DEFAULT_CODE, KU_SUPPORT_TYPE_OPTIONS } from '../config/projectConfig.js';
 
 const PHYSICAL_SIGNED_FILED_OUTREACH_TEXT = [
   'Zápis k depistáži byl fyzicky podepsán a založen do klientské dokumentace.',
@@ -446,6 +447,17 @@ function AiDocumentPanel({
                 options={[{ value: '', label: 'Vyber oblast podpory' }, ...KA1_SUPPORT_AREA_OPTIONS.map((item) => ({ value: item, label: item }))]}
               />
             </div>
+            {!generatorDraft.caseManagementMode && (
+              <SelectField
+                label="Typ podpory dle KÚ"
+                value={generatorDraft.kuSupportTypeCode || KU_SUPPORT_DEFAULT_CODE}
+                onChange={(value) => updateDraft({ kuSupportTypeCode: value || KU_SUPPORT_DEFAULT_CODE })}
+                options={KU_SUPPORT_TYPE_OPTIONS.map((item) => ({
+                  value: item.code,
+                  label: item.group ? `${item.group} / ${item.name}` : item.name
+                }))}
+              />
+            )}
             {generatorDraft.caseManagementMode && (
               <div>
                 <label className="mb-1 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Zapojení aktéři <HelpIcon help={HELP.aiCasePartners} /></label>
