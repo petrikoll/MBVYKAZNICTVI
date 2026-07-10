@@ -47,6 +47,8 @@ function ReadOnlyPlan({ clients, records, selectedClientId, onClientChange }) {
 }
 
 function Ka2CaseManagementView({ clients, records, ka02Draft, setKa02Draft, setGeneratorDraft, renderAiDocumentPanel, computedIndicators }) {
+  const selectedClientName = clients.find((client) => client.id === ka02Draft.selectedClientId)?.fullName || '';
+
   React.useEffect(() => {
     setGeneratorDraft((prev) => ({
       ...prev,
@@ -83,7 +85,7 @@ function Ka2CaseManagementView({ clients, records, ka02Draft, setKa02Draft, setG
       <div className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100"><div className="flex flex-wrap items-center gap-x-4 gap-y-1"><span className="font-semibold uppercase tracking-wide text-slate-300">KA2 Case management:</span><span>Klientské záznamy <strong>{caseCount}</strong></span></div></div>
       <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)] xl:items-start">
         <ReadOnlyPlan clients={clients} records={records} selectedClientId={ka02Draft.selectedClientId} onClientChange={selectClient} />
-        <div className="min-w-0">{renderAiDocumentPanel({ allowedKeys: ['consultation'], title: 'Zápis case managementu', description: 'Vyplňte podklady, vygenerujte návrh a uložte až finální dokument.', lockClientSelection: true, hideStyleFeedback: true })}</div>
+        <div className="min-w-0">{renderAiDocumentPanel({ allowedKeys: ['consultation'], title: 'Zápis case managementu', description: 'Vyplňte podklady, vygenerujte návrh a uložte až finální dokument.', lockClientSelection: true, hideStyleFeedback: true, watermarkText: selectedClientName })}</div>
       </div>
     </div>
   );

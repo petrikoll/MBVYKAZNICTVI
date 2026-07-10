@@ -39,6 +39,7 @@ function AiDocumentPanel({
   lockClientSelection = false,
   lockedClientId = '',
   lockedClientName = '',
+  watermarkText = '',
   hideStyleFeedback = false,
   panelClassName = ''
 }) {
@@ -366,6 +367,13 @@ function AiDocumentPanel({
                 ...linkedGoalOptions
               ]}
             />
+          )}
+          {watermarkText && (
+            <div className="pointer-events-none hidden min-h-20 items-center justify-end overflow-hidden rounded-lg px-4 lg:col-span-2 lg:flex">
+              <div className="max-w-full truncate text-right text-2xl font-black uppercase tracking-wide text-slate-500/20 xl:text-3xl">
+                {watermarkText}
+              </div>
+            </div>
           )}
         </div>
 

@@ -182,7 +182,7 @@ const buildPhysicalSignedFiledOutreachText = () => [
   'Elektronický záznam slouží pouze k evidenci základních údajů o aktivitě v programu.',
   'Podrobný obsah aktivity je uveden ve fyzicky založeném zápisu.'
 ].join(' ');
-const APP_VERSION_LABEL = 'verze 2026-07-01';
+const APP_VERSION_LABEL = 'verze 2026-07-10';
 const AI_MODEL_OPTIONS = [
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
@@ -4623,7 +4623,7 @@ ${rawOutput}` }] }],
     }
   };
 
-  const renderAiDocumentPanel = ({ allowedKeys, title, description, hideStyleFeedback = false, panelClassName = '', lockClientSelection = false }) => (
+  const renderAiDocumentPanel = ({ allowedKeys, title, description, hideStyleFeedback = false, panelClassName = '', lockClientSelection = false, watermarkText = '' }) => (
     <AiDocumentPanel
       allowedKeys={allowedKeys}
       title={title}
@@ -4637,6 +4637,7 @@ ${rawOutput}` }] }],
       lockClientSelection={lockClientSelection}
       lockedClientId={generatorDraft.clientId}
       lockedClientName={clientIndex[generatorDraft.clientId]?.fullName || ''}
+      watermarkText={watermarkText}
       generatedText={generatedText}
       setGeneratedText={setGeneratedText}
       lastGeneratedText={lastGeneratedText}
@@ -6445,14 +6446,13 @@ ${rawPlanOutput}` }] }],
                           onClick={() => openClient(client.id)}
                           className={`w-full rounded-xl border px-3 py-2.5 text-left transition ${
                             active
-                              ?'border-indigo-200 bg-indigo-50 shadow-sm'
+                              ?'border-indigo-500 bg-indigo-100 shadow-md ring-2 ring-indigo-300'
                               : 'border-slate-200 bg-white hover:border-indigo-200 hover:bg-slate-50'
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <div className="truncate text-sm font-bold text-slate-900">{client.fullName}</div>
-                              <div className="mt-0.5 truncate text-xs text-slate-500">{client.mesto || 'Bez obce'} · {client.projectStatusLabel}</div>
                             </div>
                             <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                           </div>
@@ -6477,10 +6477,10 @@ ${rawPlanOutput}` }] }],
                 <>
                   <Panel
                     title={selectedClient.fullName}
-                    description="Klientský detail kombinuje data z registru a interní projektové evidence."
                     icon={User}
+                    className="!border-indigo-400 !bg-indigo-100/70 ring-2 ring-indigo-200/80"
                     action={
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-2 sm:flex-nowrap">
                         <button
                           onClick={summarizeClientCase}
                           disabled={isSummarizingCase}
@@ -6586,40 +6586,18 @@ ${rawPlanOutput}` }] }],
                     </div>
 
                     <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-2">
-                      <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center lg:justify-between">
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Google Drive složka klienta</div>
-                          <p className="mt-0.5 text-xs text-emerald-900">
-                            {selectedClientDriveBundle
-                              ?'Složka klienta a monitorovací list už jsou připravené.'
-                              : 'Pro tohoto klienta zatím není připravená sdílená složka na Google Drive.'}
-                          </p>
-                        </div>
-                        {selectedClientDriveBundle?.payload?.clientFolderUrl && (
-                          <a
-                            href={selectedClientDriveBundle.payload.clientFolderUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
-                          >
-                            <DownloadCloud className="h-3.5 w-3.5" />
-                            Otevřít složku
-                          </a>
-                        )}
-                      </div>
-
                       {selectedClientDriveBundle?.payload ?(
-                        <div className="mt-2 grid gap-1.5 md:grid-cols-2">
+                        <div className="grid gap-1.5 md:grid-cols-2">
                           {[
                             {
                               key: 'folder',
-                              title: 'Klientská složka',
+                              title: 'Klientská složka - ZDE',
                               url: selectedClientDriveBundle.payload.clientFolderUrl,
                               caption: selectedClientDriveBundle.payload.clientFolderName
-                            },,
+                            },
                             {
                               key: 'monlist',
-                              title: 'MON list',
+                              title: 'Monitorovací list - ZDE',
                               url: selectedClientDriveBundle.payload.monListFileUrl,
                               caption: selectedClientDriveBundle.payload.monListFileName
                             }
@@ -6646,7 +6624,7 @@ ${rawPlanOutput}` }] }],
                   </Panel>
 
                   <div className="grid gap-4">
-                    <Panel title="Podpory podle typu" description="Počet podpor a čas podpory za jednotlivé typy klientských aktivit." icon={BarChart3} help={HELP.clientsSupportHours}>
+                    <Panel title="Podpory podle typu" description="Počet podpor a čas podpory za jednotlivé typy klientských aktivit." icon={BarChart3} help={HELP.clientsSupportHours} className="!border-indigo-400 !bg-indigo-100/70 ring-2 ring-indigo-200/80">
                       {selectedClientSupportBreakdown.byType.length === 0 ?(
                         <EmptyState icon={BarChart3} title="U klienta zatím nejsou evidované žádné podpory." />
                       ) : (
@@ -6682,11 +6660,11 @@ ${rawPlanOutput}` }] }],
                       )}
                     </Panel>
 
-                    <Panel title="Klientská osa" description="Přehled klientské cesty přes KA1, KA2 a dokumenty." icon={History}>
-                      <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="text-xs text-slate-500">
-                          Zaškrtni zápisy, které chceš vytisknout společně. Podpis klienta bude jen jednou na konci dokumentu.
-                        </div>
+                    <Panel
+                      title="Klientská osa"
+                      icon={History}
+                      className="!border-indigo-400 !bg-indigo-100/70 ring-2 ring-indigo-200/80"
+                      action={
                         <button
                           type="button"
                           onClick={exportSelectedJourneyRecords}
@@ -6696,12 +6674,12 @@ ${rawPlanOutput}` }] }],
                           <Printer className="h-4 w-4" />
                           Tisk vybraných záznamů ({selectedJourneyPrintIds.length})
                         </button>
-                      </div>
-                      <div className="mb-3 grid gap-3 md:grid-cols-4">
+                      }
+                    >
+                      <div className="mb-3 grid gap-3 md:grid-cols-3">
                         <InfoCard icon={History} label="Položky na ose" value={String(clientJourneyTimeline.length)} />
                         <InfoCard icon={Clock} label="Čas podpory" value={`${getClientStats(selectedClient.id, clientJourneyTimeline).supportHours.toFixed(1)} h`} />
                         <InfoCard icon={Target} label="Dokumenty" value={String(clientJourneyTimeline.filter((record) => Boolean(record.documentText)).length)} />
-                        <InfoCard icon={Briefcase} label="Aktuální stav" value={selectedClient.projectStatusLabel || 'Neuvedeno'} />
                       </div>
                       <div className="space-y-3">
                         {clientJourneyTimeline.length === 0 ?(
@@ -6756,15 +6734,10 @@ ${rawPlanOutput}` }] }],
                                         </div>
                                         <div className="min-w-0">
                                           <div className="text-sm font-bold text-slate-900">{record.title || meta.label}</div>
-                                          <div className="mt-1 text-xs text-slate-500">
-                                            {record.worker || 'Bez pracovníka'}
-                                            {record.ka ?` · ${record.ka}` : ''}
-                                            {record.entityType === 'mentor_report_document' ?' · dokument' : ''}
-                                          </div>
                                         </div>
                                       </div>
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-2">
+                                    <div className="flex flex-nowrap items-center justify-end gap-1">
                                       <button
                                         type="button"
                                         onClick={() =>
@@ -6772,18 +6745,18 @@ ${rawPlanOutput}` }] }],
                                             prev.includes(record.id) ?prev.filter((item) => item !== record.id) : [...prev, record.id]
                                           )
                                         }
-                                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-700 transition hover:bg-slate-50"
+                                        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 transition hover:bg-slate-50"
                                       >
-                                        <ChevronRight className={`h-3.5 w-3.5 transition-transform ${isExpanded ?'rotate-90' : ''}`} />
+                                        <ChevronRight className={`h-3 w-3 transition-transform ${isExpanded ?'rotate-90' : ''}`} />
                                         {isExpanded ?'Skrýt' : 'Detail'}
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => exportJourneyRecord(record)}
-                                        className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-blue-700 transition hover:bg-blue-100"
+                                        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 transition hover:bg-slate-100"
                                       >
-                                        <Download className="h-3.5 w-3.5" />
-                                        Stáhnout zápis
+                                        <Download className="h-3 w-3" />
+                                        Stáhnout
                                       </button>
                                       {!record.isSynthetic && (
                                         <>
@@ -6791,7 +6764,7 @@ ${rawPlanOutput}` }] }],
                                             type="button"
                                             onClick={() => deleteRecord(record)}
                                             disabled={isSaving}
-                                            className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                                            className="shrink-0 rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-red-700 transition hover:bg-red-100 disabled:opacity-50"
                                           >
                                             Smazat
                                           </button>
@@ -6799,9 +6772,9 @@ ${rawPlanOutput}` }] }],
                                             type="button"
                                             onClick={() => editJourneyRecord(record)}
                                             disabled={isSaving}
-                                            className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-blue-700 transition hover:bg-blue-100 disabled:opacity-50"
+                                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700 transition hover:bg-blue-100 disabled:opacity-50"
                                           >
-                                            <Pencil className="h-3.5 w-3.5" />
+                                            <Pencil className="h-3 w-3" />
                                             Upravit
                                           </button>
                                         </>
@@ -6857,11 +6830,6 @@ ${rawPlanOutput}` }] }],
                                           />
                                         </div>
                                       )}
-                                    </div>
-                                  )}
-                                  {record.documentText && (
-                                    <div className="mt-2 text-xs text-slate-500">
-                                      Náhled dokumentu: {truncate(cleanGeneratedText(record.documentText), 160)}
                                     </div>
                                   )}
                                 </div>

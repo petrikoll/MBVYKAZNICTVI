@@ -23,6 +23,7 @@ function Ka02View({
   const cv = indicatorMap.ka02CvOutputs;
   const debts = indicatorMap.ka02DebtMappedClients;
   const repayments = indicatorMap.ka02RepaymentArrangements;
+  const selectedClientName = clients.find((client) => client.id === ka02Draft.selectedClientId)?.fullName || '';
 
   React.useEffect(() => {
     setGeneratorDraft((prev) => ({
@@ -71,7 +72,8 @@ function Ka02View({
             title: 'KA1 - Z\u00e1pis individu\u00e1ln\u00ed podpory',
             description: 'P\u0159\u00edm\u00e1 pr\u00e1ce s klientem. Individu\u00e1ln\u00ed pl\u00e1n je vlevo, z\u00e1pis podpory vpravo.',
             lockClientSelection: true,
-            hideStyleFeedback: true
+            hideStyleFeedback: true,
+            watermarkText: selectedClientName
           })}
         </div>
       </div>

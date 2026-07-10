@@ -21,6 +21,9 @@ export default defineConfig({
   plugins: [react(), docxExportPlugin()],
   server: {
     host: '127.0.0.1',
-    port: 5174
+    port: 5174,
+    watch: {
+      ignored: ['**/.tmp-chrome-screens*/**', '**/navod-screenshoty*/**']
+    }
   }
 });
