@@ -2201,6 +2201,7 @@ function storeGlobalWorker(worker) {
 function App() {
   const [mainView, setMainView] = useState('clients');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAllClients, setShowAllClients] = useState(true);
   const [user, setUser] = useState(null);
   const [records, setRecords] = useState([]);
   const [clients, setClients] = useState([]);
@@ -2621,6 +2622,11 @@ function App() {
     );
   }, [clients, currentWorker, canSeeAllClients]);
 
+  const clientSelectionPool = useMemo(() => {
+    if (mainView === 'clients' && showAllClients) return clients;
+    return accessibleClients;
+  }, [mainView, showAllClients, clients, accessibleClients]);
+
   const selectedClient = selectedClientId ?clientIndex[selectedClientId] : null;
 
   const goalDeadlineAlerts = useMemo(
@@ -2644,7 +2650,7 @@ function App() {
     hasContentInFields(ka03Draft, KA03_DRAFT_CONTENT_FIELDS);
 
   const resetFormDrafts = () => {
-    const nextClientId = selectedClientId || accessibleClients[0]?.id || '';
+    const nextClientId = selectedClientId || clientSelectionPool[0]?.id || '';
     const nextWorker = currentWorker || WORKERS[0];
 
     setShowClientForm(false);
@@ -2708,7 +2714,7 @@ function App() {
 
 
   useEffect(() => {
-    if (accessibleClients.length === 0) {
+    if (clientSelectionPool.length === 0) {
       setSelectedClientId('');
       setGeneratorDraft((prev) => ({ ...prev, clientId: '' }));
       setKa01Draft((prev) => ({ ...prev, assessmentClientId: '' }));
@@ -2716,15 +2722,15 @@ function App() {
       setKa03Draft((prev) => ({ ...prev, selectedClientId: '', tpmClientId: '', employmentClientId: '' }));
       return;
     }
-    if (!selectedClientId || !accessibleClients.some((client) => client.id === selectedClientId)) {
-      const nextClientId = accessibleClients[0].id;
+    if (!selectedClientId || !clientSelectionPool.some((client) => client.id === selectedClientId)) {
+      const nextClientId = clientSelectionPool[0].id;
       setSelectedClientId(nextClientId);
       setGeneratorDraft((prev) => ({ ...prev, clientId: nextClientId }));
       setKa01Draft((prev) => ({ ...prev, assessmentClientId: nextClientId }));
       setKa02Draft((prev) => ({ ...prev, selectedClientId: nextClientId }));
       setKa03Draft((prev) => ({ ...prev, selectedClientId: nextClientId, tpmClientId: nextClientId, employmentClientId: nextClientId }));
     }
-  }, [accessibleClients, selectedClientId]);
+  }, [clientSelectionPool, selectedClientId]);
 
   useEffect(() => {
     if (!selectedClientId) return;
@@ -2776,10 +2782,11 @@ function App() {
         .toLowerCase()
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '');
+    const baseClients = showAllClients ? clients : accessibleClients;
     const term = normalizeSearchValue(searchQuery);
-    if (!term) return accessibleClients;
-    return accessibleClients.filter((client) => normalizeSearchValue(client.prijmeni).includes(term));
-  }, [accessibleClients, searchQuery]);
+    if (!term) return baseClients;
+    return baseClients.filter((client) => normalizeSearchValue(client.prijmeni).includes(term));
+  }, [clients, accessibleClients, searchQuery, showAllClients]);
 
   const computedIndicators = useMemo(() => {
     return buildIndicators({
@@ -4042,6 +4049,39 @@ function App() {
       ...selectedClient
     });
     setShowClientEditForm(true);
+  };
+
+  const handleClientKeyWorkerQuickChange = async (client, nextKeyWorker) => {
+    if (!client) return;
+    const normalizedNextKeyWorker = String(nextKeyWorker || '').trim();
+    if ((client.keyWorker || '') === normalizedNextKeyWorker) return;
+
+    setIsSaving(true);
+    try {
+      const result = await postGoogleSheetAction({
+        action: 'saveClient',
+        client: mapClientDraftToSheetClient({
+          ...emptyClientDraft,
+          ...client,
+          keyWorker: normalizedNextKeyWorker
+        }, client.id)
+      });
+      if (!result?.client?.klient_id) throw new Error('Google Sheet nevrátil ID klienta.');
+      const savedClient = mapSheetRowToClient(result.client, clients.findIndex((item) => item.id === client.id));
+      if (!savedClient) throw new Error('Upraveného klienta se nepodařilo načíst.');
+
+      setClients((prev) => prev.map((item) => (item.id === client.id ? savedClient : item)));
+      if (selectedClientId === client.id) {
+        setClientEditDraft((prev) => ({ ...prev, keyWorker: savedClient.keyWorker || '' }));
+      }
+      setSheetError('');
+      setFlash('Klíčový pracovník byl uložen.');
+    } catch (error) {
+      console.error('Google Sheets client key worker update error:', error);
+      setFlash(saveErrorMessage('Klíčový pracovník nebyl uložen', error));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleClientUpdate = async () => {
@@ -6295,30 +6335,6 @@ ${rawPlanOutput}` }] }],
                   <option key={worker} value={worker}>{worker}</option>
                 ))}
               </select>
-              <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" htmlFor="global-ai-model-select">
-                AI model pro test
-              </label>
-              <select
-                id="global-ai-model-select"
-                value={selectedAiModel}
-                onChange={(event) => setSelectedAiModel(event.target.value)}
-                className="h-9 min-w-[220px] rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-                title="Dočasný testovací výběr modelu. Ovlivňuje pouze AI generování textu."
-              >
-                {AI_MODEL_OPTIONS.map((model) => (
-                  <option key={model.value} value={model.value}>{model.label}</option>
-                ))}
-              </select>
-              <p className="text-right text-[11px] font-semibold text-slate-500">{APP_VERSION_LABEL} · AI test modelu</p>
-              <button
-                type="button"
-                onClick={() => switchMainView('statistics')}
-                aria-label="Statistiky"
-                className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold transition ${mainView === 'statistics' ? 'border-cyan-300 bg-cyan-700 text-white shadow-sm shadow-cyan-200/70' : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800'}`}
-              >
-                <BarChart3 className="h-4 w-4" />
-                Statistiky
-              </button>
               {false && <TopMetric
                 label="Stav integrace"
                 value={sheetError ?'Sheets fallback' : 'Hybrid aktivní'}
@@ -6395,8 +6411,19 @@ ${rawPlanOutput}` }] }],
                   </div>
                 }
               >
+                <div className="mb-3 flex items-center gap-2">
+                  <input
+                    id="show-all-clients"
+                    type="checkbox"
+                    checked={showAllClients}
+                    onChange={(event) => setShowAllClients(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <label htmlFor="show-all-clients" className="text-sm font-semibold text-slate-700">
+                    Zobraz všechny klienty
+                  </label>
+                </div>
                 <div className="mb-3">
-                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Vyhledat podle příjmení</label>
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                     <input
@@ -6441,16 +6468,24 @@ ${rawPlanOutput}` }] }],
                       const active = client.id === selectedClientId;
                       const showCaseManagementBadge = hasCaseManagementNeed(client) && !handlesCaseManagementDirectly(client.keyWorker);
                       return (
-                        <button
+                        <div
                           key={client.id}
+                          role="button"
+                          tabIndex={0}
                           onClick={() => openClient(client.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              openClient(client.id);
+                            }
+                          }}
                           className={`w-full rounded-xl border px-3 py-2.5 text-left transition ${
                             active
                               ?'border-indigo-500 bg-indigo-100 shadow-md ring-2 ring-indigo-300'
                               : 'border-slate-200 bg-white hover:border-indigo-200 hover:bg-slate-50'
                           }`}
                         >
-                          <div className="flex items-start justify-between gap-2">
+                          <div className="flex w-full items-start justify-between gap-2 text-left">
                             <div className="min-w-0">
                               <div className="truncate text-sm font-bold text-slate-900">{client.fullName}</div>
                             </div>
@@ -6460,11 +6495,29 @@ ${rawPlanOutput}` }] }],
                             {client.rodina
                               ? <MiniBadge icon={Users} label="Rodina" tone="emerald" />
                               : <MiniBadge icon={Database} label={`ID ${client.id}`} tone="slate" />}
-                            <MiniBadge icon={User} label={client.keyWorker || 'Bez klíč. prac.'} tone="indigo" />
+                            <label
+                              className="flex min-w-0 items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-1 text-indigo-700"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <User className="h-3.5 w-3.5 shrink-0" />
+                              <select
+                                value={client.keyWorker || ''}
+                                onChange={(event) => handleClientKeyWorkerQuickChange(client, event.target.value)}
+                                onClick={(event) => event.stopPropagation()}
+                                disabled={isSaving}
+                                className="min-w-0 flex-1 bg-transparent text-xs font-semibold outline-none"
+                                aria-label={`Klíčový pracovník klienta ${client.fullName}`}
+                              >
+                                <option value="">Bez klíč. prac.</option>
+                                {WORKERS.map((worker) => (
+                                  <option key={worker} value={worker}>{worker}</option>
+                                ))}
+                              </select>
+                            </label>
                             <MiniBadge icon={Clock} label={`${stats.supportHours.toFixed(1)} h`} tone="indigo" />
                             {showCaseManagementBadge && <MiniBadge icon={User} label="case" tone="emerald" />}
                           </div>
-                        </button>
+                        </div>
                       );
                     })
                   )}
@@ -7131,192 +7184,197 @@ ${rawPlanOutput}` }] }],
         )}
 
         {mainView === 'education' && (
-          <div className="space-y-4">
-            <Panel title="Vzdělávání" description="Evidence vzdělávacích akcí pracovníků projektu." icon={GraduationCap}>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
-                <InputField label="Datum" type="date" value={educationDraft.date} onChange={(value) => setEducationDraft((prev) => ({ ...prev, date: value }))} />
-                <InputField label="Počet hodin" help={{ title: 'Počet hodin', text: 'Hodinou se myslí 60 minut.' }} value={educationDraft.hours} onChange={(value) => setEducationDraft((prev) => ({ ...prev, hours: value }))} placeholder="např. 8" />
-                <InputField label="Název vzdělávání" value={educationDraft.title} onChange={(value) => setEducationDraft((prev) => ({ ...prev, title: value }))} />
-                <InputField label="Číslo akreditace" value={educationDraft.accreditationNumber} onChange={(value) => setEducationDraft((prev) => ({ ...prev, accreditationNumber: value }))} />
-                <SelectField label="Pracovník 1" value={educationDraft.worker1} onChange={(value) => setEducationDraft((prev) => ({ ...prev, worker1: value }))} options={WORKERS.map((worker) => ({ value: worker, label: worker }))} />
-                <SelectField label="Pracovník 2" value={educationDraft.worker2} onChange={(value) => setEducationDraft((prev) => ({ ...prev, worker2: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
-                <SelectField label="Pracovník 3" value={educationDraft.worker3} onChange={(value) => setEducationDraft((prev) => ({ ...prev, worker3: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
-              </div>
-              <div className="mt-3">
-                <button type="button" onClick={handleSaveEducation} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60">
-                  <Save className="h-4 w-4" />
-                  Uložit vzdělávání
-                </button>
-              </div>
-            </Panel>
-
-            <Panel title="Uložená vzdělávání" description="Přehled vzdělávacích akcí uložených do evidence." icon={FileSpreadsheet}>
-              {educationRecords.length === 0 ? (
-                <EmptyState icon={GraduationCap} title="Zatím není uložena žádná vzdělávací akce." />
-              ) : (
-                <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
-                  <table className="min-w-[900px] w-full divide-y divide-slate-200 text-xs">
-                    <thead className="sticky top-0 bg-amber-50 font-semibold uppercase text-amber-800">
-                      <tr>
-                        <th className="px-2 py-2 text-left">Datum</th>
-                        <th className="px-2 py-2 text-left">Počet hodin</th>
-                        <th className="px-2 py-2 text-left">Název vzdělávání</th>
-                        <th className="px-2 py-2 text-left">Číslo akreditace</th>
-                        <th className="px-2 py-2 text-left">Pracovník 1</th>
-                        <th className="px-2 py-2 text-left">Pracovník 2</th>
-                        <th className="px-2 py-2 text-left">Pracovník 3</th>
-                        <th className="px-2 py-2 text-right">Akce</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {educationRecords.map((record) => {
-                        const payload = record.payload || {};
-                        const workers = Array.isArray(payload.workers) ? payload.workers : [record.worker || payload.worker].filter(Boolean);
-                        return (
-                          <tr key={record.id} className="even:bg-slate-50/60">
-                            <td className="px-2 py-2">{record.activityDate || payload.date || '-'}</td>
-                            <td className="px-2 py-2">{payload.hours || '-'}</td>
-                            <td className="px-2 py-2 font-semibold">{payload.title || record.title || '-'}</td>
-                            <td className="px-2 py-2">{payload.accreditationNumber || '-'}</td>
-                            <td className="px-2 py-2">{workers[0] || '-'}</td>
-                            <td className="px-2 py-2">{workers[1] || '-'}</td>
-                            <td className="px-2 py-2">{workers[2] || '-'}</td>
-                            <td className="whitespace-nowrap px-2 py-2 text-right">
-                              <button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700 disabled:opacity-50">
-                                Smazat
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+          <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
+            <div className="space-y-4">
+              <Panel title="Vzdělávání" description="Evidence vzdělávacích akcí pracovníků projektu." icon={GraduationCap}>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                  <InputField label="Datum" type="date" value={educationDraft.date} onChange={(value) => setEducationDraft((prev) => ({ ...prev, date: value }))} />
+                  <InputField label="Počet hodin" help={{ title: 'Počet hodin', text: 'Hodinou se myslí 60 minut.' }} value={educationDraft.hours} onChange={(value) => setEducationDraft((prev) => ({ ...prev, hours: value }))} placeholder="např. 8" />
+                  <InputField label="Název vzdělávání" value={educationDraft.title} onChange={(value) => setEducationDraft((prev) => ({ ...prev, title: value }))} />
+                  <InputField label="Číslo akreditace" value={educationDraft.accreditationNumber} onChange={(value) => setEducationDraft((prev) => ({ ...prev, accreditationNumber: value }))} />
+                  <SelectField label="Pracovník 1" value={educationDraft.worker1} onChange={(value) => setEducationDraft((prev) => ({ ...prev, worker1: value }))} options={WORKERS.map((worker) => ({ value: worker, label: worker }))} />
+                  <SelectField label="Pracovník 2" value={educationDraft.worker2} onChange={(value) => setEducationDraft((prev) => ({ ...prev, worker2: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
+                  <SelectField label="Pracovník 3" value={educationDraft.worker3} onChange={(value) => setEducationDraft((prev) => ({ ...prev, worker3: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
                 </div>
-              )}
-            </Panel>
+                <div className="mt-3">
+                  <button type="button" onClick={handleSaveEducation} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60">
+                    <Save className="h-4 w-4" />
+                    Uložit vzdělávání
+                  </button>
+                </div>
+              </Panel>
 
-            <Panel title="Supervize" description="Evidence individuálních a skupinových supervizí." icon={Brain}>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                <InputField label="Datum" type="date" value={supervisionDraft.date} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, date: value }))} />
-                <InputField label="Počet hodin" help={{ title: 'Počet hodin', text: 'Hodinou se myslí 60 minut.' }} value={supervisionDraft.hours} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, hours: value }))} placeholder="např. 2" />
-                <SelectField label="Typ supervize" value={supervisionDraft.type} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, type: value, worker2: value === 'individuální' ? '' : prev.worker2, worker3: value === 'individuální' ? '' : prev.worker3 }))} options={SUPERVISION_TYPE_OPTIONS.map((type) => ({ value: type, label: type }))} />
-                <SelectField label="Pracovník 1" value={supervisionDraft.worker1} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, worker1: value }))} options={WORKERS.map((worker) => ({ value: worker, label: worker }))} />
-                {!isIndividualSupervision && (
-                  <>
-                    <SelectField label="Pracovník 2" value={supervisionDraft.worker2} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, worker2: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
-                    <SelectField label="Pracovník 3" value={supervisionDraft.worker3} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, worker3: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
-                  </>
+              <Panel title="Uložená vzdělávání" description="Přehled vzdělávacích akcí uložených do evidence." icon={FileSpreadsheet}>
+                {educationRecords.length === 0 ? (
+                  <EmptyState icon={GraduationCap} title="Zatím není uložena žádná vzdělávací akce." />
+                ) : (
+                  <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
+                    <table className="min-w-[900px] w-full divide-y divide-slate-200 text-xs">
+                      <thead className="sticky top-0 bg-amber-50 font-semibold uppercase text-amber-800">
+                        <tr>
+                          <th className="px-2 py-2 text-left">Datum</th>
+                          <th className="px-2 py-2 text-left">Počet hodin</th>
+                          <th className="px-2 py-2 text-left">Název vzdělávání</th>
+                          <th className="px-2 py-2 text-left">Číslo akreditace</th>
+                          <th className="px-2 py-2 text-left">Pracovník 1</th>
+                          <th className="px-2 py-2 text-left">Pracovník 2</th>
+                          <th className="px-2 py-2 text-left">Pracovník 3</th>
+                          <th className="px-2 py-2 text-right">Akce</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {educationRecords.map((record) => {
+                          const payload = record.payload || {};
+                          const workers = Array.isArray(payload.workers) ? payload.workers : [record.worker || payload.worker].filter(Boolean);
+                          return (
+                            <tr key={record.id} className="even:bg-slate-50/60">
+                              <td className="px-2 py-2">{record.activityDate || payload.date || '-'}</td>
+                              <td className="px-2 py-2">{payload.hours || '-'}</td>
+                              <td className="px-2 py-2 font-semibold">{payload.title || record.title || '-'}</td>
+                              <td className="px-2 py-2">{payload.accreditationNumber || '-'}</td>
+                              <td className="px-2 py-2">{workers[0] || '-'}</td>
+                              <td className="px-2 py-2">{workers[1] || '-'}</td>
+                              <td className="px-2 py-2">{workers[2] || '-'}</td>
+                              <td className="whitespace-nowrap px-2 py-2 text-right">
+                                <button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700 disabled:opacity-50">
+                                  Smazat
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
-              </div>
-              <div className="mt-3">
-                <button type="button" onClick={handleSaveSupervision} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60">
-                  <Save className="h-4 w-4" />
-                  Uložit supervizi
-                </button>
-              </div>
-            </Panel>
+              </Panel>
+            </div>
 
-            <Panel title="Uložené supervize" description="Přehled supervizí uložených do evidence." icon={FileSpreadsheet}>
-              {supervisionRecords.length === 0 ? (
-                <EmptyState icon={Brain} title="Zatím není uložena žádná supervize." />
-              ) : (
-                <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
-                  <table className="min-w-[900px] w-full divide-y divide-slate-200 text-xs">
-                    <thead className="sticky top-0 bg-amber-50 font-semibold uppercase text-amber-800">
-                      <tr>
-                        <th className="px-2 py-2 text-left">Datum</th>
-                        <th className="px-2 py-2 text-left">Počet hodin</th>
-                        <th className="px-2 py-2 text-left">Typ supervize</th>
-                        <th className="px-2 py-2 text-left">Pracovník 1</th>
-                        <th className="px-2 py-2 text-left">Pracovník 2</th>
-                        <th className="px-2 py-2 text-left">Pracovník 3</th>
-                        <th className="px-2 py-2 text-right">Akce</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {supervisionRecords.map((record) => {
-                        const payload = record.payload || {};
-                        const workers = Array.isArray(payload.workers) ? payload.workers : [];
-                        return (
-                          <tr key={record.id} className="even:bg-slate-50/60">
-                            <td className="px-2 py-2">{record.activityDate || payload.date || '-'}</td>
-                            <td className="px-2 py-2">{payload.hours || '-'}</td>
-                            <td className="px-2 py-2 font-semibold">{payload.type || record.title || '-'}</td>
-                            <td className="px-2 py-2">{workers[0] || '-'}</td>
-                            <td className="px-2 py-2">{workers[1] || '-'}</td>
-                            <td className="px-2 py-2">{workers[2] || '-'}</td>
-                            <td className="whitespace-nowrap px-2 py-2 text-right">
-                              <button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700 disabled:opacity-50">
-                                Smazat
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+            <div className="space-y-4">
+              <Panel title="Supervize" description="Evidence individuálních a skupinových supervizí." icon={Brain}>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                  <InputField label="Datum" type="date" value={supervisionDraft.date} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, date: value }))} />
+                  <InputField label="Počet hodin" help={{ title: 'Počet hodin', text: 'Hodinou se myslí 60 minut.' }} value={supervisionDraft.hours} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, hours: value }))} placeholder="např. 2" />
+                  <SelectField label="Typ supervize" value={supervisionDraft.type} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, type: value, worker2: value === 'individuální' ? '' : prev.worker2, worker3: value === 'individuální' ? '' : prev.worker3 }))} options={SUPERVISION_TYPE_OPTIONS.map((type) => ({ value: type, label: type }))} />
+                  <SelectField label="Pracovník 1" value={supervisionDraft.worker1} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, worker1: value }))} options={WORKERS.map((worker) => ({ value: worker, label: worker }))} />
+                  {!isIndividualSupervision && (
+                    <>
+                      <SelectField label="Pracovník 2" value={supervisionDraft.worker2} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, worker2: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
+                      <SelectField label="Pracovník 3" value={supervisionDraft.worker3} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, worker3: value }))} options={[{ value: '', label: 'Nevyplněno' }, ...WORKERS.map((worker) => ({ value: worker, label: worker }))]} />
+                    </>
+                  )}
                 </div>
-              )}
-            </Panel>
+                <div className="mt-3">
+                  <button type="button" onClick={handleSaveSupervision} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60">
+                    <Save className="h-4 w-4" />
+                    Uložit supervizi
+                  </button>
+                </div>
+              </Panel>
+
+              <Panel title="Uložené supervize" description="Přehled supervizí uložených do evidence." icon={FileSpreadsheet}>
+                {supervisionRecords.length === 0 ? (
+                  <EmptyState icon={Brain} title="Zatím není uložena žádná supervize." />
+                ) : (
+                  <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
+                    <table className="min-w-[900px] w-full divide-y divide-slate-200 text-xs">
+                      <thead className="sticky top-0 bg-amber-50 font-semibold uppercase text-amber-800">
+                        <tr>
+                          <th className="px-2 py-2 text-left">Datum</th>
+                          <th className="px-2 py-2 text-left">Počet hodin</th>
+                          <th className="px-2 py-2 text-left">Typ supervize</th>
+                          <th className="px-2 py-2 text-left">Pracovník 1</th>
+                          <th className="px-2 py-2 text-left">Pracovník 2</th>
+                          <th className="px-2 py-2 text-left">Pracovník 3</th>
+                          <th className="px-2 py-2 text-right">Akce</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {supervisionRecords.map((record) => {
+                          const payload = record.payload || {};
+                          const workers = Array.isArray(payload.workers) ? payload.workers : [];
+                          return (
+                            <tr key={record.id} className="even:bg-slate-50/60">
+                              <td className="px-2 py-2">{record.activityDate || payload.date || '-'}</td>
+                              <td className="px-2 py-2">{payload.hours || '-'}</td>
+                              <td className="px-2 py-2 font-semibold">{payload.type || record.title || '-'}</td>
+                              <td className="px-2 py-2">{workers[0] || '-'}</td>
+                              <td className="px-2 py-2">{workers[1] || '-'}</td>
+                              <td className="px-2 py-2">{workers[2] || '-'}</td>
+                              <td className="whitespace-nowrap px-2 py-2 text-right">
+                                <button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700 disabled:opacity-50">
+                                  Smazat
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Panel>
+            </div>
           </div>
         )}
 
         {mainView === 'statistics' && (
-          <Panel
-            title="Statistiky"
-            description="Přehled pro KÚ se generuje z listu Statistiky. Do klientské osy se tyto položky samostatně nepromítají."
-            icon={BarChart3}
-          >
-            <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
-              <InputField
-                label="Datum od"
-                type="date"
-                value={statisticsFilters.dateFrom}
-                onChange={(value) => setStatisticsFilters((prev) => ({ ...prev, dateFrom: value }))}
-              />
-              <InputField
-                label="Datum do"
-                type="date"
-                value={statisticsFilters.dateTo}
-                onChange={(value) => setStatisticsFilters((prev) => ({ ...prev, dateTo: value }))}
-              />
-              <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={handleExportKuStatisticsDocx}
-                  disabled={!hasValidKuStatisticsDateRange || isExportingKuStatistics}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-cyan-200 bg-cyan-700 px-4 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-                >
-                  {isExportingKuStatistics ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  Statistika pro KÚ
-                </button>
-                {!statisticsFilters.dateFrom || !statisticsFilters.dateTo ? (
-                  <p className="text-xs text-slate-500">Tlačítko se aktivuje po vyplnění obou datumů.</p>
-                ) : !hasValidKuStatisticsDateRange ? (
-                  <p className="text-xs text-rose-600">Datum od nesmí být později než datum do.</p>
-                ) : null}
+          <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
+            <Panel
+              title="Statistiky"
+              description="Přehled pro KÚ se generuje z listu Statistiky. Do klientské osy se tyto položky samostatně nepromítají."
+              icon={BarChart3}
+            >
+              <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                <InputField
+                  label="Datum od"
+                  type="date"
+                  value={statisticsFilters.dateFrom}
+                  onChange={(value) => setStatisticsFilters((prev) => ({ ...prev, dateFrom: value }))}
+                />
+                <InputField
+                  label="Datum do"
+                  type="date"
+                  value={statisticsFilters.dateTo}
+                  onChange={(value) => setStatisticsFilters((prev) => ({ ...prev, dateTo: value }))}
+                />
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={handleExportKuStatisticsDocx}
+                    disabled={!hasValidKuStatisticsDateRange || isExportingKuStatistics}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-cyan-200 bg-cyan-700 px-4 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    {isExportingKuStatistics ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    Statistika pro KÚ
+                  </button>
+                  {!statisticsFilters.dateFrom || !statisticsFilters.dateTo ? (
+                    <p className="text-xs text-slate-500">Tlačítko se aktivuje po vyplnění obou datumů.</p>
+                  ) : !hasValidKuStatisticsDateRange ? (
+                    <p className="text-xs text-rose-600">Datum od nesmí být později než datum do.</p>
+                  ) : null}
+                </div>
               </div>
-            </div>
 
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border border-cyan-100 bg-cyan-50 p-4">
-                <div className="text-xs font-semibold uppercase text-cyan-700">Unikátní osoby</div>
-                <div className="mt-1 text-2xl font-bold text-slate-900">{kuStatisticsOverview.totalUniqueClients}</div>
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                <div className="rounded-lg border border-cyan-100 bg-cyan-50 p-4">
+                  <div className="text-xs font-semibold uppercase text-cyan-700">Unikátní osoby</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-900">{kuStatisticsOverview.totalUniqueClients}</div>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="text-xs font-semibold uppercase text-slate-500">Statistické záznamy</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-900">{kuStatisticsOverview.totalRecords}</div>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="text-xs font-semibold uppercase text-slate-500">Načteno z listu Statistiky</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-900">{statisticsRows.length}</div>
+                </div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-4">
-                <div className="text-xs font-semibold uppercase text-slate-500">Statistické záznamy</div>
-                <div className="mt-1 text-2xl font-bold text-slate-900">{kuStatisticsOverview.totalRecords}</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-4">
-                <div className="text-xs font-semibold uppercase text-slate-500">Načteno z listu Statistiky</div>
-                <div className="mt-1 text-2xl font-bold text-slate-900">{statisticsRows.length}</div>
-              </div>
-            </div>
 
-            <div className="mt-4">
-              {hasValidKuStatisticsDateRange && kuStatisticsOverview.rows.length === 0 && (
-                <EmptyState title="Bez dat pro zvolené období" text="V listu Statistiky nejsou pro zadaný rozsah aktivní položky typu podpory dle KÚ." icon={FileText} />
-              )}
+              <div className="mt-4">
+                {hasValidKuStatisticsDateRange && kuStatisticsOverview.rows.length === 0 && (
+                  <EmptyState title="Bez dat pro zvolené období" text="V listu Statistiky nejsou pro zadaný rozsah aktivní položky typu podpory dle KÚ." icon={FileText} />
+                )}
               {kuStatisticsOverview.rows.length > 0 && (
                 <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
                   <table className="min-w-[760px] w-full divide-y divide-slate-100 text-xs">
@@ -7343,8 +7401,10 @@ ${rawPlanOutput}` }] }],
                   </table>
                 </div>
               )}
-            </div>
-          </Panel>
+              </div>
+            </Panel>
+            <div aria-hidden="true" className="hidden xl:block" />
+          </div>
         )}
 
         {mainView === 'dashboard' && (

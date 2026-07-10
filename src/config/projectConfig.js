@@ -192,7 +192,8 @@ const APP_VIEWS = [
   { id: 'ka2case', name: 'KA2-Case management', icon: Network, tone: 'blue' },
   { id: 'ka01', name: 'KA2-Tvorba s\u00edt\u011b', icon: Workflow, tone: 'blue' },
   { id: 'education', name: 'Vzd\u011bl\u00e1v\u00e1n\u00ed a supervize', icon: GraduationCap, tone: 'amber' },
-  { id: 'dashboard', name: 'Dashboard', icon: BarChart3, tone: 'slate' }
+  { id: 'dashboard', name: 'Dashboard', icon: BarChart3, tone: 'slate' },
+  { id: 'statistics', name: 'Statistiky KÚ', icon: BarChart3, tone: 'slate' }
 ];
 
 const REPORTING_PERIODS = [
