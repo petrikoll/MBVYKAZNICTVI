@@ -520,12 +520,12 @@ function parseDateForSort(value) {
 }
 
 function compareTimelineRecordsDesc(a, b) {
+  if (a.entityType === 'project_entry' && b.entityType !== 'project_entry') return 1;
+  if (b.entityType === 'project_entry' && a.entityType !== 'project_entry') return -1;
   const dateDiff = parseDateForSort(b.activityDate) - parseDateForSort(a.activityDate);
   if (dateDiff !== 0) return dateDiff;
   const createdDiff = Number(b.createdAt || 0) - Number(a.createdAt || 0);
   if (createdDiff !== 0) return createdDiff;
-  if (a.entityType === 'project_entry' && b.entityType !== 'project_entry') return 1;
-  if (b.entityType === 'project_entry' && a.entityType !== 'project_entry') return -1;
   return String(a.title || '').localeCompare(String(b.title || ''), 'cs');
 }
 
