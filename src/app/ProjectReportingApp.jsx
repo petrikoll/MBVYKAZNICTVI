@@ -7345,26 +7345,36 @@ ${rawPlanOutput}` }] }],
               </div>
             </div>
 
-            <div className="mt-5 space-y-4">
+            <div className="mt-4">
               {hasValidKuStatisticsDateRange && kuStatisticsOverview.rows.length === 0 && (
                 <EmptyState title="Bez dat pro zvolené období" text="V listu Statistiky nejsou pro zadaný rozsah aktivní položky typu podpory dle KÚ." icon={FileText} />
               )}
-              {Object.entries(kuStatisticsOverview.groups).map(([group, items]) => (
-                <div key={group} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                  <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900">{group}</div>
-                  <div className="divide-y divide-slate-100">
-                    {items.map((item) => (
-                      <div key={item.key} className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[1fr_120px] md:items-center">
-                        <div>
-                          <div className="font-semibold text-slate-900">{item.name}</div>
-                          <div className="mt-1 text-xs text-slate-500">{item.clientNames.slice(0, 6).join(', ')}{item.clientNames.length > 6 ? ` a další ${item.clientNames.length - 6}` : ''}</div>
-                        </div>
-                        <div className="text-left text-lg font-bold text-cyan-800 md:text-right">{item.clientCount}</div>
-                      </div>
-                    ))}
-                  </div>
+              {kuStatisticsOverview.rows.length > 0 && (
+                <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
+                  <table className="min-w-[760px] w-full divide-y divide-slate-100 text-xs">
+                    <thead className="bg-slate-50 text-[11px] font-semibold uppercase text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Skupina</th>
+                        <th className="px-3 py-2 text-left">Forma pomoci</th>
+                        <th className="px-3 py-2 text-left">Klienti</th>
+                        <th className="px-3 py-2 text-right">Osob</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {kuStatisticsOverview.rows.map((item) => (
+                        <tr key={item.key} className="align-middle">
+                          <td className="whitespace-nowrap px-3 py-2 font-semibold text-slate-700">{item.group}</td>
+                          <td className="px-3 py-2 font-semibold text-slate-900">{item.name}</td>
+                          <td className="max-w-[360px] truncate px-3 py-2 text-slate-500" title={item.clientNames.join(', ')}>
+                            {item.clientNames.slice(0, 6).join(', ')}{item.clientNames.length > 6 ? ` a další ${item.clientNames.length - 6}` : ''}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right text-sm font-bold text-cyan-800">{item.clientCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ))}
+              )}
             </div>
           </Panel>
         )}
