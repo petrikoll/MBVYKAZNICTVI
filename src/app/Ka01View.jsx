@@ -1,7 +1,7 @@
 import React from 'react';
 import { CalendarDays, Download, Save, Sparkles, Users } from 'lucide-react';
 
-import { EmptyState, HelpIcon, InputField, Panel, SelectField, TextAreaField } from '../components/ui.jsx';
+import { EmptyState, HelpIcon, InputField, Panel, SaveInlineNotice, SelectField, TextAreaField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { truncate } from '../lib/projectUtils.js';
 
@@ -25,6 +25,7 @@ function Ka01View({
   isSaving, ka01NetworkDuration, editingKa01NetworkRecordId,
   handleGenerateKa01NetworkDescription, handleSaveKa01Network,
   handleSaveKa01ActorRegistry, toggleKa01ActorAttendance,
+  networkSaveNotice, actorSaveNotice,
   ka01AttendanceSelection, exportKa01AttendanceSheet,
   handleEditKa01ActorRegistry, exportKa01NetworkBulk,
   ka01NetworkTimeError, cancelKa01NetworkEdit, ka01NetworkRecords,
@@ -134,6 +135,7 @@ function Ka01View({
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={handleGenerateKa01NetworkDescription} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"><Sparkles className="h-4 w-4" />Vygenerovat návrh AI</button>
             <button onClick={handleSaveKa01Network} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"><Save className="h-4 w-4" />{editingKa01NetworkRecordId ? 'Uložit úpravu' : 'Uložit aktivitu'}</button>
+            <SaveInlineNotice notice={networkSaveNotice} />
             <button type="button" onClick={exportKa01NetworkBulk} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><Download className="h-4 w-4" />Hromadné stažení</button>
             {editingKa01NetworkRecordId && <button type="button" onClick={cancelKa01NetworkEdit} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold">Zrušit úpravu</button>}
             {ka01NetworkTimeError && <span className="inline-flex items-center text-sm font-semibold text-red-600">{ka01NetworkTimeError}</span>}
@@ -162,7 +164,10 @@ function Ka01View({
             <InputField label="Telefon" help={HELP.actorPhoneEmail} type="tel" value={ka01ActorDraft.phone} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, phone: value }))} />
             <InputField label="E-mail" help={HELP.actorPhoneEmail} type="email" value={ka01ActorDraft.email} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, email: value }))} />
           </div>
-          <button onClick={handleSaveKa01ActorRegistry} disabled={isSaving} className="inline-flex w-fit items-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"><Save className="h-4 w-4" />{ka01ActorDraft.id ? 'Uložit úpravu aktéra' : 'Uložit aktéra do registru'}</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={handleSaveKa01ActorRegistry} disabled={isSaving} className="inline-flex w-fit items-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"><Save className="h-4 w-4" />{ka01ActorDraft.id ? 'Uložit úpravu aktéra' : 'Uložit aktéra do registru'}</button>
+            <SaveInlineNotice notice={actorSaveNotice} />
+          </div>
 
           <div>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

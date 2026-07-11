@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Target } from 'lucide-react';
 
-import { HelpIcon, Panel } from '../components/ui.jsx';
+import { HelpIcon, Panel, SaveInlineNotice } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { selectLatestClientPlan } from '../lib/planSelection.js';
 
@@ -376,16 +376,22 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
           </>
         )}
 
-        {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{notice}</div>}
-        {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">{error}</div>}
-
-        <button
-          type="submit"
-          disabled={loading || saving}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
-        >
-          {saving ? 'Ukládám...' : 'Uložit plán'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="submit"
+            disabled={loading || saving}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {saving ? 'Ukládám…' : 'Uložit plán'}
+          </button>
+          <SaveInlineNotice notice={saving
+            ? { tone: 'progress', text: 'Ukládám…' }
+            : error
+              ? { tone: 'error', text: error }
+              : notice
+                ? { tone: 'success', text: 'Uloženo' }
+                : null} />
+        </div>
       </form>
     </Panel>
   );

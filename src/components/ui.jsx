@@ -174,6 +174,25 @@ const LoadingCard = ({ text }) => (
   </div>
 );
 
+const SaveInlineNotice = ({ notice }) => {
+  if (!notice?.text) return null;
+  const toneClasses = {
+    success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    error: 'border-red-200 bg-red-50 text-red-700',
+    warning: 'border-amber-200 bg-amber-50 text-amber-700',
+    progress: 'border-slate-200 bg-white text-slate-600'
+  };
+  return (
+    <span
+      role={notice.tone === 'error' ? 'alert' : 'status'}
+      aria-live="polite"
+      className={`inline-flex min-h-9 items-center rounded-lg border px-3 py-2 text-xs font-semibold ${toneClasses[notice.tone] || toneClasses.progress}`}
+    >
+      {notice.text}
+    </span>
+  );
+};
+
 const EmptyState = ({ icon: Icon, title }) => (
   <div className="rounded-xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center">
     <Icon className="mx-auto h-8 w-8 text-slate-300" />
@@ -264,6 +283,7 @@ export {
   CompactMetric,
   StatCard,
   LoadingCard,
+  SaveInlineNotice,
   EmptyState,
   InputField,
   SelectField,

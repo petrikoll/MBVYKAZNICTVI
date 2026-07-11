@@ -4,6 +4,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleDocxExportRequest } from './docxExport.js';
+import { handleGoogleAppsScriptProxy } from './googleAppsScriptProxy.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const distDir = resolve(__dirname, 'dist');
@@ -12,6 +13,11 @@ const port = Number(process.env.PORT || 4173);
 
 const authUser = process.env.BASIC_AUTH_USER || 'admin';
 const authPassword = process.env.BASIC_AUTH_PASSWORD || '';
+
+if (!authPassword) {
+  console.error('BASIC_AUTH_PASSWORD is required. Server startup was stopped to protect client data.');
+  process.exit(1);
+}
 
 function safeCompare(a, b) {
   const aBuffer = Buffer.from(String(a));
@@ -25,12 +31,6 @@ function safeCompare(a, b) {
 }
 
 function isAuthorized(request) {
-  // Když není BASIC_AUTH_PASSWORD nastavené, aplikace běží bez ochrany.
-  // Na Renderu proto BASIC_AUTH_PASSWORD nastav vždy.
-  if (!authPassword) {
-    return true;
-  }
-
   const header = request.headers.authorization || '';
   const [scheme, encodedCredentials] = header.split(' ');
 
@@ -95,6 +95,11 @@ const server = createServer((request, response) => {
   const isDocxExport = url.pathname === '/api/export-record-docx' || url.pathname === '/api/export-plan-docx';
   if (request.method === 'POST' && isDocxExport) {
     void handleDocxExportRequest(request, response);
+    return;
+  }
+
+  if (url.pathname === '/api/google-sheets') {
+    void handleGoogleAppsScriptProxy(request, response);
     return;
   }
 

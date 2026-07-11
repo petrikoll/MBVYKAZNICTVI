@@ -8,7 +8,7 @@ function todayIso() {
   return `${year}-${month}-${day}`;
 }
 
-const GOOGLE_SHEET_MACRO_URL = import.meta.env?.VITE_CLIENTS_API_URL || '';
+const GOOGLE_SHEET_MACRO_URL = '/api/google-sheets';
 const GOOGLE_DRIVE_UPLOAD_URL = import.meta.env?.VITE_GOOGLE_DRIVE_UPLOAD_URL || '';
 
 const TARGETS = {

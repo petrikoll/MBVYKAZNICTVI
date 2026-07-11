@@ -10,7 +10,6 @@ const CONFIG = {
   statisticsSheetName: 'Statistiky',
   individualPlanSheetName: 'Individualni_plany',
   headerRow: 1,
-  token: '',
   clientFoldersRootId: '1ZmYVNPm_ckRLCgWxpU2LXDkAYK1pM9ZX',
   clientFoldersRootName: 'Klientské složky - Moravský Beroun',
   monitoringTemplateFileId: '1xCGjTEJX0mo1aqXjGZqVBVEBxv2whubZqJ1-_jBk1w4',
@@ -1322,7 +1321,9 @@ function nextPrefixedId_(sheet, idColumn, prefix) {
 }
 
 function assertToken_(token) {
-  if (CONFIG.token && token !== CONFIG.token) throw new Error('Invalid token');
+  const expectedToken = PropertiesService.getScriptProperties().getProperty('CLIENTS_API_TOKEN');
+  if (!expectedToken) throw new Error('CLIENTS_API_TOKEN is not configured in Script Properties');
+  if (token !== expectedToken) throw new Error('Invalid token');
 }
 
 function json_(payload) {

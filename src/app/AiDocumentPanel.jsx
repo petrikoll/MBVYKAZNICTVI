@@ -1,7 +1,7 @@
 import React from 'react';
 import { Download, Loader2, Save, Sparkles } from 'lucide-react';
 
-import { CheckboxField, HelpIcon, InputField, Panel, SelectField, TextAreaField } from '../components/ui.jsx';
+import { CheckboxField, HelpIcon, InputField, Panel, SaveInlineNotice, SelectField, TextAreaField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { KU_SUPPORT_DEFAULT_CODE, KU_SUPPORT_TYPE_OPTIONS } from '../config/projectConfig.js';
 
@@ -618,6 +618,7 @@ function AiDocumentPanel({
             {isSaving ? 'Ukládám…' : 'Ulož dokument'}
           </button>
           <HelpIcon help={HELP.aiSave} />
+          <SaveInlineNotice notice={saveNotice} />
           {generatorDraft.selectedKey === 'plan' && false && (
             <button onClick={onExportPlan} className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100">
               <Download className="h-4 w-4" />
@@ -635,18 +636,6 @@ function AiDocumentPanel({
               : 'Všechna povinná pole pro uložení jsou vyplněna.'}
           </div>
         )}
-        {saveNotice?.text && (
-          <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
-            saveNotice.tone === 'error'
-              ? 'border-red-200 bg-red-50 text-red-800'
-              : saveNotice.tone === 'success'
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                : saveNotice.tone === 'warning'
-                  ? 'border-amber-200 bg-amber-50 text-amber-800'
-                  : 'border-blue-200 bg-blue-50 text-blue-800'
-          }`}>{saveNotice.text}</div>
-        )}
-
         {!isMentorForm && generationNotice && (
           <div
             className={`rounded-xl px-3 py-2 text-sm font-semibold ${
