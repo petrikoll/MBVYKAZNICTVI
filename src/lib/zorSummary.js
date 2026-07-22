@@ -121,8 +121,12 @@ export function buildZorTexts(records = []) {
   const safeRecords = Array.isArray(records) ? records.filter(Boolean) : [];
   return {
     'KA1 – Individuální podpora': buildKa1Text(safeRecords),
-    'KA2 – Case management': buildKa2CaseText(safeRecords),
-    'KA2 – Tvorba a rozvoj sítě': buildKa2NetworkText(safeRecords)
+    'KA2 – Case management a tvorba sítě': [
+      'a) Case management',
+      buildKa2CaseText(safeRecords),
+      '',
+      'b) Tvorba a rozvoj sítě',
+      buildKa2NetworkText(safeRecords)
+    ].join('\n')
   };
 }
-
