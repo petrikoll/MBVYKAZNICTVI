@@ -218,7 +218,7 @@ const normalizeDateInputValue = (value) => {
   return '';
 };
 
-const InputField = ({ label, value, onChange, type = 'text', placeholder = '', required = false, help }) => (
+const InputField = ({ label, value, onChange, type = 'text', placeholder = '', required = false, help, min, max, step }) => (
   <div>
     <FieldLabel label={label} help={help} />
     <input
@@ -226,6 +226,9 @@ const InputField = ({ label, value, onChange, type = 'text', placeholder = '', r
       value={type === 'date' ? normalizeDateInputValue(value) : value}
       placeholder={placeholder}
       required={required}
+      min={min}
+      max={max}
+      step={step}
       onChange={(event) => onChange(event.target.value)}
       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-[inset_0_0_0_1px_rgba(148,163,184,0.18)] outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
     />

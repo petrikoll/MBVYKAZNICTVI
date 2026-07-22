@@ -12,6 +12,9 @@ const CONFIG = {
   headerRow: 1,
   clientFoldersRootId: '1ZmYVNPm_ckRLCgWxpU2LXDkAYK1pM9ZX',
   clientFoldersRootName: 'Klientské složky - Moravský Beroun',
+  backupFolderId: '',
+  backupFolderName: 'Zálohy - Moravský Beroun',
+  backupRetentionCount: 12,
   monitoringTemplateFileId: '1xCGjTEJX0mo1aqXjGZqVBVEBxv2whubZqJ1-_jBk1w4',
   projectName: 'Podpora sociální práce v Moravském Berouně II',
   projectCode: 'CZ.03.02.01/00/25_106/0006125',
@@ -47,6 +50,9 @@ function doGet(e) {
     }
     if (e.parameter.action === 'listStatistics') {
       return json_({ ok: true, statistics: listStatistics_() });
+    }
+    if (e.parameter.action === 'getBackupStatus') {
+      return json_({ ok: true, backup: getBackupStatus_() });
     }
     return json_({ ok: false, error: 'Unknown action' });
   } catch (error) {
@@ -145,6 +151,16 @@ function doPost(e) {
       return json_({ ok: true, client });
     }
 
+    if (payload.action === 'startFullBackup') {
+      assertBackupManager_(payload.requested_by);
+      return json_({ ok: true, backup: queueFullBackup_(payload.requested_by || '') });
+    }
+
+    if (payload.action === 'installWeeklyBackup') {
+      assertBackupManager_(payload.requested_by);
+      return json_({ ok: true, backup: installWeeklyBackupTrigger_() });
+    }
+
     return json_({ ok: false, error: 'Unknown action' });
   } catch (error) {
     return json_({ ok: false, error: String(error.message || error) });
@@ -163,6 +179,10 @@ function authorizeOnce() {
   testFolder.setTrashed(true);
   const testDoc = DocumentApp.create('__opravneni_test_zapis__');
   DriveApp.getFileById(testDoc.getId()).setTrashed(true);
+  UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + CONFIG.spreadsheetId + '?fields=id', {
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
 }
 
 function getSpreadsheet_() {
@@ -173,7 +193,7 @@ function getSpreadsheet_() {
 
 const INDIVIDUAL_PLAN_HEADERS_ = [
   'plan_id', 'klient_id', 'popis_situace',
-  'cile_json', 'zaverecne_vyhodnoceni', 'accepted_plan_text', 'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
+  'cile_json', 'zaverecne_vyhodnoceni', 'accepted_plan_text', 'pocet_minut', 'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
 ];
 
 const PERFORMANCE_SPECIFIC_HEADERS_ = [
@@ -300,12 +320,43 @@ const SUPERVISION_HEADERS_ = [
 ];
 const SUPERVISION_TYPE_OPTIONS_ = ['individuální', 'skupinová'];
 
+const CLIENT_DATE_HEADERS_ = [
+  'datum_narozeni',
+  'datum_vstupu_do_projektu',
+  'datum_vystupu_z_projektu',
+  'case_management_od'
+];
+
+function toSheetDateValue_(value) {
+  if (!value || value instanceof Date) return value || '';
+  const text = String(value).trim();
+  const isoMatch = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]), 12, 0, 0);
+  }
+  const czechMatch = text.match(/^(\d{1,2})[.\/]\s*(\d{1,2})[.\/]\s*(\d{4})$/);
+  if (czechMatch) {
+    return new Date(Number(czechMatch[3]), Number(czechMatch[2]) - 1, Number(czechMatch[1]), 12, 0, 0);
+  }
+  return value;
+}
+
+function setClientDateFormats_(sheet, headers) {
+  CLIENT_DATE_HEADERS_.forEach((header) => {
+    const column = headers.indexOf(header) + 1;
+    if (column) {
+      sheet.getRange(CONFIG.headerRow + 1, column, Math.max(sheet.getMaxRows() - CONFIG.headerRow, 1), 1).setNumberFormat('dd.MM.yyyy');
+    }
+  });
+}
+
 function listClients_() {
   const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
   if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
   ensureHeader_(sheet, getHeaders_(sheet), 'klicovy_pracovnik');
   ensureHeader_(sheet, getHeaders_(sheet), 'rodina');
   const headers = getHeaders_(sheet);
+  setClientDateFormats_(sheet, headers);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
 
@@ -356,8 +407,11 @@ function saveClient_(client) {
   normalized.created_by = existing.created_by || incoming.created_by || '';
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
-  const values = headers.map((header) => normalized[header] ?? '');
+  const values = headers.map((header) => CLIENT_DATE_HEADERS_.includes(header)
+    ? toSheetDateValue_(normalized[header])
+    : normalized[header] ?? '');
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
+  setClientDateFormats_(sheet, headers);
 
   return rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
 }
@@ -445,13 +499,31 @@ function saveIndividualPlan_(individualPlan) {
 
   const now = new Date();
   const normalized = Object.assign({}, individualPlan);
+  const incomingPlanId = String(normalized.plan_id || '').trim();
+  const clientId = String(normalized.klient_id || '').trim();
+  if (!clientId) throw new Error('Individualni plan musi byt prirazen ke klientovi.');
+
+  const existingRow = incomingPlanId ? findRowById_(sheet, idColumn, incomingPlanId) : null;
+  if (!existingRow) {
+    const exactDuplicateRow = findDuplicateRecordRow_(sheet, headers, normalized, 'plan_id');
+    if (exactDuplicateRow) {
+      return rowToObject_(headers, sheet.getRange(exactDuplicateRow, 1, 1, headers.length).getValues()[0]);
+    }
+  }
+
+  const clientPlanRow = findRowByHeaderValue_(sheet, headers, 'klient_id', clientId, existingRow);
+  if (clientPlanRow) {
+    throw new Error('Klient uz ma individualni plan na radku ' + clientPlanRow + '. Druhy plan nebyl vytvoren.');
+  }
+
   normalized.plan_id = normalized.plan_id || nextPrefixedId_(sheet, idColumn, 'PLAN');
+  normalized.klient_id = clientId;
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
   normalized.created_at = normalized.created_at || now;
   normalized.created_by = normalized.created_by || '';
 
-  const targetRow = findRowById_(sheet, idColumn, normalized.plan_id) || sheet.getLastRow() + 1;
+  const targetRow = existingRow || sheet.getLastRow() + 1;
   const values = headers.map((header) => normalized[header] ?? '');
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
 
@@ -479,7 +551,6 @@ function savePerformance_(performance) {
 
   const now = new Date();
   const normalized = Object.assign({}, performance);
-  const incomingPerformanceId = String(normalized.vykon_id || '').trim();
   normalized.vykon_id = normalized.vykon_id || nextPrefixedId_(sheet, idColumn, 'VYKON');
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
@@ -487,7 +558,7 @@ function savePerformance_(performance) {
   normalized.created_by = normalized.created_by || '';
 
   const existingRow = findRowById_(sheet, idColumn, normalized.vykon_id);
-  const duplicateRow = incomingPerformanceId ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'vykon_id');
+  const duplicateRow = existingRow ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'vykon_id');
   if (duplicateRow && !existingRow) {
     const duplicate = rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
     upsertPerformanceStatistics_(Object.assign({}, duplicate, {
@@ -698,7 +769,6 @@ function saveMeeting_(meeting) {
 
   const now = new Date();
   const normalized = Object.assign({}, meeting);
-  const incomingMeetingId = String(normalized.meeting_id || '').trim();
   normalized.meeting_id = normalized.meeting_id || nextPrefixedId_(sheet, idColumn, 'SETKANI');
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
@@ -706,7 +776,7 @@ function saveMeeting_(meeting) {
   normalized.created_by = normalized.created_by || '';
 
   const existingRow = findRowById_(sheet, idColumn, normalized.meeting_id);
-  const duplicateRow = incomingMeetingId ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'meeting_id');
+  const duplicateRow = existingRow ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'meeting_id');
   if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
 
   try {
@@ -1087,6 +1157,265 @@ function getClientFolderParent_() {
   return existing.hasNext() ? existing.next() : DriveApp.createFolder(CONFIG.clientFoldersRootName);
 }
 
+const BACKUP_STATUS_PROPERTY_ = 'FULL_BACKUP_STATUS_V1';
+const BACKUP_QUEUED_HANDLER_ = 'runQueuedFullBackup';
+const BACKUP_WEEKLY_HANDLER_ = 'runScheduledFullBackup';
+
+function queueFullBackup_(requestedBy) {
+  const current = readBackupStatus_();
+  if (current.state === 'queued' || current.state === 'running') return current;
+
+  deleteTriggersByHandler_(BACKUP_QUEUED_HANDLER_);
+  const status = {
+    state: 'queued',
+    source: 'manual',
+    requestedBy: String(requestedBy || '').trim(),
+    requestedAt: new Date().toISOString(),
+    message: 'Záloha čeká na spuštění.'
+  };
+  writeBackupStatus_(status);
+  if (!hasTrigger_(BACKUP_WEEKLY_HANDLER_)) installWeeklyBackupTrigger_();
+  ScriptApp.newTrigger(BACKUP_QUEUED_HANDLER_).timeBased().after(1000).create();
+  return Object.assign({}, status, { weeklyEnabled: hasTrigger_(BACKUP_WEEKLY_HANDLER_) });
+}
+
+function assertBackupManager_(worker) {
+  if (normalizeDuplicateText_(worker) !== normalizeDuplicateText_('Odborný garant')) {
+    throw new Error('Kompletni zalohu muze spravovat pouze odborny garant.');
+  }
+}
+
+function runQueuedFullBackup() {
+  deleteTriggersByHandler_(BACKUP_QUEUED_HANDLER_);
+  runFullBackupJob_('manual');
+}
+
+function runScheduledFullBackup() {
+  runFullBackupJob_('scheduled');
+}
+
+function runFullBackupJob_(source) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return;
+  const startedAt = new Date();
+  try {
+    writeBackupStatus_({
+      state: 'running',
+      source: source || 'manual',
+      startedAt: startedAt.toISOString(),
+      message: 'Probíhá export tabulky a klientských složek.'
+    });
+    const result = createFullBackup_();
+    writeBackupStatus_(Object.assign({
+      state: 'success',
+      source: source || 'manual',
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      message: 'Kompletní záloha byla vytvořena.'
+    }, result));
+  } catch (error) {
+    writeBackupStatus_({
+      state: 'error',
+      source: source || 'manual',
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      message: String(error && error.message || error)
+    });
+    throw error;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function createFullBackup_() {
+  const generatedAt = new Date();
+  const zipName = buildBackupFileName_(generatedAt);
+  const blobs = [];
+  const manifest = {
+    schemaVersion: 1,
+    generatedAt: generatedAt.toISOString(),
+    projectName: CONFIG.projectName,
+    projectCode: CONFIG.projectCode,
+    spreadsheetId: CONFIG.spreadsheetId,
+    clientFoldersRootId: CONFIG.clientFoldersRootId,
+    files: [],
+    errors: []
+  };
+
+  const spreadsheetFile = DriveApp.getFileById(CONFIG.spreadsheetId);
+  addFileToBackup_(spreadsheetFile, 'hlavni-tabulka', blobs, manifest);
+
+  const clientRoot = getClientFolderParent_();
+  collectFolderForBackup_(clientRoot, 'klientske-slozky', blobs, manifest);
+
+  manifest.fileCount = manifest.files.length;
+  manifest.errorCount = manifest.errors.length;
+  blobs.push(Utilities.newBlob(JSON.stringify(manifest, null, 2), 'application/json', 'manifest.json'));
+
+  if (manifest.errors.length) {
+    throw new Error('Záloha nebyla vytvořena kompletně. Počet chyb při exportu: ' + manifest.errors.length + '.');
+  }
+
+  const zipBlob = Utilities.zip(blobs, zipName);
+  const backupFolder = getBackupFolder_();
+  const backupFile = backupFolder.createFile(zipBlob);
+  backupFile.setDescription(JSON.stringify({
+    projectName: CONFIG.projectName,
+    projectCode: CONFIG.projectCode,
+    generatedAt: generatedAt.toISOString(),
+    fileCount: manifest.fileCount
+  }));
+  pruneOldBackups_(backupFolder, backupFile.getId());
+
+  return {
+    fileId: backupFile.getId(),
+    fileName: backupFile.getName(),
+    fileUrl: backupFile.getUrl(),
+    downloadUrl: 'https://drive.google.com/uc?export=download&id=' + backupFile.getId(),
+    fileCount: manifest.fileCount,
+    errorCount: 0
+  };
+}
+
+function collectFolderForBackup_(folder, path, blobs, manifest) {
+  const files = folder.getFiles();
+  while (files.hasNext()) addFileToBackup_(files.next(), path, blobs, manifest);
+
+  const folders = folder.getFolders();
+  while (folders.hasNext()) {
+    const child = folders.next();
+    collectFolderForBackup_(child, path + '/' + sanitizeBackupPathPart_(child.getName()), blobs, manifest);
+  }
+}
+
+function addFileToBackup_(file, path, blobs, manifest) {
+  const originalName = file.getName();
+  try {
+    const spec = backupExportSpec_(file.getMimeType(), originalName);
+    const blob = spec.exportMimeType
+      ? exportGoogleFileBlob_(file.getId(), spec.exportMimeType)
+      : file.getBlob();
+    const targetName = path + '/' + spec.fileName;
+    blob.setName(targetName);
+    blobs.push(blob);
+    manifest.files.push({
+      id: file.getId(),
+      sourceName: originalName,
+      archivePath: targetName,
+      sourceMimeType: file.getMimeType(),
+      exportedMimeType: spec.exportMimeType || file.getMimeType(),
+      updatedAt: file.getLastUpdated().toISOString()
+    });
+  } catch (error) {
+    manifest.errors.push({
+      id: file.getId(),
+      name: originalName,
+      path: path,
+      error: String(error && error.message || error)
+    });
+  }
+}
+
+function backupExportSpec_(mimeType, originalName) {
+  const nativeExports = {
+    'application/vnd.google-apps.document': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.docx'],
+    'application/vnd.google-apps.spreadsheet': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx'],
+    'application/vnd.google-apps.presentation': ['application/vnd.openxmlformats-officedocument.presentationml.presentation', '.pptx'],
+    'application/vnd.google-apps.drawing': ['application/pdf', '.pdf']
+  };
+  const exportInfo = nativeExports[mimeType];
+  const safeName = sanitizeBackupPathPart_(originalName || 'soubor');
+  if (!exportInfo) return { exportMimeType: '', fileName: safeName };
+  const extension = exportInfo[1];
+  const fileName = safeName.toLowerCase().endsWith(extension) ? safeName : safeName + extension;
+  return { exportMimeType: exportInfo[0], fileName: fileName };
+}
+
+function exportGoogleFileBlob_(fileId, mimeType) {
+  const url = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '/export?mimeType=' + encodeURIComponent(mimeType);
+  const response = UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  const status = response.getResponseCode();
+  if (status < 200 || status >= 300) throw new Error('Export z Google Drive selhal se stavem ' + status + '.');
+  return response.getBlob();
+}
+
+function getBackupFolder_() {
+  if (CONFIG.backupFolderId) return DriveApp.getFolderById(CONFIG.backupFolderId);
+  const clientRoot = getClientFolderParent_();
+  const parents = clientRoot.getParents();
+  const parent = parents.hasNext() ? parents.next() : null;
+  const existing = parent ? parent.getFoldersByName(CONFIG.backupFolderName) : DriveApp.getFoldersByName(CONFIG.backupFolderName);
+  if (existing.hasNext()) return existing.next();
+  return parent ? parent.createFolder(CONFIG.backupFolderName) : DriveApp.createFolder(CONFIG.backupFolderName);
+}
+
+function pruneOldBackups_(folder, keepFileId) {
+  const backups = [];
+  const files = folder.getFiles();
+  while (files.hasNext()) {
+    const file = files.next();
+    if (file.getName().indexOf('kompletni-zaloha-') === 0) backups.push(file);
+  }
+  backups.sort(function(left, right) { return right.getDateCreated().getTime() - left.getDateCreated().getTime(); });
+  backups.slice(Math.max(Number(CONFIG.backupRetentionCount) || 12, 1)).forEach(function(file) {
+    if (file.getId() !== keepFileId) file.setTrashed(true);
+  });
+}
+
+function installWeeklyBackupTrigger_() {
+  deleteTriggersByHandler_(BACKUP_WEEKLY_HANDLER_);
+  ScriptApp.newTrigger(BACKUP_WEEKLY_HANDLER_)
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.SUNDAY)
+    .atHour(2)
+    .create();
+  return getBackupStatus_();
+}
+
+function getBackupStatus_() {
+  const status = readBackupStatus_();
+  status.weeklyEnabled = hasTrigger_(BACKUP_WEEKLY_HANDLER_);
+  status.retentionCount = Number(CONFIG.backupRetentionCount) || 12;
+  return status;
+}
+
+function readBackupStatus_() {
+  const raw = PropertiesService.getScriptProperties().getProperty(BACKUP_STATUS_PROPERTY_);
+  if (!raw) return { state: 'idle', message: 'Záloha zatím nebyla vytvořena.' };
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    return { state: 'error', message: 'Stav poslední zálohy nelze načíst.' };
+  }
+}
+
+function writeBackupStatus_(status) {
+  PropertiesService.getScriptProperties().setProperty(BACKUP_STATUS_PROPERTY_, JSON.stringify(status || {}));
+}
+
+function hasTrigger_(handler) {
+  return ScriptApp.getProjectTriggers().some(function(trigger) {
+    return trigger.getHandlerFunction() === handler;
+  });
+}
+
+function deleteTriggersByHandler_(handler) {
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+  });
+}
+
+function buildBackupFileName_(date) {
+  return 'kompletni-zaloha-' + Utilities.formatDate(date || new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd-HHmmss') + '.zip';
+}
+
+function sanitizeBackupPathPart_(value) {
+  return sanitizeFileName_(value).replace(/\.+$/g, '').slice(0, 180) || 'soubor';
+}
+
 function buildClientFolderName_(client) {
   return sanitizeFileName_([client.klient_id, client.prijmeni, client.jmeno].filter(Boolean).join(' - '));
 }
@@ -1146,8 +1475,14 @@ function getHeaders_(sheet) {
 function rowToObject_(headers, row, displayRow) {
   return headers.reduce((acc, header, index) => {
     const value = row[index];
-    if ((header === 'cas_od' || header === 'cas_do') && displayRow && displayRow[index]) {
-      acc[header] = displayRow[index];
+    if (header === 'cas_od' || header === 'cas_do') {
+      if (displayRow && displayRow[index]) {
+        acc[header] = displayRow[index];
+      } else if (value instanceof Date) {
+        acc[header] = Utilities.formatDate(value, Session.getScriptTimeZone(), 'HH:mm');
+      } else {
+        acc[header] = value;
+      }
     } else if (value instanceof Date) {
       acc[header] = Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
     } else {
@@ -1167,10 +1502,6 @@ function normalizeDuplicateText_(value) {
     .toLowerCase();
 }
 
-function normalizePhoneForDuplicate_(value) {
-  return normalizeDuplicateText_(value).replace(/\s+/g, '');
-}
-
 function findDuplicateClientRow_(sheet, headers, incoming, excludedRow) {
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return null;
@@ -1180,9 +1511,6 @@ function findDuplicateClientRow_(sheet, headers, incoming, excludedRow) {
   if (!incomingFirstName || !incomingLastName) return null;
 
   const incomingBirthDate = formatDateValue_(incoming.datum_narozeni || '');
-  const incomingEmail = normalizeDuplicateText_(incoming.email);
-  const incomingPhone = normalizePhoneForDuplicate_(incoming.telefon);
-  const incomingEntryDate = formatDateValue_(incoming.datum_vstupu_do_projektu || '');
   const values = sheet.getRange(CONFIG.headerRow + 1, 1, lastRow - CONFIG.headerRow, headers.length).getValues();
 
   const index = values.findIndex((row, index) => {
@@ -1193,16 +1521,7 @@ function findDuplicateClientRow_(sheet, headers, incoming, excludedRow) {
     if (normalizeDuplicateText_(existing.prijmeni) !== incomingLastName) return false;
 
     const existingBirthDate = formatDateValue_(existing.datum_narozeni || '');
-    if (incomingBirthDate || existingBirthDate) return incomingBirthDate === existingBirthDate;
-
-    const existingEmail = normalizeDuplicateText_(existing.email);
-    if (incomingEmail && existingEmail) return incomingEmail === existingEmail;
-
-    const existingPhone = normalizePhoneForDuplicate_(existing.telefon);
-    if (incomingPhone && existingPhone) return incomingPhone === existingPhone;
-
-    const existingEntryDate = formatDateValue_(existing.datum_vstupu_do_projektu || '');
-    if (incomingEntryDate && existingEntryDate) return incomingEntryDate === existingEntryDate;
+    if (incomingBirthDate && existingBirthDate) return incomingBirthDate === existingBirthDate;
 
     return true;
   });
@@ -1324,6 +1643,21 @@ function assertToken_(token) {
   const expectedToken = PropertiesService.getScriptProperties().getProperty('CLIENTS_API_TOKEN');
   if (!expectedToken) throw new Error('CLIENTS_API_TOKEN is not configured in Script Properties');
   if (token !== expectedToken) throw new Error('Invalid token');
+}
+
+function findRowByHeaderValue_(sheet, headers, headerName, value, excludedRow) {
+  const column = headers.indexOf(headerName) + 1;
+  if (!column) throw new Error('Missing ' + headerName + ' column');
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= CONFIG.headerRow) return null;
+  const targetValue = String(value == null ? '' : value).trim();
+  if (!targetValue) return null;
+  const values = sheet.getRange(CONFIG.headerRow + 1, column, lastRow - CONFIG.headerRow, 1).getValues();
+  const index = values.findIndex((row, index) => {
+    const sheetRow = CONFIG.headerRow + 1 + index;
+    return sheetRow !== excludedRow && String(row[0] == null ? '' : row[0]).trim() === targetValue;
+  });
+  return index === -1 ? null : CONFIG.headerRow + 1 + index;
 }
 
 function json_(payload) {

@@ -476,7 +476,7 @@ function buildGeneratorRecord({ client, generatorDraft, generatedText, selectedT
         goals: generatorDraft.goals,
         barriers: generatorDraft.barriers,
         plannedSteps: generatorDraft.plannedSteps,
-        durationMinutes: 60
+        durationMinutes: Number(String(generatorDraft.planDurationMinutes ?? '').trim() || 60)
       },
       indicatorFlags: { ka02Plans: true }
     };
@@ -616,7 +616,7 @@ function buildKa02Record(entityType, draft, client) {
         goals: draft.goals,
         barriers: draft.barriers,
         plannedSteps: draft.plannedSteps,
-        durationMinutes: 60
+        durationMinutes: Number(String(draft.planDurationMinutes ?? '').trim() || 60)
       },
       indicatorFlags: { ka02Plans: true }
     };
@@ -1020,41 +1020,52 @@ const CLIENT_SUPPORT_TYPE_META = [
   { key: 'mentor_report_document', label: 'Archivní zpráva' }
 ];
 
-function extractSupportHours(record) {
+function extractSupportMinutes(record) {
   const payload = record.payload || {};
-  if (record.entityType === 'plans') return 1;
+  if (record.entityType === 'plans') {
+    if (payload.durationMinutes === null || payload.durationMinutes === undefined || String(payload.durationMinutes).trim() === '') return 60;
+    const durationMinutes = Number(payload.durationMinutes);
+    return Number.isFinite(durationMinutes) && durationMinutes >= 0 ? durationMinutes : 60;
+  }
   if (['consultations', 'debt_cases', 'therapy_sessions', 'cv_outputs', 'job_simulators'].includes(record.entityType)) {
     const timedMinutes = durationMinutesFromTimes(payload.startTime, payload.endTime);
     const durationMinutes = Number(payload.durationMinutes || 0);
-    return (timedMinutes || (Number.isFinite(durationMinutes) ? durationMinutes : 0)) / 60;
+    return timedMinutes || (Number.isFinite(durationMinutes) && durationMinutes > 0 ? durationMinutes : 0);
   }
-  if (typeof payload.actualHours === 'number') return payload.actualHours;
-  if (typeof payload.durationMinutes === 'number') return payload.durationMinutes / 60;
+  const actualHours = Number(payload.actualHours);
+  if (Number.isFinite(actualHours) && actualHours > 0) return Math.round(actualHours * 60);
+  const durationMinutes = Number(payload.durationMinutes);
+  if (Number.isFinite(durationMinutes) && durationMinutes > 0) return durationMinutes;
   return 0;
 }
 
 function getClientSupportBreakdown(clientId, records) {
+  const supportedEntityTypes = new Set(CLIENT_SUPPORT_TYPE_META.map((item) => item.key));
   const related = records.filter((record) => {
     const clientIds = Array.isArray(record.clientIds) ?record.clientIds : [];
-    return clientIds.includes(clientId) || record.clientId === clientId;
+    const belongsToClient = clientIds.includes(clientId) || record.clientId === clientId;
+    return belongsToClient && supportedEntityTypes.has(record.entityType);
   });
 
   const byType = CLIENT_SUPPORT_TYPE_META.map((item) => {
     const matching = related.filter((record) => record.entityType === item.key);
-    const hours = matching.reduce((sum, record) => sum + extractSupportHours(record), 0);
+    const minutes = Math.round(matching.reduce((sum, record) => sum + extractSupportMinutes(record), 0));
     return {
       key: item.key,
       label: item.label,
       count: matching.length,
-      hours: Number(hours.toFixed(1))
+      minutes,
+      hours: minutes / 60
     };
-  }).filter((item) => item.count > 0 || item.hours > 0);
+  }).filter((item) => item.count > 0 || item.minutes > 0);
+
+  const totalMinutes = byType.reduce((sum, item) => sum + item.minutes, 0);
 
   return {
     totalCount: related.length,
     totalDocuments: related.filter((record) => Boolean(record.documentText)).length,
-    totalHours: Number(byType.reduce((sum, item) => sum + item.hours, 0).toFixed(1)),
-    totalMinutes: Math.round(byType.reduce((sum, item) => sum + item.hours, 0) * 60),
+    totalHours: totalMinutes / 60,
+    totalMinutes,
     byType
   };
 }

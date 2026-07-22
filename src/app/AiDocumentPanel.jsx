@@ -434,6 +434,7 @@ function AiDocumentPanel({
             <TextAreaField label="Cíle" value={generatorDraft.goals} onChange={(value) => updateDraft({ goals: value })} rows={4} />
             <TextAreaField label="Plánované kroky" value={generatorDraft.plannedSteps} onChange={(value) => updateDraft({ plannedSteps: value })} rows={3} />
             <TextAreaField label="Závěrečné vyhodnocení" value={generatorDraft.finalEvaluation || ''} onChange={(value) => updateDraft({ finalEvaluation: value })} rows={3} />
+            <InputField label="Čas podpory (min)" type="number" min="1" value={generatorDraft.planDurationMinutes || ''} onChange={(value) => updateDraft({ planDurationMinutes: value })} />
           </div>
         )}
 
@@ -615,7 +616,7 @@ function AiDocumentPanel({
           <HelpIcon help={HELP.aiGenerate} />
           <button onClick={onSave} disabled={isSaving || saveMissingFields.length > 0} className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60">
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {isSaving ? 'Ukládám…' : 'Ulož dokument'}
+            {isSaving ? 'Ukládám…' : generatorDraft.selectedKey === 'consultation' ? 'Uložit výkon' : 'Uložit dokument'}
           </button>
           <HelpIcon help={HELP.aiSave} />
           <SaveInlineNotice notice={saveNotice} />

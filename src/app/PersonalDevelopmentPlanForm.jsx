@@ -16,6 +16,7 @@ const emptyGoal = {
 
 const emptyPlan = {
   situationDescription: '',
+  durationMinutes: '60',
   goals: [{ ...emptyGoal }],
   finalEvaluation: '',
   acceptedPlanText: ''
@@ -111,6 +112,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
     setPlanId(data.id);
     setPlan({
       situationDescription: data.situationDescription || data.payload?.situationDescription || data.payload?.currentSituation || '',
+      durationMinutes: String(data.payload?.durationMinutes ?? 60),
       goals: storedGoals.length
         ? storedGoals.map((goal, index) => ({
             goalId: ensureGoalId(goal, index),
@@ -157,6 +159,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
 
   const buildStructuredPlan = () => ({
     situationDescription: plan.situationDescription.trim(),
+    durationMinutes: Number(plan.durationMinutes),
     goals: plan.goals.map((goal, index) => ({
       goalId: ensureGoalId(goal, index),
       goalDescription: goal.goalDescription.trim(),
@@ -270,6 +273,19 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
                 value={plan.situationDescription}
                 onChange={(event) => updateField('situationDescription', event.target.value)}
                 placeholder="Popište situaci klienta, jeho zdroje, omezení, potřeby a bariéry."
+                className={inputClassName}
+              />
+            </div>
+
+            <div>
+              <label className={labelClassName}>Čas podpory (min) *</label>
+              <input
+                required
+                type="number"
+                min="1"
+                step="1"
+                value={plan.durationMinutes}
+                onChange={(event) => updateField('durationMinutes', event.target.value)}
                 className={inputClassName}
               />
             </div>

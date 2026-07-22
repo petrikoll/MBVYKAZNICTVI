@@ -83,6 +83,7 @@ import {
 } from '../components/ui.jsx';
 import { appId, auth, db, hasFirebaseConfig } from '../lib/firebase.js';
 import { parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
+import { buildClientCaseAiPrompt, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
 import sfLogoImage from '../assets/eu-spolufinancovano-logo.png';
 import cityLogoImage from '../assets/moravsky-beroun-erb.jpg';
@@ -558,6 +559,15 @@ function formatSupportDuration(minutes) {
   return `${value} minut (${hoursLabel} h)`;
 }
 
+function formatSupportMinutes(value) {
+  const totalMinutes = Math.max(0, Math.round(Number(value || 0)));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours && minutes) return `${hours} h ${minutes} min`;
+  if (hours) return `${hours} h`;
+  return `${minutes} min`;
+}
+
 function getEffectiveGeneratorKa(config, draft = {}) {
   if (draft?.caseManagementMode) return 'KA2';
   return config?.ka || '';
@@ -1029,35 +1039,7 @@ function buildClientCaseSummary(client, timeline, supportBreakdown) {
 
 function buildAiClientCaseSummaryPrompt(client, timeline, supportBreakdown) {
   const deterministicSummary = redactClientIdentifiers(buildClientCaseSummary(sanitizeAiInput(client), timeline, supportBreakdown), client);
-
-  return `
-Vytvoř pracovní souhrn zakázky klienta pro interní projektovou evidenci.
-
-Účel výstupu:
-Souhrn má pomoci pracovníkovi rychle pochopit, jaká zakázka klienta je v projektu řešena, jaká podpora už proběhla, co je doložený výsledek a co má následovat dál. Nejde o zápis jednotlivého výkonu ani o hodnotící zprávu o osobnosti klienta.
-
-Povinná pravidla:
-1. Piš česky, věcně, stručně a srozumitelně pro sociální práci.
-2. Použij pouze data v podkladech níže. Nic nedomýšlej, nedoplňuj nové služby, instituce, termíny, diagnózy, výsledky ani doporučení, pokud nejsou v podkladech.
-3. Rozlišuj doložená fakta, průběh podpory a doporučený další postup. Pokud je doložen pouze průběh, nepopisuj ho jako dosaženou změnu.
-4. Neopisuj mechanicky všechny záznamy. Vyber podstatné informace a sluč je do přehledného souhrnu.
-5. Pokud některá část není v podkladech dostatečně doložená, napiš to věcně jako chybějící nebo neúplný údaj. Nevymýšlej obsah.
-6. Nepřidávej sekci indikátorů, kontrolu evidence, strojová varování ani tabulky indikátorů. Pokud se v podkladech objeví starší indikátorové položky z jiné verze projektu, ignoruj je.
-7. Výstup vrať jako prostý text s nadpisy. Nepřidávej komentář k tomu, že jsi AI.
-
-Doporučená struktura:
-Souhrn zakázky klienta
-1. Stručné vymezení zakázky klienta
-2. Aktuální situace a hlavní potřeby
-3. Individuální plán a cíle
-4. Dosavadní podpora v projektu
-5. Doložené výsledky nebo posun
-6. Otevřené oblasti a rizika
-7. Navazující doporučený postup
-
-Podklady:
-${deterministicSummary}
-`.trim();
+  return buildClientCaseAiPrompt(deterministicSummary);
 }
 
 function buildClientJourneyDetail(record, client = null) {
@@ -1530,6 +1512,8 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
     const clientId = asSheetText(row.klient_id);
     if (!id || !clientId) return;
     const goals = parseSheetJson(row.cile_json, []);
+    const storedDurationText = asSheetText(row.pocet_minut).trim();
+    const storedDurationMinutes = Number(storedDurationText.replace(',', '.'));
     records.push({
       id,
       remoteSource: 'google-sheet',
@@ -1551,7 +1535,7 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
         plannedSteps: stringifyPlanGoals(goals),
         finalEvaluation: asSheetText(row.zaverecne_vyhodnoceni),
         acceptedPlanText: asSheetText(row.accepted_plan_text),
-        durationMinutes: 60
+        durationMinutes: storedDurationText && Number.isFinite(storedDurationMinutes) && storedDurationMinutes >= 0 ? storedDurationMinutes : 60
       },
       indicatorFlags: { ka02Plans: true },
       createdAt: Date.parse(asSheetText(row.created_at)) || 0,
@@ -2208,10 +2192,13 @@ function App() {
   const [aiGenerationStatus, setAiGenerationStatus] = useState('idle');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [backupStatus, setBackupStatus] = useState({ state: 'idle', message: 'Záloha zatím nebyla vytvořena.' });
+  const [isBackupActionRunning, setIsBackupActionRunning] = useState(false);
   const [saveNotice, setSaveNotice] = useState(null);
   const [saveButtonNotices, setSaveButtonNotices] = useState({});
   const pendingRecordSaveSignaturesRef = useRef(new Set());
   const pendingClientSaveSignaturesRef = useRef(new Set());
+  const generatedOutputSaveLockRef = useRef(false);
   const [isProvisioningClientFolder, setIsProvisioningClientFolder] = useState(false);
   const [isSummarizingCase, setIsSummarizingCase] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -3417,17 +3404,11 @@ function App() {
 
     const leftBirthDate = String(left.datumNarozeni || '').trim();
     const rightBirthDate = String(right.datumNarozeni || '').trim();
-    if (leftBirthDate || rightBirthDate) return leftBirthDate === rightBirthDate;
+    if (leftBirthDate && rightBirthDate) return leftBirthDate === rightBirthDate;
 
-    const leftEmail = normalizeDuplicateText(left.email);
-    const rightEmail = normalizeDuplicateText(right.email);
-    if (leftEmail && rightEmail) return leftEmail === rightEmail;
-
-    const leftPhone = normalizeDuplicateText(left.telefon).replace(/\s+/g, '');
-    const rightPhone = normalizeDuplicateText(right.telefon).replace(/\s+/g, '');
-    if (leftPhone && rightPhone) return leftPhone === rightPhone;
-
-    return String(left.datumVstupu || '').trim() === String(right.datumVstupu || '').trim();
+    // Neúplný nový záznam se stejným jménem nesmí obejít ochranu jen tím,
+    // že v něm chybí datum narození, kontakt nebo datum vstupu.
+    return true;
   };
 
   const findDuplicateClient = (draft = {}, excludedClientId = '') =>
@@ -3616,6 +3597,69 @@ function App() {
     return result;
   };
 
+  const loadBackupStatus = async () => {
+    if (!GOOGLE_SHEET_MACRO_URL || !canSeeAllClients) return null;
+    try {
+      const url = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
+      url.searchParams.set('action', 'getBackupStatus');
+      const response = await fetch(url.toString(), { cache: 'no-store' });
+      if (!response.ok) throw new Error('Načtení stavu zálohy selhalo.');
+      const result = await response.json().catch(() => ({}));
+      if (result.ok === false) throw new Error(result.error || 'Načtení stavu zálohy selhalo.');
+      const nextStatus = result.backup || { state: 'idle', message: 'Záloha zatím nebyla vytvořena.' };
+      setBackupStatus(nextStatus);
+      return nextStatus;
+    } catch (error) {
+      console.warn('Backup status refresh failed:', error);
+      setBackupStatus((previous) => ({ ...previous, statusError: error.message || 'Stav zálohy nelze načíst.' }));
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    if (mainView !== 'dashboard' || !canSeeAllClients) return undefined;
+    let active = true;
+    const refresh = async () => {
+      if (!active) return;
+      await loadBackupStatus();
+    };
+    void refresh();
+    const interval = window.setInterval(refresh, 5000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [mainView, canSeeAllClients]);
+
+  const handleStartFullBackup = async () => {
+    if (!canSeeAllClients || isBackupActionRunning) return;
+    setIsBackupActionRunning(true);
+    try {
+      const result = await postGoogleSheetAction({ action: 'startFullBackup', requested_by: currentWorker });
+      setBackupStatus(result?.backup || { state: 'queued', message: 'Záloha čeká na spuštění.' });
+      setFlash('Kompletní záloha byla zařazena ke zpracování. Týdenní zálohování je aktivní.');
+    } catch (error) {
+      setBackupStatus({ state: 'error', message: error.message || 'Zálohu se nepodařilo spustit.' });
+      setFlash(error.message || 'Zálohu se nepodařilo spustit.');
+    } finally {
+      setIsBackupActionRunning(false);
+    }
+  };
+
+  const handleInstallWeeklyBackup = async () => {
+    if (!canSeeAllClients || isBackupActionRunning) return;
+    setIsBackupActionRunning(true);
+    try {
+      const result = await postGoogleSheetAction({ action: 'installWeeklyBackup', requested_by: currentWorker });
+      setBackupStatus(result?.backup || backupStatus);
+      setFlash('Týdenní automatická záloha byla zapnuta.');
+    } catch (error) {
+      setFlash(error.message || 'Týdenní zálohu se nepodařilo zapnout.');
+    } finally {
+      setIsBackupActionRunning(false);
+    }
+  };
+
   const refreshStatisticsRows = async () => {
     try {
       const url = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
@@ -3761,6 +3805,7 @@ function App() {
           cile_json: JSON.stringify(normalizedGoals),
           zaverecne_vyhodnoceni: payload.finalEvaluation || '',
           accepted_plan_text: payload.acceptedPlanText || record.documentText || '',
+          pocet_minut: String(payload.durationMinutes ?? '').trim() && Number.isFinite(Number(payload.durationMinutes)) ? Number(payload.durationMinutes) : 60,
           status: 'Platn\u00fd'
         }
       });
@@ -4525,6 +4570,9 @@ ${rawOutput}` }] }],
     if (!String(generatorDraft.date || '').trim()) missing.push('datum aktivity');
     if (!String(generatorDraft.worker || '').trim()) missing.push('pracovník');
     if (generatorDraft.selectedKey !== 'plan' && !String(generatorDraft.linkedPlanGoalId || '').trim()) missing.push('cíl IP');
+    if (generatorDraft.selectedKey === 'plan' && (!Number.isFinite(Number(generatorDraft.planDurationMinutes)) || Number(generatorDraft.planDurationMinutes) <= 0)) {
+      missing.push('kladný čas podpory v minutách');
+    }
     if (generatorDraft.selectedKey === 'consultation') {
       if (!String(generatorDraft.ka02StartTime || '').trim()) missing.push('čas OD');
       if (!String(generatorDraft.ka02EndTime || '').trim()) missing.push('čas DO');
@@ -4596,12 +4644,20 @@ ${rawOutput}` }] }],
       return;
     }
 
-    const payload = buildGeneratorRecord({
-      client: generatorClient,
-      generatorDraft,
-      generatedText,
-      selectedTpmRecord
-    });
+    if (generatedOutputSaveLockRef.current) {
+      setSaveNotice({ tone: 'progress', text: 'Výkon se již ukládá…' });
+      setFlash('Výkon se již ukládá. Vyčkejte na dokončení.');
+      return false;
+    }
+    generatedOutputSaveLockRef.current = true;
+
+    try {
+      const payload = buildGeneratorRecord({
+        client: generatorClient,
+        generatorDraft,
+        generatedText,
+        selectedTpmRecord
+      });
 
     let ok = false;
     if (editingGeneratedRecordId) {
@@ -4679,6 +4735,9 @@ ${rawOutput}` }] }],
     setFlash('Záznam a dokument byly uloženy, ale AI stylová paměť se neuložila. Formulář byl vymazán.');
     setSaveNotice({ tone: 'warning', text: 'Dokument byl uložen, ale nepodařilo se uložit pomocnou AI stylovou paměť. Formulář byl vymazán.' });
     return true;
+    } finally {
+      generatedOutputSaveLockRef.current = false;
+    }
   };
 
   const handleExportPlanTemplateDocx = async () => {
@@ -5303,8 +5362,10 @@ ${rawOutput}` }] }],
       return;
     }
 
-    const rows = selected.map((record, index) => {
-      const payload = record.payload || {};
+    const attendanceRowCount = Math.max(15, selected.length);
+    const rows = Array.from({ length: attendanceRowCount }, (_, index) => {
+      const record = selected[index];
+      const payload = record?.payload || {};
       const fullName = String(payload.contactName || '').trim();
       const fallbackTokens = fullName.split(/\s+/).filter(Boolean);
       const titleRegex = /^(Mgr\.?|Ing\.?|Bc\.?|JUDr\.?|MUDr\.?|PhDr\.?|doc\.?|prof\.?|DiS\.?)$/i;
@@ -5316,8 +5377,8 @@ ${rawOutput}` }] }],
         || (fallbackTokens.length > 0 ? fallbackTokens.slice(title ? 2 : 1).join(' ') : '');
       return {
         order: String(index + 1),
-        firstName,
-        lastName,
+        firstName: record ? firstName : '',
+        lastName: record ? lastName : '',
         organization: String(payload.name || '').trim(),
         role: String(payload.contactRole || '').trim()
       };
@@ -5726,7 +5787,9 @@ ${rawOutput}` }] }],
 
   const summarizeClientCase = async () => {
     if (!selectedClient) return;
-    const fallbackSummary = buildClientCaseSummary(selectedClient, clientJourneyTimeline, selectedClientSupportBreakdown);
+    const aiTimeline = filterClientCaseAiRecords(clientJourneyTimeline);
+    const aiSupportBreakdown = getClientSupportBreakdown(selectedClient.id, aiTimeline);
+    const fallbackSummary = buildClientCaseSummary(selectedClient, aiTimeline, aiSupportBreakdown);
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
     const aiModel = selectedAiModel || DEFAULT_AI_MODEL;
 
@@ -5749,7 +5812,7 @@ ${rawOutput}` }] }],
           contents: [
             {
               role: 'user',
-              parts: [{ text: buildAiClientCaseSummaryPrompt(selectedClient, clientJourneyTimeline, selectedClientSupportBreakdown) }]
+              parts: [{ text: buildAiClientCaseSummaryPrompt(selectedClient, aiTimeline, aiSupportBreakdown) }]
             }
           ],
           generationConfig: {
@@ -6587,7 +6650,7 @@ ${rawPlanOutput}` }] }],
                                 ))}
                               </select>
                             </label>
-                            <MiniBadge icon={Clock} label={`${stats.supportHours.toFixed(1)} h`} tone="indigo" />
+                            <MiniBadge icon={Clock} label={formatSupportMinutes(stats.supportMinutes)} tone="indigo" />
                             {showCaseManagementBadge && <MiniBadge icon={User} label="case" tone="emerald" />}
                           </div>
                         </div>
@@ -6761,7 +6824,7 @@ ${rawPlanOutput}` }] }],
                                 <tr>
                                   <th className="px-3 py-2 text-left">Typ podpory</th>
                                   <th className="px-3 py-2 text-right">Počet</th>
-                                  <th className="px-3 py-2 text-right">Hodiny</th>
+                                  <th className="px-3 py-2 text-right">Čas</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
@@ -6769,7 +6832,7 @@ ${rawPlanOutput}` }] }],
                                   <tr key={item.key}>
                                     <td className="px-3 py-2 font-medium text-slate-900">{item.label}</td>
                                     <td className="px-3 py-2 text-right text-slate-700">{item.count}</td>
-                                    <td className="px-3 py-2 text-right text-slate-700">{item.hours.toFixed(1)} h</td>
+                                    <td className="px-3 py-2 text-right text-slate-700">{formatSupportMinutes(item.minutes)}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -6777,7 +6840,7 @@ ${rawPlanOutput}` }] }],
                                 <tr>
                                   <td className="px-3 py-2">Celkem</td>
                                   <td className="px-3 py-2 text-right">{selectedClientSupportBreakdown.totalCount}</td>
-                                  <td className="px-3 py-2 text-right">{selectedClientSupportBreakdown.totalHours.toFixed(1)} h</td>
+                                  <td className="px-3 py-2 text-right">{formatSupportMinutes(selectedClientSupportBreakdown.totalMinutes)}</td>
                                 </tr>
                               </tfoot>
                             </table>
@@ -6804,7 +6867,7 @@ ${rawPlanOutput}` }] }],
                     >
                       <div className="mb-3 grid gap-3 md:grid-cols-3">
                         <InfoCard icon={History} label="Položky na ose" value={String(clientJourneyTimeline.length)} />
-                        <InfoCard icon={Clock} label="Čas podpory" value={`${getClientStats(selectedClient.id, clientJourneyTimeline).supportHours.toFixed(1)} h`} />
+                        <InfoCard icon={Clock} label="Čas podpory" value={formatSupportMinutes(getClientStats(selectedClient.id, clientJourneyTimeline).supportMinutes)} />
                         <InfoCard icon={Target} label="Dokumenty" value={String(clientJourneyTimeline.filter((record) => Boolean(record.documentText)).length)} />
                       </div>
                       <div className="space-y-3">
@@ -7126,7 +7189,7 @@ ${rawPlanOutput}` }] }],
                             className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
                           >
                             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                            {isSaving ? 'Ukládám…' : 'Uložit dokument i aktivitu'}
+                            {isSaving ? 'Ukládám…' : generatorDraft.selectedKey === 'consultation' ? 'Uložit výkon' : 'Uložit dokument'}
                           </button>
                           <SaveInlineNotice notice={saveNotice} />
                           <button
@@ -7506,6 +7569,11 @@ ${rawPlanOutput}` }] }],
               copied={copied}
               deleteRecord={deleteRecord}
               isSaving={isSaving}
+              canManageBackups={canSeeAllClients}
+              backupStatus={backupStatus}
+              isBackupActionRunning={isBackupActionRunning}
+              handleStartFullBackup={handleStartFullBackup}
+              handleInstallWeeklyBackup={handleInstallWeeklyBackup}
             />
           </React.Suspense>
         )}
