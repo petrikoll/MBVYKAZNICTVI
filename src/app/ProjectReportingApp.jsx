@@ -84,6 +84,7 @@ import {
 import { appId, auth, db, hasFirebaseConfig } from '../lib/firebase.js';
 import { parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
 import { buildClientCaseAiPrompt, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
+import { buildZorTexts } from '../lib/zorSummary.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
 import sfLogoImage from '../assets/eu-spolufinancovano-logo.png';
 import cityLogoImage from '../assets/moravsky-beroun-erb.jpg';
@@ -1094,80 +1095,6 @@ function isDateWithinPeriod(dateValue, period) {
   const endTime = parseDateForSort(period.end);
   if (!valueTime || !startTime || !endTime) return false;
   return valueTime >= startTime && valueTime <= endTime;
-}
-
-function clipText(text, maxLength = 2000) {
-  const normalized = cleanGeneratedText(text || '');
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, maxLength - 1).trim()}…`;
-}
-
-function joinSummaryParts(parts) {
-  return parts.filter(Boolean).join(' ');
-}
-
-function buildKa01ZorText(records) {
-  const networkRecords = records.filter((record) => record.entityType === 'network_activities');
-  if (networkRecords.length === 0) {
-    return 'Ve sledovaném období nebyly v KA01 evidovány žádné vykazované síťové aktivity, porady ani distribuce materiálů.';
-  }
-
-  const totals = networkRecords.reduce(
-    (acc, record) => {
-      const type = record.payload?.type || '';
-      const count = Number(record.payload?.count || 0);
-      if (type === 'koordinační setkání') acc.meetings += 1;
-      if (type === 'distribuce materiálů') acc.materials += count;
-      if (type === 'porada týmu') acc.teamMeetings += 1;
-      if (type === 'síť aktérů') acc.network += 1;
-      return acc;
-    },
-    { meetings: 0, materials: 0, teamMeetings: 0, network: 0 }
-  );
-
-  const highlights = networkRecords
-    .map((record) => record.payload?.notes || record.payload?.participants || '')
-    .filter(Boolean)
-    .slice(0, 3)
-    .map((item) => truncate(cleanGeneratedText(item), 140));
-
-  return clipText(
-    joinSummaryParts([
-      'Ve sledovaném období byla v KA01 realizována průběžná síťovací a koordinační činnost podporující naplňování projektu.',
-      totals.meetings ?`Bylo evidováno ${totals.meetings} koordinačních setkání s aktéry spolupráce.` : '',
-      totals.materials ?`Distribuce informačních materiálů dosáhla ${totals.materials} kusů nebo výstupů.` : '',
-      totals.teamMeetings ?`Současně proběhlo ${totals.teamMeetings} porad realizačního týmu.` : '',
-      totals.network ?`V evidenci se promítlo také ${totals.network} aktualizací či rozvojových kroků v síti aktérů.` : '',
-      highlights.length ?`Obsah aktivit se soustředil zejména na: ${highlights.join('; ')}.` : ''
-    ])
-  );
-}
-
-function buildKa02ZorText(records) {
-  if (records.length === 0) {
-    return 'Ve sledovaném období nebyly v KA2 evidovány žádné aktivity case managementu ani návazné síťové podpory.';
-  }
-
-  const uniqueClients = new Set(records.map((record) => record.clientId).filter(Boolean)).size;
-  const caseRecords = records.filter((record) => record.entityType === 'case_management');
-  const networkRecords = records.filter((record) => record.entityType === 'network_activities');
-  const supportHours = records.reduce((sum, record) => sum + Number(record.payload?.durationMinutes || 0), 0) / 60;
-
-  const highlights = records
-    .map((record) => record.payload?.topics || record.payload?.description || record.payload?.nextSteps || '')
-    .filter(Boolean)
-    .slice(0, 4)
-    .map((item) => truncate(cleanGeneratedText(item), 140));
-
-  return clipText(
-    joinSummaryParts([
-      `Ve sledovaném období probíhala v KA2 koordinace podpory, case management a práce s partnerskou sítí. Celkem bylo evidováno ${records.length} aktivit pro ${uniqueClients} klientů nebo aktérů.`,
-      caseRecords.length ?`Zápisů case managementu bylo evidováno ${caseRecords.length}.` : '',
-      networkRecords.length ?`Síťových aktivit bylo evidováno ${networkRecords.length}.` : '',
-      supportHours ?`Odhadovaný rozsah přímé podpory činil ${supportHours.toFixed(1)} hodiny.` : '',
-      highlights.length ?`Tematicky se práce soustředila zejména na: ${highlights.join('; ')}.` : ''
-    ])
-  );
 }
 
 function buildArchivedZorText() {
@@ -6366,18 +6293,10 @@ ${rawPlanOutput}` }] }],
       return;
     }
 
-    const recordsByKa = {
-      KA01: periodRecordsForZor.filter((record) => record.ka === 'KA01'),
-      KA02: periodRecordsForZor.filter((record) => record.ka === 'KA02')
-    };
-
     setZorTexts({
       periodLabel: selectedReportingPeriod.label,
       generatedAt: new Date().toISOString(),
-      texts: {
-        KA01: buildKa01ZorText(recordsByKa.KA01),
-        KA02: buildKa02ZorText(recordsByKa.KA02)
-      }
+      texts: buildZorTexts(periodRecordsForZor)
     });
     setFlash(`Texty pro ZOR byly připraveny za období ${selectedReportingPeriod.label}.`);
   };
