@@ -84,7 +84,7 @@ import {
 import { appId, auth, db, hasFirebaseConfig } from '../lib/firebase.js';
 import { parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
 import { buildClientCaseAiPrompt, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
-import { buildZorTexts } from '../lib/zorSummary.js';
+import { buildHorizontalPrinciplesAiPrompt, buildHorizontalPrinciplesFallbackText, buildZorTexts } from '../lib/zorSummary.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
 import sfLogoImage from '../assets/eu-spolufinancovano-logo.png';
 import cityLogoImage from '../assets/moravsky-beroun-erb.jpg';
@@ -454,6 +454,11 @@ const CURRENT_ACTIVITY_ENTITY_TYPES = new Set([
   'tpm_records',
   'employment_records',
   'mentoring_records'
+]);
+const ZOR_ACTIVITY_ENTITY_TYPES = new Set([
+  ...CURRENT_ACTIVITY_ENTITY_TYPES,
+  'education_records',
+  'supervision_records'
 ]);
 const CLIENT_JOURNEY_ENTITY_TYPES = new Set([
   'plans',
@@ -2137,6 +2142,7 @@ function App() {
   const [statisticsFilters, setStatisticsFilters] = useState({ dateFrom: '', dateTo: '' });
   const [isExportingKuStatistics, setIsExportingKuStatistics] = useState(false);
   const [zorTexts, setZorTexts] = useState(null);
+  const [isGeneratingZor, setIsGeneratingZor] = useState(false);
   const [expandedJourneyRecordIds, setExpandedJourneyRecordIds] = useState([]);
   const [selectedJourneyPrintIds, setSelectedJourneyPrintIds] = useState([]);
   const [journeyPlanDrafts, setJourneyPlanDrafts] = useState({});
@@ -2940,8 +2946,11 @@ function App() {
   }, [clients, filteredRecords, professionalDevelopmentRecords, records, selectedReportingPeriod]);
 
   const periodRecordsForZor = useMemo(
-    () => storedActivityRecords.filter((record) => isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod)),
-    [selectedReportingPeriod, storedActivityRecords]
+    () => records.filter(
+      (record) => ZOR_ACTIVITY_ENTITY_TYPES.has(record.entityType)
+        && isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod)
+    ),
+    [records, selectedReportingPeriod]
   );
 
   const clientTimeline = useMemo(() => {
@@ -6287,18 +6296,59 @@ ${rawPlanOutput}` }] }],
     }
   };
 
-  const handleGenerateZorTexts = () => {
+  const handleGenerateZorTexts = async () => {
     if (!selectedReportingPeriod || selectedReportingPeriod.value === 'all') {
       setFlash('Nejprve vyber konkrétní vykazované období.');
       return;
     }
 
-    setZorTexts({
-      periodLabel: selectedReportingPeriod.label,
-      generatedAt: new Date().toISOString(),
-      texts: buildZorTexts(periodRecordsForZor)
-    });
-    setFlash(`Texty pro ZOR byly připraveny za období ${selectedReportingPeriod.label}.`);
+    setIsGeneratingZor(true);
+    const kaTexts = buildZorTexts(periodRecordsForZor);
+    let horizontalPrinciplesText = buildHorizontalPrinciplesFallbackText();
+    let usedAi = false;
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+      if (apiKey) {
+        const aiModel = selectedAiModel || DEFAULT_AI_MODEL;
+        const response = await fetchGemini(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: buildHorizontalPrinciplesAiPrompt({
+              periodLabel: selectedReportingPeriod.label,
+              kaTexts
+            }) }] }],
+            systemInstruction: {
+              parts: [{ text: `${AI_SAFETY_BASE}\nVytváříš pouze anonymizovaný text do zprávy o realizaci. Nepřidávej žádné nedoložené skutečnosti a vrať jen výsledný odstavec bez nadpisu.` }]
+            },
+            generationConfig: { temperature: 0.15, maxOutputTokens: 500 }
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result?.error?.message || 'AI text horizontálních principů se nepodařilo vytvořit.');
+        const aiText = cleanGeneratedText(extractGeminiText(result)).trim();
+        if (!aiText) throw new Error('AI vrátila prázdný text horizontálních principů.');
+        horizontalPrinciplesText = aiText;
+        usedAi = true;
+      }
+    } catch (error) {
+      console.warn('ZOR horizontal principles AI fallback:', error);
+    } finally {
+      setZorTexts({
+        periodLabel: selectedReportingPeriod.label,
+        generatedAt: new Date().toISOString(),
+        texts: {
+          ...kaTexts,
+          'Horizontální principy – rovné příležitosti žen a mužů a nediskriminace': horizontalPrinciplesText
+        }
+      });
+      setFlash(
+        usedAi
+          ? `Texty pro ZOR včetně AI textu horizontálních principů byly připraveny za období ${selectedReportingPeriod.label}.`
+          : `Texty pro ZOR byly připraveny za období ${selectedReportingPeriod.label}. Pro horizontální principy byl použit bezpečný pracovní text bez AI.`
+      );
+      setIsGeneratingZor(false);
+    }
   };
 
   const viewTheme = VIEW_THEMES[mainView] || VIEW_THEMES.clients;
@@ -7482,6 +7532,7 @@ ${rawPlanOutput}` }] }],
               setDashboardFilters={setDashboardFilters}
               filteredRecords={filteredRecords}
               handleGenerateZorTexts={handleGenerateZorTexts}
+              isGeneratingZor={isGeneratingZor}
               zorTexts={zorTexts}
               copyToClipboard={copyToClipboard}
               setCopied={setCopied}

@@ -68,7 +68,7 @@ const HELP = {
   actorDate: { title: 'Datum zapojení', text: 'Vyplňuje se u nově zapojeného aktéra a pomáhá určit, zda byl partner zapojen v průběhu projektu.' },
   dashboardPeriod: { title: 'Vykazované období', text: 'Omezuje záznamy používané pro výpočty hodin, indikátorů, cílů, rizik a partnerské sítě.' },
   dashboardExport: { title: 'Export klientů a podpory', text: 'Exportuje základní monitorovací údaje a souhrn podpory pro další zpracování. Nejde o úplnou klientskou dokumentaci.' },
-  dashboardZor: { title: 'Texty pro ZOR', text: 'Připraví anonymní pracovní texty za celé vybrané vykazované období: samostatně KA1 a společný text KA2 členěný na a) Case management a b) Tvorba a rozvoj sítě. Filtry klíčové aktivity a pracovníka výstup ZOR neomezují.' },
+  dashboardZor: { title: 'Texty pro ZOR', text: 'Připraví anonymní pracovní texty podle právního aktu pro KA01, společný text KA02 členěný na a) Case management a b) Koordinace a síťování služeb, KA03 a pomocí AI také text k rovným příležitostem žen a mužů a nediskriminaci. Filtry klíčové aktivity a pracovníka výstup ZOR neomezují.' },
   dashboard600: { title: 'Indikátor 600 000', text: 'Počítá klienty se 40 a více hodinami podpory, kteří mají kompletní monitorovací údaje.' },
   dashboard670: { title: 'Indikátor 670 102', text: 'Počítá klienty s podporou nad 0 a pod 40 hodin, kteří mají minimální registrační údaje.' },
   dashboardLongGoals: { title: 'Dlouhodobé cíle', text: 'U klientů se 40 a více hodinami vyžaduje započtení vazbu výkonu na konkrétní splněný a slovně vyhodnocený cíl IP.' },
