@@ -88,6 +88,7 @@ function ReportingView({
   setDashboardFilters,
   filteredRecords,
   handleGenerateZorTexts,
+  isGeneratingZor = false,
   zorTexts,
   copyToClipboard,
   setCopied,
@@ -125,8 +126,9 @@ function ReportingView({
           <SelectField label="Klíčová aktivita" value={dashboardFilters.ka} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, ka: value }))} options={[{ value: 'all', label: 'Všechny KA' }, { value: 'KA1', label: 'KA1' }, { value: 'KA2', label: 'KA2' }]} />
           <SelectField label="Pracovník" value={dashboardFilters.worker} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, worker: value }))} options={[{ value: 'all', label: 'Všichni pracovníci' }].concat(WORKERS.map((worker) => ({ value: worker, label: worker })))} />
           <div className="flex flex-col justify-end">
-            <button type="button" onClick={handleGenerateZorTexts} disabled={dashboardFilters.period === 'all'} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">
-              <FileText className="h-4 w-4" /> Vytvořit texty pro ZOR
+            <button type="button" onClick={handleGenerateZorTexts} disabled={dashboardFilters.period === 'all' || isGeneratingZor} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">
+              {isGeneratingZor ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+              {isGeneratingZor ? 'Připravuji texty…' : 'Vytvořit texty pro ZOR'}
             </button><HelpIcon help={HELP.dashboardZor} />
           </div>
         </div>

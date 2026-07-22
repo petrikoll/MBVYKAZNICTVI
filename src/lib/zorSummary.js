@@ -15,7 +15,14 @@ function canonicalKa(value) {
 
 function recordMinutes(record) {
   const minutes = Number(record?.payload?.durationMinutes || 0);
-  return Number.isFinite(minutes) && minutes > 0 ? minutes : 0;
+  if (Number.isFinite(minutes) && minutes > 0) return minutes;
+  const hoursText = String(record?.payload?.hours || '').trim().replace(',', '.');
+  if (/^\d{1,3}:\d{2}$/.test(hoursText)) {
+    const [hours, minutePart] = hoursText.split(':').map(Number);
+    return hours * 60 + minutePart;
+  }
+  const hours = Number(hoursText);
+  return Number.isFinite(hours) && hours > 0 ? Math.round(hours * 60) : 0;
 }
 
 function formatHours(minutes) {
@@ -68,10 +75,10 @@ function buildKa1Text(records) {
   const types = topValues(support, (record) => record.payload?.consultationType || record.title);
   const minutes = all.reduce((sum, record) => sum + recordMinutes(record), 0);
   return [
-    `V KA1 byla ve sledovaném období poskytována individuální podpora ${uniqueClientCount(all)} klientům. Evidováno bylo ${support.length} výkonů individuální podpory a ${plans.length} vytvořených nebo aktualizovaných individuálních plánů v celkovém rozsahu ${formatHours(minutes)}`,
+    `V KA01 byla ve sledovaném období poskytována přímá práce a individuální podpora ${uniqueClientCount(all)} klientům. Evidováno bylo ${support.length} výkonů podpory a ${plans.length} vytvořených nebo aktualizovaných individuálních plánů v celkovém rozsahu ${formatHours(minutes)}`,
     areas.length ? `Podpora se nejčastěji zaměřovala na oblasti ${sentenceList(areas)}.` : '',
     types.length ? `Využívanými formami práce byly zejména ${sentenceList(types)}.` : '',
-    'Podpora vycházela z evidovaných potřeb klientů a podle povahy zakázky navazovala na cíle individuálních plánů.'
+    'Realizované činnosti směřovaly v souladu s právním aktem k prevenci sociálního vyloučení a zhoršování situace klientů, ke zvýšení dostupnosti sociální podpory a k posilování soběstačnosti a odpovědnosti klientů. Podpora vycházela z evidovaných potřeb klientů a podle povahy zakázky navazovala na cíle individuálních plánů.'
   ].filter(Boolean).join(' ');
 }
 
@@ -91,10 +98,10 @@ function buildKa2CaseText(records) {
   const minutes = caseRecords.reduce((sum, record) => sum + recordMinutes(record), 0);
   return [
     `V části KA2 zaměřené na case management bylo realizováno ${caseRecords.length} aktivit pro ${uniqueClientCount(caseRecords)} klientů v celkovém rozsahu ${formatHours(minutes)}`,
-    partnerNames.size ? `Do koordinace podpory bylo zapojeno ${partnerNames.size} různých aktérů nebo partnerských subjektů.` : '',
+    partnerNames.size ? `Do koordinace podpory bylo zapojeno ${partnerNames.size} různých spolupracujících aktérů nebo subjektů.` : '',
     areas.length ? `Řešené zakázky se nejčastěji týkaly oblastí ${sentenceList(areas)}.` : '',
     types.length ? `Evidované aktivity zahrnovaly zejména ${sentenceList(types)}.` : '',
-    'Práce byla zaměřena na koordinaci návazné podpory, sdílení rolí zapojených aktérů a domlouvání doložených dalších kroků.'
+    'Práce byla zaměřena na komplexní plánování a realizaci podpory klienta za účasti návazných služeb, institucí a odborníků, na koordinaci rolí zapojených aktérů a na domlouvání doložených dalších kroků.'
   ].filter(Boolean).join(' ');
 }
 
@@ -111,22 +118,62 @@ function buildKa2NetworkText(records) {
   const minutes = network.reduce((sum, record) => sum + recordMinutes(record), 0);
   return [
     `V části KA2 zaměřené na tvorbu a rozvoj sítě bylo uskutečněno ${network.length} síťových a koordinačních aktivit${minutes ? ` v rozsahu ${formatHours(minutes)}` : ''}.`,
-    partnerNames.size ? `V evidenci se objevilo ${partnerNames.size} různých partnerských subjektů.` : '',
+    partnerNames.size ? `V evidenci se objevilo ${partnerNames.size} různých spolupracujících subjektů.` : '',
     types.length ? `Realizované aktivity zahrnovaly zejména ${sentenceList(types)}.` : '',
-    'Činnost směřovala k udržování spolupráce, koordinaci dostupné podpory a rozvoji funkční místní sítě.'
+    'Činnost probíhala prostřednictvím aktivní komunikace a setkávání, navazování a rozvíjení vztahů se spolupracujícími organizacemi a směřovala k vytvoření a udržování funkční místní sítě.'
+  ].filter(Boolean).join(' ');
+}
+
+function buildKa3Text(records) {
+  const education = records.filter((record) => record.entityType === 'education_records');
+  const supervision = records.filter((record) => record.entityType === 'supervision_records');
+  if (!education.length && !supervision.length) {
+    return 'Ve sledovaném období nebyly v KA03 evidovány aktivity profesního vzdělávání ani supervize týmu.';
+  }
+
+  const educationMinutes = education.reduce((sum, record) => sum + recordMinutes(record), 0);
+  const supervisionMinutes = supervision.reduce((sum, record) => sum + recordMinutes(record), 0);
+  const educationTopics = topValues(education, (record) => record.payload?.topic || record.payload?.title || record.title);
+  const supervisionTypes = topValues(supervision, (record) => record.payload?.type || record.title);
+  return [
+    `V KA03 bylo ve sledovaném období evidováno ${education.length} vzdělávacích aktivit v rozsahu ${formatHours(educationMinutes)} a ${supervision.length} supervizních setkání v rozsahu ${formatHours(supervisionMinutes)}`,
+    educationTopics.length ? `Vzdělávání bylo zaměřeno zejména na témata ${sentenceList(educationTopics)}.` : '',
+    supervisionTypes.length ? `Supervize zahrnovala zejména formy ${sentenceList(supervisionTypes)}.` : '',
+    'Aktivity směřovaly v souladu s právním aktem k průběžnému zvyšování odborných kompetencí a profesní kvality týmu, podpoře týmové spolupráce, sdílení zkušeností a reflexe praxe a k prevenci pracovního stresu a syndromu vyhoření.'
   ].filter(Boolean).join(' ');
 }
 
 export function buildZorTexts(records = []) {
   const safeRecords = Array.isArray(records) ? records.filter(Boolean) : [];
   return {
-    'KA1 – Individuální podpora': buildKa1Text(safeRecords),
-    'KA2 – Case management a tvorba sítě': [
+    'KA01 – Přímá práce s klienty – terénní práce': buildKa1Text(safeRecords),
+    'KA02 – Koordinace a síťování služeb': [
       'a) Case management',
       buildKa2CaseText(safeRecords),
       '',
-      'b) Tvorba a rozvoj sítě',
+      'b) Koordinace a síťování služeb',
       buildKa2NetworkText(safeRecords)
-    ].join('\n')
+    ].join('\n'),
+    'KA03 – Profesní vzdělávání a supervize týmu': buildKa3Text(safeRecords)
   };
+}
+
+export function buildHorizontalPrinciplesFallbackText() {
+  return 'Při realizaci projektu byly rovné příležitosti žen a mužů a zásada nediskriminace uplatňovány jako průřezové principy. Přístup k podpoře vycházel z individuální nepříznivé sociální situace a evidovaných potřeb klientů. Poskytovaná podpora směřovala k rovnému přístupu k sociální pomoci, návazným službám a možnostem aktivního začlenění. Způsob práce byl zaměřen na zapojení klienta do řešení vlastní situace, posilování jeho soběstačnosti a respektování individuálních potřeb bez rozdílu pohlaví nebo jiné osobní charakteristiky.';
+}
+
+export function buildHorizontalPrinciplesAiPrompt({ periodLabel, kaTexts } = {}) {
+  const sourceTexts = Object.entries(kaTexts || {})
+    .map(([title, text]) => `${title}:\n${text}`)
+    .join('\n\n');
+  return [
+    'Vytvoř jeden souvislý odstavec do zprávy o realizaci projektu k naplňování horizontálních principů: rovné příležitosti žen a mužů a nediskriminace.',
+    'Závazný kontext právního aktu: projekt Podpora sociální práce v Moravském Berouně II, registrační číslo CZ.03.02.01/00/25_106/0006125, podporuje aktivní začleňování, rovné příležitosti, nediskriminaci, aktivní účast a zlepšení zaměstnatelnosti zejména znevýhodněných skupin.',
+    `Vykazované období: ${periodLabel || 'neuvedeno'}.`,
+    'Pracuj pouze s níže uvedenými anonymizovanými souhrny aktivit. Nevymýšlej konkrétní opatření, školení, stížnosti, bezbariérové úpravy, kvóty, personální pravidla ani dosažené dopady, které ve vstupu nejsou doloženy.',
+    'Popiš věcně, jak individuální přístup podle potřeb, rovný přístup k podpoře, zapojení klienta do řešení situace a spolupráce služeb přispívaly k těmto principům. Neuváděj jména ani identifikátory. Piš česky, bez markdownu, v rozsahu přibližně 80 až 140 slov.',
+    '',
+    'ANONYMIZOVANÉ SOUHRNY AKTIVIT:',
+    sourceTexts || 'Za období nejsou k dispozici evidované aktivity.'
+  ].join('\n');
 }
