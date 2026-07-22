@@ -170,6 +170,7 @@ function doPost(e) {
 }
 
 function authorizeOnce() {
+  authorizeBackupTriggers();
   SpreadsheetApp.openById(CONFIG.spreadsheetId).getName();
   if (CONFIG.monitoringTemplateFileId) DriveApp.getFileById(CONFIG.monitoringTemplateFileId).getName();
   const parent = getClientFolderParent_();
@@ -183,6 +184,14 @@ function authorizeOnce() {
     headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
     muteHttpExceptions: true
   });
+}
+
+// Spusťte jednou ručně v editoru Apps Scriptu po přidání zálohování.
+// Google následně zobrazí dialog pro oprávnění ke správě časových triggerů.
+function authorizeBackupTriggers() {
+  const triggers = ScriptApp.getProjectTriggers();
+  Logger.log('Oprávnění pro automatické zálohy je aktivní. Počet triggerů: ' + triggers.length);
+  return triggers.length;
 }
 
 function getSpreadsheet_() {
@@ -1377,7 +1386,15 @@ function installWeeklyBackupTrigger_() {
 
 function getBackupStatus_() {
   const status = readBackupStatus_();
-  status.weeklyEnabled = hasTrigger_(BACKUP_WEEKLY_HANDLER_);
+  try {
+    status.weeklyEnabled = hasTrigger_(BACKUP_WEEKLY_HANDLER_);
+  } catch (error) {
+    if (!isTriggerAuthorizationError_(error)) throw error;
+    status.weeklyEnabled = false;
+    status.authorizationRequired = true;
+    status.state = 'authorization_required';
+    status.message = 'Automatické zálohy čekají na jednorázové povolení v Apps Scriptu. Spusťte funkci authorizeBackupTriggers a potvrďte oprávnění.';
+  }
   status.retentionCount = Number(CONFIG.backupRetentionCount) || 12;
   return status;
 }
@@ -1397,15 +1414,33 @@ function writeBackupStatus_(status) {
 }
 
 function hasTrigger_(handler) {
-  return ScriptApp.getProjectTriggers().some(function(trigger) {
+  return getProjectTriggers_().some(function(trigger) {
     return trigger.getHandlerFunction() === handler;
   });
 }
 
 function deleteTriggersByHandler_(handler) {
-  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+  getProjectTriggers_().forEach(function(trigger) {
     if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
   });
+}
+
+function getProjectTriggers_() {
+  try {
+    return ScriptApp.getProjectTriggers();
+  } catch (error) {
+    if (isTriggerAuthorizationError_(error)) {
+      throw new Error('[TRIGGER_AUTH_REQUIRED] Nejdříve v editoru Apps Scriptu spusťte funkci authorizeBackupTriggers a potvrďte požadovaná oprávnění.');
+    }
+    throw error;
+  }
+}
+
+function isTriggerAuthorizationError_(error) {
+  const message = String(error && (error.message || error));
+  return message.indexOf('[TRIGGER_AUTH_REQUIRED]') !== -1
+    || message.indexOf('ScriptApp.getProjectTriggers') !== -1
+    || message.indexOf('script.scriptapp') !== -1;
 }
 
 function buildBackupFileName_(date) {
