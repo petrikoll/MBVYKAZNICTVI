@@ -59,3 +59,20 @@ test('rotace ponechá posledních 12 kompletních záloh', () => {
 
   assert.deepEqual(trashed.sort(), ['backup-0', 'backup-1']);
 });
+
+test('duplicitní názvy souborů v ZIPu dostanou číselnou příponu', () => {
+  const usedPaths = {};
+
+  assert.equal(
+    context.uniqueBackupArchivePath_('klientske-slozky/KLIENT-0007/MON list.xlsx', usedPaths),
+    'klientske-slozky/KLIENT-0007/MON list.xlsx'
+  );
+  assert.equal(
+    context.uniqueBackupArchivePath_('klientske-slozky/KLIENT-0007/MON list.xlsx', usedPaths),
+    'klientske-slozky/KLIENT-0007/MON list-2.xlsx'
+  );
+  assert.equal(
+    context.uniqueBackupArchivePath_('klientske-slozky/KLIENT-0007/MON LIST.xlsx', usedPaths),
+    'klientske-slozky/KLIENT-0007/MON LIST-3.xlsx'
+  );
+});

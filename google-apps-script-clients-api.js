@@ -1240,6 +1240,7 @@ function createFullBackup_() {
   const generatedAt = new Date();
   const zipName = buildBackupFileName_(generatedAt);
   const blobs = [];
+  const usedArchivePaths = {};
   const manifest = {
     schemaVersion: 1,
     generatedAt: generatedAt.toISOString(),
@@ -1252,10 +1253,10 @@ function createFullBackup_() {
   };
 
   const spreadsheetFile = DriveApp.getFileById(CONFIG.spreadsheetId);
-  addFileToBackup_(spreadsheetFile, 'hlavni-tabulka', blobs, manifest);
+  addFileToBackup_(spreadsheetFile, 'hlavni-tabulka', blobs, manifest, usedArchivePaths);
 
   const clientRoot = getClientFolderParent_();
-  collectFolderForBackup_(clientRoot, 'klientske-slozky', blobs, manifest);
+  collectFolderForBackup_(clientRoot, 'klientske-slozky', blobs, manifest, usedArchivePaths);
 
   manifest.fileCount = manifest.files.length;
   manifest.errorCount = manifest.errors.length;
@@ -1286,25 +1287,26 @@ function createFullBackup_() {
   };
 }
 
-function collectFolderForBackup_(folder, path, blobs, manifest) {
+function collectFolderForBackup_(folder, path, blobs, manifest, usedArchivePaths) {
   const files = folder.getFiles();
-  while (files.hasNext()) addFileToBackup_(files.next(), path, blobs, manifest);
+  while (files.hasNext()) addFileToBackup_(files.next(), path, blobs, manifest, usedArchivePaths);
 
   const folders = folder.getFolders();
   while (folders.hasNext()) {
     const child = folders.next();
-    collectFolderForBackup_(child, path + '/' + sanitizeBackupPathPart_(child.getName()), blobs, manifest);
+    collectFolderForBackup_(child, path + '/' + sanitizeBackupPathPart_(child.getName()), blobs, manifest, usedArchivePaths);
   }
 }
 
-function addFileToBackup_(file, path, blobs, manifest) {
+function addFileToBackup_(file, path, blobs, manifest, usedArchivePaths) {
   const originalName = file.getName();
   try {
     const spec = backupExportSpec_(file.getMimeType(), originalName);
     const blob = spec.exportMimeType
       ? exportGoogleFileBlob_(file.getId(), spec.exportMimeType)
       : file.getBlob();
-    const targetName = path + '/' + spec.fileName;
+    const requestedName = path + '/' + spec.fileName;
+    const targetName = uniqueBackupArchivePath_(requestedName, usedArchivePaths || {});
     blob.setName(targetName);
     blobs.push(blob);
     manifest.files.push({
@@ -1323,6 +1325,29 @@ function addFileToBackup_(file, path, blobs, manifest) {
       error: String(error && error.message || error)
     });
   }
+}
+
+function uniqueBackupArchivePath_(requestedPath, usedArchivePaths) {
+  const used = usedArchivePaths || {};
+  const normalizedPath = String(requestedPath || 'soubor').toLowerCase();
+  if (!used[normalizedPath]) {
+    used[normalizedPath] = true;
+    return requestedPath;
+  }
+
+  const slashIndex = requestedPath.lastIndexOf('/');
+  const dotIndex = requestedPath.lastIndexOf('.');
+  const hasExtension = dotIndex > slashIndex + 1;
+  const base = hasExtension ? requestedPath.slice(0, dotIndex) : requestedPath;
+  const extension = hasExtension ? requestedPath.slice(dotIndex) : '';
+  let suffix = 2;
+  let candidate;
+  do {
+    candidate = base + '-' + suffix + extension;
+    suffix += 1;
+  } while (used[candidate.toLowerCase()]);
+  used[candidate.toLowerCase()] = true;
+  return candidate;
 }
 
 function backupExportSpec_(mimeType, originalName) {
