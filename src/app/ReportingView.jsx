@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, AlertTriangle, Archive, Brain, ClipboardCopy, FileSpreadsheet, FileText, Network, Target } from 'lucide-react';
+import { Activity, AlertTriangle, Archive, Brain, ClipboardCopy, Download, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target } from 'lucide-react';
 
 import { HelpIcon, Panel, SelectField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
@@ -91,9 +91,18 @@ function ReportingView({
   zorTexts,
   copyToClipboard,
   setCopied,
-  copied
+  copied,
+  canManageBackups = false,
+  backupStatus = null,
+  isBackupActionRunning = false,
+  handleStartFullBackup,
+  handleInstallWeeklyBackup
 }) {
   const overview = dashboardOverview || { indicators: [], longGoals: [], shortGoals: [], activityGoals: [], professionalDevelopmentStats: [], partnerMetrics: [], risks: [] };
+  const backupBusy = isBackupActionRunning || ['queued', 'running'].includes(backupStatus?.state);
+  const backupFinishedAt = backupStatus?.finishedAt
+    ? new Date(backupStatus.finishedAt).toLocaleString('cs-CZ')
+    : '';
   return (
     <div className="space-y-5">
       <Panel
@@ -123,6 +132,49 @@ function ReportingView({
         </div>
         <div className="mt-3 text-xs text-slate-600">Aktivní filtr zahrnuje <strong>{filteredRecords.length}</strong> záznamů.</div>
       </Panel>
+
+      {canManageBackups && (
+        <Panel
+          title="Kompletní záloha Google Drive"
+          description="Vytvoří ZIP s hlavním Google Sheetem, klientskými složkami a kontrolním manifestem. Uchovává se posledních 12 záloh."
+          icon={HardDriveDownload}
+          action={
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={handleStartFullBackup} disabled={backupBusy} className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60">
+                {backupBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+                {backupBusy ? 'Záloha se připravuje…' : 'Vytvořit kompletní zálohu'}
+              </button>
+              {!backupStatus?.weeklyEnabled && (
+                <button type="button" onClick={handleInstallWeeklyBackup} disabled={isBackupActionRunning} className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60">
+                  <ShieldCheck className="h-4 w-4" /> Zapnout týdenní zálohy
+                </button>
+              )}
+              {backupStatus?.downloadUrl && backupStatus?.state === 'success' && (
+                <a href={backupStatus.downloadUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100">
+                  <Download className="h-4 w-4" /> Stáhnout poslední ZIP
+                </a>
+              )}
+            </div>
+          }
+        >
+          <div className={`rounded-lg border px-3 py-2 text-sm ${
+            backupStatus?.state === 'error'
+              ? 'border-red-200 bg-red-50 text-red-800'
+              : backupStatus?.state === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-slate-200 bg-slate-50 text-slate-700'
+          }`}>
+            <div className="font-semibold">{backupStatus?.message || 'Záloha zatím nebyla vytvořena.'}</div>
+            <div className="mt-1 text-xs">
+              Automaticky každou neděli ve 2:00: <strong>{backupStatus?.weeklyEnabled ? 'zapnuto' : 'vypnuto'}</strong>
+              {backupFinishedAt ? ` · Poslední dokončení: ${backupFinishedAt}` : ''}
+              {backupStatus?.fileCount ? ` · Souborů v záloze: ${backupStatus.fileCount}` : ''}
+            </div>
+            {backupStatus?.statusError && <div className="mt-1 text-xs text-red-700">{backupStatus.statusError}</div>}
+          </div>
+          <p className="mt-2 text-xs text-slate-500">ZIP je uložen v chráněné složce Zálohy na Google Disku. Pro ochranu při ztrátě účtu pravidelně stáhněte kopii také mimo tento Google účet.</p>
+        </Panel>
+      )}
 
       <section>
         <h2 className="mb-3 text-base font-bold text-slate-900">Vzdělávání a supervize podle pozic</h2>
