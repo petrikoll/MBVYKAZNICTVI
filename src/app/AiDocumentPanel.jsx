@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Loader2, Save, Sparkles } from 'lucide-react';
+import { CheckCircle2, Download, Loader2, Save, Sparkles } from 'lucide-react';
 
 import { CheckboxField, HelpIcon, InputField, Panel, SaveInlineNotice, SelectField, TextAreaField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
@@ -619,7 +619,9 @@ function AiDocumentPanel({
             {isSaving ? 'Ukládám…' : generatorDraft.selectedKey === 'consultation' ? 'Uložit výkon' : 'Uložit dokument'}
           </button>
           <HelpIcon help={HELP.aiSave} />
-          <SaveInlineNotice notice={saveNotice} />
+          {(generatorDraft.selectedKey !== 'consultation' || !['success', 'warning'].includes(saveNotice?.tone)) && (
+            <SaveInlineNotice notice={saveNotice} />
+          )}
           {generatorDraft.selectedKey === 'plan' && false && (
             <button onClick={onExportPlan} className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100">
               <Download className="h-4 w-4" />
@@ -628,7 +630,25 @@ function AiDocumentPanel({
           )}
         </div>
 
-        {generatorDraft.selectedKey === 'consultation' && saveNotice?.tone !== 'success' && (
+        {generatorDraft.selectedKey === 'consultation' && ['success', 'warning'].includes(saveNotice?.tone) && (
+          <div
+            role="status"
+            aria-live="assertive"
+            className={`flex items-start gap-3 rounded-xl border-2 px-4 py-3 shadow-sm ${
+              saveNotice.tone === 'warning'
+                ? 'border-amber-300 bg-amber-50 text-amber-950'
+                : 'border-emerald-300 bg-emerald-50 text-emerald-950'
+            }`}
+          >
+            <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0" aria-hidden="true" />
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wide">Potvrzení uložení výkonu</div>
+              <div className="mt-0.5 text-base font-black leading-snug">{saveNotice.text}</div>
+            </div>
+          </div>
+        )}
+
+        {generatorDraft.selectedKey === 'consultation' && !['success', 'warning'].includes(saveNotice?.tone) && (
           <div className={`rounded-lg border px-3 py-2 text-sm ${
             saveMissingFields.length ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-800'
           }`}>

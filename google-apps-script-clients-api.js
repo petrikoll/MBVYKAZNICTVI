@@ -938,6 +938,7 @@ function upsertClientRecordDocument_(record, activityName, recordType, currentUr
     try {
       doc = DocumentApp.openById(currentId);
       doc.setName(title);
+      DriveApp.getFileById(currentId).moveTo(clientContext.folder);
     } catch (error) {
       doc = null;
     }

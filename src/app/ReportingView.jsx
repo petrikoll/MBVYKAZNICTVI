@@ -8,10 +8,16 @@ import { REPORTING_PERIODS, WORKERS } from '../config/projectConfig.js';
 const ProgressRow = ({ item }) => {
   const hasTarget = Number(item.target) > 0;
   const percent = hasTarget ? Math.min(100, Math.round((Number(item.current || 0) / item.target) * 100)) : 0;
+  const helpByGoal = {
+    'security-short': HELP.dashboardShortSecurity,
+    'services-short': HELP.dashboardShortServices,
+    'parenting-short': HELP.dashboardShortParenting,
+    'inclusion-short': HELP.dashboardInclusion
+  };
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-1 text-sm font-semibold text-slate-800">{item.label}<HelpIcon help={item.key === 'inclusion-short' ? HELP.dashboardInclusion : null} /></div>
+        <div className="flex items-center gap-1 text-sm font-semibold text-slate-800">{item.label}<HelpIcon help={helpByGoal[item.key] || null} /></div>
         <div className="shrink-0 text-sm font-bold text-slate-900">{item.current}{hasTarget ? ' / ' + item.target : ''}</div>
       </div>
       {item.note && <div className="mt-1 text-xs text-slate-500">{item.note}</div>}
