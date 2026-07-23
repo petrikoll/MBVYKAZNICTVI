@@ -2819,7 +2819,7 @@ function App() {
           .map((record) => normalize(record.payload?.supportArea))
           .filter((area) => area && area !== normalize('soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed'))
       );
-      return distinctAreas.size >= 4;
+      return distinctAreas.size >= 3;
     }).length;
 
     const caseMeetingCount = filteredRecords.filter((record) => {
@@ -2919,10 +2919,20 @@ function App() {
         { key: 'finance-long', label: 'Finan\u010dn\u00ed situace', current: countLongGoal(['finance/dluhy', 'dluhy']), target: 5 }
       ],
       shortGoals: [
-        { key: 'security-short', label: 'Soci\u00e1ln\u00ed zabezpe\u010den\u00ed', current: countShortGoal(['d\u00e1vky']), target: 50 },
-        { key: 'services-short', label: 'P\u0159\u00edstup ke slu\u017eb\u00e1m', current: countShortGoal(['slu\u017eby']), target: 25 },
+        {
+          key: 'security-short',
+          label: 'Soci\u00e1ln\u00ed zabezpe\u010den\u00ed',
+          current: countShortGoal(['bydlen\u00ed', 'finance/dluhy', 'zam\u011bstn\u00e1n\u00ed', 'pr\u00e1va/povinnosti']),
+          target: 50
+        },
+        {
+          key: 'services-short',
+          label: 'P\u0159\u00edstup ke slu\u017eb\u00e1m',
+          current: countShortGoal(['zdrav\u00ed', 'bezpe\u010d\u00ed', 'vzd\u011bl\u00e1n\u00ed', 'slu\u017eby']),
+          target: 25
+        },
         { key: 'parenting-short', label: 'Rodi\u010dovsk\u00e9 kompetence', current: countShortGoal(['rodina']), target: 20 },
-        { key: 'inclusion-short', label: 'Soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed (min. 4 oblasti v KA1/KA2)', current: countSocialInclusionGoal(), target: 5 }
+        { key: 'inclusion-short', label: 'Soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed (min. 3 oblasti v KA1/KA2)', current: countSocialInclusionGoal(), target: 5 }
       ],
       activityGoals: [
         { key: 'outreach', label: 'Depist\u00e1\u017en\u00ed z\u00e1znamy', current: outreachCount, target: 100 },
@@ -4553,8 +4563,6 @@ ${rawOutput}` }] }],
       setFlash(message);
       return false;
     }
-    setSaveNotice({ tone: 'progress', text: 'Dokument se ukládá…' });
-
     const selectedTpmRecord =
       generatorDraft.selectedKey === 'mentor'
         ? tpmRecords.find((record) => record.id === generatorDraft.tpmRecordId) || null
@@ -4579,6 +4587,14 @@ ${rawOutput}` }] }],
       setFlash('Nejprve vygeneruj nebo doplň text výstupu.');
       return;
     }
+
+    const isPerformanceSave = generatorDraft.selectedKey === 'consultation';
+    const savedClientReference = `${generatorClient.fullName || generatorClient.id || 'vybraný klient'}${generatorClient.id ? ` (${generatorClient.id})` : ''}`;
+    const savedPerformanceConfirmation = `Výkon byl uložen klientovi ${savedClientReference}.`;
+    setSaveNotice({
+      tone: 'progress',
+      text: isPerformanceSave ? `Ukládám výkon klientovi ${savedClientReference}…` : 'Dokument se ukládá…'
+    });
 
     if (generatedOutputSaveLockRef.current) {
       setSaveNotice({ tone: 'progress', text: 'Výkon se již ukládá…' });
@@ -4648,8 +4664,11 @@ ${rawOutput}` }] }],
     if (editingGeneratedRecordId) {
       setEditingGeneratedRecordId('');
       resetGeneratedDocumentFormAfterSave();
-      setFlash('Záznam byl upraven. Formulář byl vymazán.');
-      setSaveNotice({ tone: 'success', text: 'Uloženo' });
+      const editConfirmation = isPerformanceSave
+        ? `Výkon byl upraven u klienta ${savedClientReference}.`
+        : 'Záznam byl upraven.';
+      setFlash(`${editConfirmation} Formulář byl vymazán.`);
+      setSaveNotice({ tone: 'success', text: isPerformanceSave ? editConfirmation : 'Uloženo' });
       return true;
     }
 
@@ -4664,12 +4683,25 @@ ${rawOutput}` }] }],
     const memoryOk = await saveRecord(styleMemoryRecord);
     resetGeneratedDocumentFormAfterSave();
     if (memoryOk) {
-      setFlash('Strukturovaný záznam, dokument i anonymizovaná AI stylová paměť byly uloženy. Formulář byl vymazán.');
-      setSaveNotice({ tone: 'success', text: 'Uloženo' });
+      setFlash(
+        isPerformanceSave
+          ? `${savedPerformanceConfirmation} Formulář byl vymazán.`
+          : 'Strukturovaný záznam, dokument i anonymizovaná AI stylová paměť byly uloženy. Formulář byl vymazán.'
+      );
+      setSaveNotice({ tone: 'success', text: isPerformanceSave ? savedPerformanceConfirmation : 'Uloženo' });
       return true;
     }
-    setFlash('Záznam a dokument byly uloženy, ale AI stylová paměť se neuložila. Formulář byl vymazán.');
-    setSaveNotice({ tone: 'warning', text: 'Dokument byl uložen, ale nepodařilo se uložit pomocnou AI stylovou paměť. Formulář byl vymazán.' });
+    setFlash(
+      isPerformanceSave
+        ? `${savedPerformanceConfirmation} Pomocná AI stylová paměť se neuložila. Formulář byl vymazán.`
+        : 'Záznam a dokument byly uloženy, ale AI stylová paměť se neuložila. Formulář byl vymazán.'
+    );
+    setSaveNotice({
+      tone: 'warning',
+      text: isPerformanceSave
+        ? `${savedPerformanceConfirmation} Pomocná AI stylová paměť se neuložila.`
+        : 'Dokument byl uložen, ale nepodařilo se uložit pomocnou AI stylovou paměť. Formulář byl vymazán.'
+    });
     return true;
     } finally {
       generatedOutputSaveLockRef.current = false;
