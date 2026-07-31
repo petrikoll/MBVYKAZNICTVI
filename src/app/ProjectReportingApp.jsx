@@ -49,7 +49,12 @@ import {
   REPORTING_PERIODS,
   REPORT_PROMPTS,
   TARGETS,
+  WORKER_NAMES,
   WORKERS,
+  canonicalizeWorkerName,
+  canonicalizeWorkerReferences,
+  isCaseManagerWorker,
+  isGarantWorker,
   CLIENT_GENDER_OPTIONS,
   CLIENT_EMPLOYMENT_OPTIONS,
   CLIENT_EDUCATION_OPTIONS,
@@ -1257,7 +1262,7 @@ function asSheetText(value) {
 
 function asSheetWorker(value) {
   const text = asSheetText(value).trim();
-  return text === 'test-user' ? '' : text;
+  return text === 'test-user' ? '' : canonicalizeWorkerName(text);
 }
 
 function asSheetDate(value) {
@@ -1527,7 +1532,7 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       ka: 'KA2',
       title: asSheetText(row.typ_podpory) || 'Case management - ' + clientName(clientId),
       activityDate: asSheetDate(row.datum || row.created_at),
-      worker: asSheetText(row.pracovnik),
+      worker: asSheetWorker(row.pracovnik),
       clientId,
       clientIds: [clientId],
       clientName: clientName(clientId),
@@ -1573,7 +1578,7 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       ka: 'KA2',
       title: asSheetText(row.typ_schuzky) || 'Z\u00e1znam tvorby s\u00edt\u011b',
       activityDate: asSheetDate(row.datum || row.created_at),
-      worker: asSheetText(row.pracovnik),
+      worker: asSheetWorker(row.pracovnik),
       clientIds: [],
       documentText: asSheetText(row.dokument_text || row.vystup || row.obsah_jednani),
       payload: {
@@ -1610,7 +1615,7 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       ka: 'KA2',
       title: 'Registr akt?ra - ' + (name || id),
       activityDate: asSheetDate(row.datum_zapojeni || row.updated_at || row.created_at),
-      worker: asSheetText(row.pracovnik || row.updated_by),
+      worker: asSheetWorker(row.pracovnik || row.updated_by),
       clientIds: [],
       payload: {
         name,
@@ -1754,11 +1759,6 @@ const optionItems = (values, placeholder) => [
   ...values.map((value) => ({ value, label: value }))
 ];
 
-const normalizeWorkerRole = (value) =>
-  String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
-
-const isCaseManagerWorker = (value) => normalizeWorkerRole(value).includes('case manager');
-const isGarantWorker = (value) => normalizeWorkerRole(value).includes('garant');
 const handlesCaseManagementDirectly = (value) => isCaseManagerWorker(value) || isGarantWorker(value);
 const hasCaseManagementNeed = (client) => String(client?.caseManagementPotreba || '').trim().toLowerCase() === 'ano';
 
@@ -1931,7 +1931,7 @@ const createKa01ActorDraft = () => ({
   joinedNetworkDate: '',
   lastContactDate: '',
   inactivityReason: '',
-  ownerWorker: 'Garant projektu',
+  ownerWorker: WORKER_NAMES.guarantor,
   roleRecruitment: false,
   roleClientReferral: false,
   roleMaterialDistribution: false,
@@ -1992,7 +1992,7 @@ const createKa02Draft = () => ({
 
 const createKa03Draft = () => ({
   date: todayIso(),
-  worker: 'Sociální pracovník',
+  worker: WORKER_NAMES.socialWorker,
   selectedClientId: '',
   tpmClientId: '',
   employmentClientId: '',
@@ -2081,16 +2081,18 @@ function readStoredGlobalWorker() {
   if (typeof window === 'undefined') return WORKERS[0];
   try {
     const storedWorker = window.localStorage.getItem(GLOBAL_WORKER_STORAGE_KEY);
-    return WORKERS.includes(storedWorker) ? storedWorker : WORKERS[0];
+    const canonicalWorker = canonicalizeWorkerName(storedWorker);
+    return WORKERS.includes(canonicalWorker) ? canonicalWorker : WORKERS[0];
   } catch {
     return WORKERS[0];
   }
 }
 
 function storeGlobalWorker(worker) {
-  if (typeof window === 'undefined' || !WORKERS.includes(worker)) return;
+  const canonicalWorker = canonicalizeWorkerName(worker);
+  if (typeof window === 'undefined' || !WORKERS.includes(canonicalWorker)) return;
   try {
-    window.localStorage.setItem(GLOBAL_WORKER_STORAGE_KEY, worker);
+    window.localStorage.setItem(GLOBAL_WORKER_STORAGE_KEY, canonicalWorker);
   } catch {
     // Ukládání do localStorage může být v některých režimech prohlížeče blokované.
   }
@@ -2211,7 +2213,7 @@ function App() {
     joinedNetworkDate: '',
     lastContactDate: '',
     inactivityReason: '',
-    ownerWorker: 'Garant projektu',
+    ownerWorker: WORKER_NAMES.guarantor,
     roleRecruitment: false,
     roleClientReferral: false,
     roleMaterialDistribution: false,
@@ -2272,7 +2274,7 @@ function App() {
 
   const [ka03Draft, setKa03Draft] = useState({
     date: todayIso(),
-    worker: 'Sociální pracovník',
+    worker: WORKER_NAMES.socialWorker,
     selectedClientId: '',
     tpmClientId: '',
     employmentClientId: '',
@@ -2352,7 +2354,7 @@ function App() {
     const unsubscribe = onSnapshot(
       recordsRef,
       (snapshot) => {
-        const loaded = snapshot.docs.map((docSnapshot) => ({
+        const loaded = snapshot.docs.map((docSnapshot) => canonicalizeWorkerReferences({
           id: docSnapshot.id,
           ...docSnapshot.data()
         }));
@@ -2482,7 +2484,7 @@ function App() {
         ]);
         if (cancelled) return;
         setStatisticsRows(statistics.statistics || []);
-        const remoteRecords = mapSheetRecordsToAppRecords({
+        const remoteRecords = canonicalizeWorkerReferences(mapSheetRecordsToAppRecords({
           individualPlans: plans.individualPlans || [],
           performances: performances.performances || [],
           meetings: meetings.meetings || [],
@@ -2490,7 +2492,7 @@ function App() {
           partners: partners.partners || [],
           education: education.education || education.educations || education.vzdelavani || [],
           supervision: supervision.supervision || supervision.supervisions || supervision.supervize || []
-        }, clientIndex);
+        }, clientIndex));
         setRecords((prev) => {
           const remoteIds = new Set(remoteRecords.map((record) => record.id));
           const localOnly = prev.filter((record) => !record.remoteSource && !remoteIds.has(record.id));
@@ -2517,7 +2519,7 @@ function App() {
   const accessibleClients = useMemo(() => {
     if (canSeeAllClients) return clients;
     return clients.filter((client) =>
-      client.keyWorker === currentWorker ||
+      canonicalizeWorkerName(client.keyWorker) === currentWorker ||
       (isCaseManagerWorker(currentWorker) && hasCaseManagementNeed(client))
     );
   }, [clients, currentWorker, canSeeAllClients]);
@@ -3101,10 +3103,10 @@ function App() {
         activityDate: '',
         createdAt: 0,
         updatedAt: 0,
-        worker: 'Garant projektu',
+        worker: WORKER_NAMES.guarantor,
         payload: {
           id: '',
-          ownerWorker: 'Garant projektu',
+          ownerWorker: WORKER_NAMES.guarantor,
           ...item,
           networkOrigin: item.networkOrigin || 'výchozí síť'
         }
@@ -3237,7 +3239,7 @@ function App() {
         selectedKey: 'consultation',
         tpmRecordId: prev.tpmRecordId || preferredTpm?.id || '',
         clientId: prev.clientId || preferredTpm?.clientId || ka03Draft.tpmClientId || ka03Draft.employmentClientId || ka03Draft.selectedClientId,
-        worker: currentWorker || 'Sociální pracovník'
+        worker: currentWorker || WORKER_NAMES.socialWorker
       }));
     }
   }, [currentWorker, mainView, ka02Draft.selectedClientId, ka03Draft.selectedClientId, ka03Draft.tpmClientId, ka03Draft.employmentClientId, tpmRecords]);
@@ -3582,7 +3584,7 @@ function App() {
     if (!canSeeAllClients || isBackupActionRunning) return;
     setIsBackupActionRunning(true);
     try {
-      const result = await postGoogleSheetAction({ action: 'startFullBackup', requested_by: currentWorker });
+      const result = await postGoogleSheetAction({ action: 'startFullBackup', requested_by: 'Odborný garant', requested_by_name: currentWorker });
       setBackupStatus(result?.backup || { state: 'queued', message: 'Záloha čeká na spuštění.' });
       setFlash('Kompletní záloha byla zařazena ke zpracování. Týdenní zálohování je aktivní.');
     } catch (error) {
@@ -3597,7 +3599,7 @@ function App() {
     if (!canSeeAllClients || isBackupActionRunning) return;
     setIsBackupActionRunning(true);
     try {
-      const result = await postGoogleSheetAction({ action: 'installWeeklyBackup', requested_by: currentWorker });
+      const result = await postGoogleSheetAction({ action: 'installWeeklyBackup', requested_by: 'Odborný garant', requested_by_name: currentWorker });
       setBackupStatus(result?.backup || backupStatus);
       setFlash('Týdenní automatická záloha byla zapnuta.');
     } catch (error) {

@@ -1,6 +1,7 @@
 ﻿import { REPORT_PROMPTS, TARGETS } from '../config/projectConfig.js';
 
 import { goalStatusLabel } from './goalStatus.js';
+import { WORKER_NAMES, canonicalizeWorkerName, canonicalizeWorkerReferences } from '../config/projectConfig.js';
 
 function todayIso() {
   const now = new Date();
@@ -63,7 +64,7 @@ function mapSheetRowToClient(row, index) {
       datumVstupu: normalizeDateIso(row.datum_vstupu_do_projektu),
       datumVystupu: normalizeDateIso(row.datum_vystupu_z_projektu),
       stavKlienta: row.stav_klienta || '',
-      keyWorker: row.klicovy_pracovnik || row.klicovyPracovnik || '',
+      keyWorker: canonicalizeWorkerName(row.klicovy_pracovnik || row.klicovyPracovnik || ''),
       caseManagementPotreba: row.case_management_potreba || 'Ne',
       caseManagementDuvod: row.case_management_duvod || '',
       caseManagementOd: normalizeDateIso(row.case_management_od),
@@ -112,7 +113,7 @@ function mapSheetRowToClient(row, index) {
     datumVstupu: formatDate(columns[14]),
     datumVystupu: formatDate(columns[15]),
     situacePoUkonceni: columns[16] || '',
-    keyWorker: columns[17] || ''
+    keyWorker: canonicalizeWorkerName(columns[17] || '')
   });
 }
 
@@ -236,7 +237,7 @@ function getMockClients() {
       datumVstupu: '01.09.2023',
       datumVystupu: '',
       situacePoUkonceni: '',
-      keyWorker: 'Sociální pracovník'
+      keyWorker: WORKER_NAMES.socialWorker
     }),
     enrichClient({
       id: 'mock-eva-kolarova',
@@ -259,7 +260,7 @@ function getMockClients() {
       datumVstupu: '15.10.2023',
       datumVystupu: '',
       situacePoUkonceni: '',
-      keyWorker: 'Case manager'
+      keyWorker: WORKER_NAMES.caseManager
     })
   ];
 }
@@ -1819,7 +1820,7 @@ function escapeHtml(value) {
 function loadLocalRecords() {
   try {
     const stored = window.localStorage.getItem('projectReporting.records');
-    return stored ?JSON.parse(stored) : [];
+    return stored ? canonicalizeWorkerReferences(JSON.parse(stored)) : [];
   } catch (error) {
     console.error('Local records load error:', error);
     return [];

@@ -21,11 +21,47 @@ const TARGETS = {
   ka02SupportedClients: 0
 };
 
+const WORKER_NAMES = Object.freeze({
+  socialWorker: 'Lea Ledeck\u00e1, Dis.',
+  caseManager: 'Bc. Josef Jakubec',
+  guarantor: 'Mgr. Radka Vyslou\u017eilov\u00e1'
+});
+
 const WORKERS = [
-  'Soci\u00e1ln\u00ed pracovn\u00edk',
-  'Case manager',
-  'Odborn\u00fd garant'
+  WORKER_NAMES.socialWorker,
+  WORKER_NAMES.caseManager,
+  WORKER_NAMES.guarantor
 ];
+
+const normalizeWorkerIdentity = (value) =>
+  String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+
+const WORKER_ALIASES = new Map([
+  ['Soci\u00e1ln\u00ed pracovn\u00edk', WORKER_NAMES.socialWorker],
+  ['Case manager', WORKER_NAMES.caseManager],
+  ['Odborn\u00fd garant', WORKER_NAMES.guarantor],
+  ['Odborn\u00fd garant projektu', WORKER_NAMES.guarantor],
+  ['Garant projektu', WORKER_NAMES.guarantor],
+  ...WORKERS.map((worker) => [worker, worker])
+].map(([alias, worker]) => [normalizeWorkerIdentity(alias), worker]));
+
+const canonicalizeWorkerName = (value) => {
+  const original = String(value || '').trim();
+  return WORKER_ALIASES.get(normalizeWorkerIdentity(original)) || original;
+};
+
+const canonicalizeWorkerReferences = (value) => {
+  if (Array.isArray(value)) return value.map(canonicalizeWorkerReferences);
+  if (value && typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return value;
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, canonicalizeWorkerReferences(item)]));
+  }
+  return typeof value === 'string' ? canonicalizeWorkerName(value) : value;
+};
+
+const isCaseManagerWorker = (value) => canonicalizeWorkerName(value) === WORKER_NAMES.caseManager;
+const isGarantWorker = (value) => canonicalizeWorkerName(value) === WORKER_NAMES.guarantor;
 
 const CLIENT_GENDER_OPTIONS = ['mu\u017e', '\u017eena', 'neuvedeno'];
 
@@ -214,7 +250,7 @@ const emptyClientDraft = {
 
 const emptyGeneratorDraft = {
   selectedKey: 'plan', clientId: '', tpmRecordId: '', linkedPlanGoalId: '', linkedPlanGoalLabel: '',
-  worker: 'Soci\u00e1ln\u00ed pracovn\u00edk', date: todayIso(), ka02StartTime: '', ka02EndTime: '', ka02Place: '', bulletNotes: '',
+  worker: WORKER_NAMES.socialWorker, date: todayIso(), ka02StartTime: '', ka02EndTime: '', ka02Place: '', bulletNotes: '',
   situationDescription: '', goals: '', plannedSteps: '', finalEvaluation: '', planDurationMinutes: '60',
   consultationType: 'Z\u00e1kladn\u00ed soci\u00e1ln\u00ed poradenstv\u00ed', supportArea: '', kuSupportTypeCode: KU_SUPPORT_DEFAULT_CODE, supportSpecific: {}, topics: '', outcome: '', nextSteps: '', durationMinutes: '',
   debtSummary: '', debtCauses: '', debtStage: 'Mapov\u00e1n\u00ed', solutionPlan: '', educationTopic: '', sessionOrder: '1',
@@ -223,13 +259,18 @@ const emptyGeneratorDraft = {
   aiStyleFeedback: '', generatedText: '', caseManagementMode: false, selectedPartnerIds: [], registeredPartnerNames: [], manualPartnerNames: [], partnerNames: [], participantCount: 0
 };
 
-const emptyFilters = { period: 'all', ka: 'all', worker: 'Odborný garant' };
+const emptyFilters = { period: 'all', ka: 'all', worker: WORKER_NAMES.guarantor };
 
 export {
   GOOGLE_SHEET_MACRO_URL,
   GOOGLE_DRIVE_UPLOAD_URL,
   TARGETS,
+  WORKER_NAMES,
   WORKERS,
+  canonicalizeWorkerName,
+  canonicalizeWorkerReferences,
+  isCaseManagerWorker,
+  isGarantWorker,
   CLIENT_GENDER_OPTIONS,
   CLIENT_EMPLOYMENT_OPTIONS,
   CLIENT_EDUCATION_OPTIONS,

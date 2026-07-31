@@ -152,12 +152,13 @@ function doPost(e) {
     }
 
     if (payload.action === 'startFullBackup') {
-      assertBackupManager_(payload.requested_by);
-      return json_({ ok: true, backup: queueFullBackup_(payload.requested_by || '') });
+      const requestedBy = payload.requested_by_name || payload.requested_by;
+      assertBackupManager_(requestedBy);
+      return json_({ ok: true, backup: queueFullBackup_(requestedBy || '') });
     }
 
     if (payload.action === 'installWeeklyBackup') {
-      assertBackupManager_(payload.requested_by);
+      assertBackupManager_(payload.requested_by_name || payload.requested_by);
       return json_({ ok: true, backup: installWeeklyBackupTrigger_() });
     }
 
@@ -277,7 +278,7 @@ const KA1_SUPPORT_AREA_OPTIONS_ = [
 ];
 
 const KA1_SERVICE_FORM_OPTIONS_ = ['ambulantn\u00ed', 'ter\u00e9nn\u00ed', 'Telefonn\u00ed'];
-const WORKER_OPTIONS_ = ['Sociální pracovník', 'Case manager', 'Odborný garant'];
+const WORKER_OPTIONS_ = ['Lea Ledecká, Dis.', 'Bc. Josef Jakubec', 'Mgr. Radka Vysloužilová'];
 
 const YES_NO_OPTIONS_ = ['Ano', 'Ne'];
 
@@ -1195,8 +1196,11 @@ function queueFullBackup_(requestedBy) {
 }
 
 function assertBackupManager_(worker) {
-  if (normalizeDuplicateText_(worker) !== normalizeDuplicateText_('Odborný garant')) {
-    throw new Error('Kompletni zalohu muze spravovat pouze odborny garant.');
+  const normalizedWorker = normalizeDuplicateText_(worker);
+  const allowedWorkers = ['Mgr. Radka Vysloužilová', 'Odborný garant', 'Odborný garant projektu', 'Garant projektu']
+    .map(normalizeDuplicateText_);
+  if (!allowedWorkers.includes(normalizedWorker)) {
+    throw new Error('Kompletni zalohu muze spravovat pouze Mgr. Radka Vyslouzilova.');
   }
 }
 

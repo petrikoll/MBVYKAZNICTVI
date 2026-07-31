@@ -23,7 +23,7 @@ test('komentář zůstane uložený ve strukturovaných datech výkonu', () => {
     generatorDraft: {
       selectedKey: 'consultation',
       date: '2026-07-31',
-      worker: 'Sociální pracovník',
+      worker: 'Lea Ledecká, Dis.',
       supportSpecific: {
         physicalSignedFiled: true,
         physicalRecordComment: 'Doplněn kontakt na službu.'

@@ -3,7 +3,7 @@ import { CheckCircle2, Download, Loader2, Save, Sparkles } from 'lucide-react';
 
 import { CheckboxField, HelpIcon, InputField, Panel, SaveInlineNotice, SelectField, TextAreaField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
-import { KU_SUPPORT_DEFAULT_CODE, KU_SUPPORT_TYPE_OPTIONS } from '../config/projectConfig.js';
+import { KU_SUPPORT_DEFAULT_CODE, KU_SUPPORT_TYPE_OPTIONS, WORKER_NAMES } from '../config/projectConfig.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { PROJECT_TIME_OPTIONS } from '../lib/timeOptions.js';
 
@@ -141,11 +141,11 @@ function AiDocumentPanel({
 
   const isKa02Form = ['plan', 'consultation'].includes(generatorDraft.selectedKey);
   const ka02WorkerOptionsByDocument = {
-    consultation: ['Soci\u00e1ln\u00ed pracovn\u00edk', 'Case manager'],
-    plan: ['Soci\u00e1ln\u00ed pracovn\u00edk']
+    consultation: [WORKER_NAMES.socialWorker, WORKER_NAMES.caseManager],
+    plan: [WORKER_NAMES.socialWorker]
   };
   const workerOptionValues = isKa02Form
-    ? ka02WorkerOptionsByDocument[generatorDraft.selectedKey] || workers.filter((worker) => worker !== 'Garant projektu')
+    ? ka02WorkerOptionsByDocument[generatorDraft.selectedKey] || workers.filter((worker) => worker !== WORKER_NAMES.guarantor)
     : workers;
   const workerOptions = workerOptionValues.map((worker) => ({
     value: worker,

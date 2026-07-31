@@ -3,6 +3,7 @@ import { Target } from 'lucide-react';
 
 import { HelpIcon, Panel, SaveInlineNotice } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
+import { WORKER_NAMES } from '../config/projectConfig.js';
 import { GOAL_STATUS, GOAL_STATUS_OPTIONS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
 import { selectLatestClientPlan } from '../lib/planSelection.js';
 
@@ -230,7 +231,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
       ka: 'KA1',
       title: 'Individuální plán rozvoje',
       activityDate: todayIso(),
-      worker: 'Sociální pracovník',
+      worker: WORKER_NAMES.socialWorker,
       clientId,
       clientIds: [clientId],
       clientName,

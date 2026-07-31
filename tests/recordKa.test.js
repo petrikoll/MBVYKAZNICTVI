@@ -13,7 +13,7 @@ test('nové multioborové setkání se ukládá jako KA2', () => {
       caseManagementMode: true,
       consultationType: 'multioborové setkání',
       date: '2026-07-31',
-      worker: 'Case manager',
+      worker: 'Bc. Josef Jakubec',
       supportSpecific: {},
       partnerNames: []
     },

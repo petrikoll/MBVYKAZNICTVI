@@ -32,9 +32,10 @@ test('název ZIP zálohy obsahuje jednoznačné datum a čas', () => {
   assert.equal(context.buildBackupFileName_(new Date()), 'kompletni-zaloha-2026-07-22-153045.zip');
 });
 
-test('správu kompletní zálohy povolí jen odbornému garantovi', () => {
+test('správu kompletní zálohy povolí Radce a zachová kompatibilitu se starší rolí', () => {
+  assert.doesNotThrow(() => context.assertBackupManager_('Mgr. Radka Vysloužilová'));
   assert.doesNotThrow(() => context.assertBackupManager_('Odborný garant'));
-  assert.throws(() => context.assertBackupManager_('Sociální pracovník'), /pouze odborny garant/);
+  assert.throws(() => context.assertBackupManager_('Lea Ledecká, Dis.'), /pouze Mgr\. Radka Vyslouzilova/);
 });
 
 test('rotace ponechá posledních 12 kompletních záloh', () => {

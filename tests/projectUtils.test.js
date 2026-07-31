@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildFallbackGeneratedText, getClientSupportBreakdown, mapSheetRowToClient } from '../src/lib/projectUtils.js';
 
-test('import pole načte klíčového pracovníka ze sloupce S', () => {
+test('import pole převede starší roli klíčového pracovníka na skutečné jméno', () => {
   const row = Array(23).fill('');
   row[1] = 'Jan';
   row[2] = 'Novák';
   row[18] = 'Case manager';
   row[22] = 'Ano';
 
-  assert.equal(mapSheetRowToClient(row, 0).keyWorker, 'Case manager');
+  assert.equal(mapSheetRowToClient(row, 0).keyWorker, 'Bc. Josef Jakubec');
 });
 
 test('import objektu správně mapuje neaktivní stavy klienta', () => {
