@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, Archive, Brain, ClipboardCopy, Download, FileS
 import { HelpIcon, Panel, SelectField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { REPORTING_PERIODS, WORKERS } from '../config/projectConfig.js';
+import { backupProgressText, isBackupStatusActive } from '../lib/backupStatus.js';
 
 const ProgressRow = ({ item }) => {
   const hasTarget = Number(item.target) > 0;
@@ -106,7 +107,8 @@ function ReportingView({
   handleInstallWeeklyBackup
 }) {
   const overview = dashboardOverview || { indicators: [], longGoals: [], shortGoals: [], activityGoals: [], professionalDevelopmentStats: [], partnerMetrics: [], risks: [] };
-  const backupBusy = isBackupActionRunning || ['queued', 'running'].includes(backupStatus?.state);
+  const backupBusy = isBackupActionRunning || isBackupStatusActive(backupStatus);
+  const backupProgress = backupProgressText(backupStatus);
   const backupFinishedAt = backupStatus?.finishedAt
     ? new Date(backupStatus.finishedAt).toLocaleString('cs-CZ')
     : '';
@@ -173,6 +175,7 @@ function ReportingView({
                 : 'border-slate-200 bg-slate-50 text-slate-700'
           }`}>
             <div className="font-semibold">{backupStatus?.message || 'Záloha zatím nebyla vytvořena.'}</div>
+            {backupProgress && <div className="mt-1 text-xs font-semibold">{backupProgress}</div>}
             <div className="mt-1 text-xs">
               Automaticky každou neděli ve 2:00: <strong>{backupStatus?.weeklyEnabled ? 'zapnuto' : 'vypnuto'}</strong>
               {backupFinishedAt ? ` · Poslední dokončení: ${backupFinishedAt}` : ''}

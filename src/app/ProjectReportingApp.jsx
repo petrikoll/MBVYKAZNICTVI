@@ -1,6 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import {
   Activity,
   AlertCircle,
@@ -97,6 +95,7 @@ import { buildClientSelectionPool } from '../lib/clientSelection.js';
 import { buildClientCaseAiPrompt, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
 import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
+import { isBackupStatusActive } from '../lib/backupStatus.js';
 import { buildHorizontalPrinciplesAiPrompt, buildHorizontalPrinciplesFallbackText, buildZorTexts } from '../lib/zorSummary.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
 import sfLogoImage from '../assets/eu-spolufinancovano-logo.png';
@@ -2529,7 +2528,7 @@ function App() {
       } catch (error) {
         if (cancelled) return;
         console.error('Google Sheets records load error:', error);
-        setSheetError('Klienti se na?etli, ale nepoda?ilo se na??st ulo?en? z?znamy ze Sheetu.');
+        setSheetError('Klienti se načetli, ale nepodařilo se načíst uložené záznamy ze Sheetu.');
       }
     };
 
@@ -3601,12 +3600,17 @@ function App() {
       await loadBackupStatus();
     };
     void refresh();
+    if (!isBackupStatusActive(backupStatus)) {
+      return () => {
+        active = false;
+      };
+    }
     const interval = window.setInterval(refresh, 5000);
     return () => {
       active = false;
       window.clearInterval(interval);
     };
-  }, [mainView, canSeeAllClients]);
+  }, [mainView, canSeeAllClients, backupStatus.state]);
 
   const handleStartFullBackup = async () => {
     if (!canSeeAllClients || isBackupActionRunning) return;
@@ -5040,7 +5044,7 @@ ${rawOutput}` }] }],
       url.searchParams.set('action', 'listNetworkMeetings');
       const response = await fetch(url.toString());
       const json = await response.json();
-      if (!response.ok || json.ok === false) throw new Error(json.error || 'Na?ten? sch?zek selhalo.');
+      if (!response.ok || json.ok === false) throw new Error(json.error || 'Načtení schůzek selhalo.');
       const remoteNetworkRecords = mapSheetRecordsToAppRecords({ networkMeetings: json.networkMeetings || [] }, clientIndex);
       setRecords((previous) => {
         const otherRecords = previous.filter((record) => record.entityType !== 'network_activities');
@@ -5366,6 +5370,10 @@ ${rawOutput}` }] }],
     setFlash('Připravuji PDF prezenční listiny...');
     let wrapper = null;
     try {
+      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf')
+      ]);
       const escapeHtml = (value) => String(value || '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')

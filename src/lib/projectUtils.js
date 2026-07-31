@@ -220,19 +220,19 @@ function getMockClients() {
       source: 'mock',
       sheetRowKey: null,
       jmeno: 'Jan',
-      prijmeni: 'NovĂˇk',
+      prijmeni: 'Novák',
       datumNarozeni: '15.04.1985',
-      ulice: 'HlavnĂ­',
+      ulice: 'Hlavní',
       cisloPopisne: '12',
-      mesto: 'DĂ­vÄŤĂ­ Hrad',
+      mesto: 'Dívčí Hrad',
       psc: '793 99',
       spadoveMesto: 'Krnov',
       email: 'jan.novak@email.cz',
       telefon: '777 123 456',
-      pohlavi: 'MuĹľ',
-      postaveniNaTrhu: 'DlouhodobÄ› nezamÄ›stnanĂ˝',
-      vzdelani: 'ZĹ ',
-      znevyhodneni: 'Exekuce, nĂ­zkĂˇ kvalifikace',
+      pohlavi: 'Muž',
+      postaveniNaTrhu: 'Dlouhodobě nezaměstnaný',
+      vzdelani: 'ZŠ',
+      znevyhodneni: 'Exekuce, nízká kvalifikace',
       datumVstupu: '01.09.2023',
       datumVystupu: '',
       situacePoUkonceni: '',
@@ -243,19 +243,19 @@ function getMockClients() {
       source: 'mock',
       sheetRowKey: null,
       jmeno: 'Eva',
-      prijmeni: 'KolĂˇĹ™ovĂˇ',
+      prijmeni: 'Kolářová',
       datumNarozeni: '03.02.1992',
-      ulice: 'SadovĂˇ',
+      ulice: 'Sadová',
       cisloPopisne: '8',
       mesto: 'Hlinka',
       psc: '793 99',
       spadoveMesto: 'Krnov',
       email: 'eva.kolarova@email.cz',
       telefon: '777 987 654',
-      pohlavi: 'Ĺ˝ena',
-      postaveniNaTrhu: 'Osoba mimo evidenci ĂšP',
+      pohlavi: 'Žena',
+      postaveniNaTrhu: 'Osoba mimo evidenci ÚP',
       vzdelani: 'SOU',
-      znevyhodneni: 'NĂ­zkĂ© sebevÄ›domĂ­, dluhy',
+      znevyhodneni: 'Nízké sebevědomí, dluhy',
       datumVstupu: '15.10.2023',
       datumVystupu: '',
       situacePoUkonceni: '',
@@ -650,7 +650,7 @@ function buildKa02Record(entityType, draft, client) {
     return {
       ...basePayload,
       entityType,
-      title: `DluhovĂ© poradenstvĂ­ - ${client.fullName}`,
+      title: `Dluhové poradenství - ${client.fullName}`,
       payload: {
         ...ka02SessionFields,
         debtSummary: draft.debtSummary,
@@ -704,7 +704,7 @@ function buildKa02Record(entityType, draft, client) {
   return {
     ...basePayload,
     entityType,
-    title: draft.simulatorLabel || `PracovnĂ­ simulĂˇtor - ${client.fullName}`,
+    title: draft.simulatorLabel || `Pracovní simulátor - ${client.fullName}`,
     payload: {
       ...ka02SessionFields,
       position: draft.simulatorPosition,
@@ -798,7 +798,7 @@ function buildKa03Record(entityType, draft, client) {
   return {
     ...basePayload,
     entityType: 'mentor_report_document',
-    title: draft.mentorReportTitle || `ReferenÄŤnĂ­ zprĂˇva mentora - ${client.fullName}`,
+    title: draft.mentorReportTitle || `Referenční zpráva mentora - ${client.fullName}`,
     documentText: draft.mentorReportText,
     payload: {
       ...linkedGoalPayload,
@@ -842,9 +842,9 @@ function buildFallbackGeneratedText(label, client, fields) {
     '',
     `Klient: ${client.fullName}`,
     `Datum: ${fields.date || todayIso()}`,
-    `PracovnĂ­k: ${fields.worker || 'Neuvedeno'}`,
+    `Pracovník: ${fields.worker || 'Neuvedeno'}`,
     '',
-    'PracovnĂ­ podklad:'
+    'Pracovní podklad:'
   ];
 
   Object.entries(fields).forEach(([key, value]) => {
@@ -854,7 +854,7 @@ function buildFallbackGeneratedText(label, client, fields) {
   });
 
   lines.push('');
-  lines.push('PoznĂˇmka: Tento text byl vytvoĹ™en z ruÄŤnÄ› vyplnÄ›nĂ˝ch polĂ­, protoĹľe AI generĂˇtor nenĂ­ aktivnĂ­.');
+  lines.push('Poznámka: Tento text byl vytvořen z ručně vyplněných polí, protože AI generátor není aktivní.');
   return lines.join('\n');
 }
 
@@ -1168,7 +1168,7 @@ function buildDriveUploadPayload(record, client) {
     },
     record: {
       id: record.id || '',
-      title: record.title || 'ZĂˇznam',
+      title: record.title || 'Záznam',
       filename,
       entityType: record.entityType || '',
       ka: record.ka || '',
@@ -1774,12 +1774,12 @@ function buildClientFolderHtml(client, timeline) {
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>SloĹľka klienta ${escapeHtml(client.fullName)}</title>
+        <title>Složka klienta ${escapeHtml(client.fullName)}</title>
       </head>
       <body style="font-family:Arial, sans-serif;padding:32px;color:#1e293b;">
-        <h1 style="font-size:28px;margin-bottom:8px;">SloĹľka klienta: ${escapeHtml(client.fullName)}</h1>
-        <p style="color:#475569;">InternĂ­ ID: ${escapeHtml(client.id)} | Obec: ${escapeHtml(client.mesto || 'Neuvedeno')}</p>
-        ${sections || '<p>Ĺ˝ĂˇdnĂ© zĂˇznamy.</p>'}
+        <h1 style="font-size:28px;margin-bottom:8px;">Složka klienta: ${escapeHtml(client.fullName)}</h1>
+        <p style="color:#475569;">Interní ID: ${escapeHtml(client.id)} | Obec: ${escapeHtml(client.mesto || 'Neuvedeno')}</p>
+        ${sections || '<p>Žádné záznamy.</p>'}
       </body>
     </html>
   `;
@@ -1818,24 +1818,24 @@ function buildMonitoringBundleHtml({ indicators, records, clients }) {
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>SouhrnnĂˇ monitorovacĂ­ dokumentace</title>
+        <title>Souhrnná monitorovací dokumentace</title>
       </head>
       <body style="font-family:Arial, sans-serif;padding:32px;color:#1e293b;">
-        <h1>SouhrnnĂˇ monitorovacĂ­ dokumentace</h1>
-        <p>Klienti v registru: ${clients.length} | Aktivity v systĂ©mu: ${records.length}</p>
-        <h2>IndikĂˇtory</h2>
+        <h1>Souhrnná monitorovací dokumentace</h1>
+        <p>Klienti v registru: ${clients.length} | Aktivity v systému: ${records.length}</p>
+        <h2>Indikátory</h2>
         <table style="border-collapse:collapse;width:100%;margin-bottom:24px;">
           <thead>
             <tr>
               <th style="padding:8px;border:1px solid #cbd5e1;background:#f8fafc;">KA</th>
-              <th style="padding:8px;border:1px solid #cbd5e1;background:#f8fafc;">IndikĂˇtor</th>
+              <th style="padding:8px;border:1px solid #cbd5e1;background:#f8fafc;">Indikátor</th>
               <th style="padding:8px;border:1px solid #cbd5e1;background:#f8fafc;">Hodnota</th>
-              <th style="padding:8px;border:1px solid #cbd5e1;background:#f8fafc;">CĂ­l</th>
+              <th style="padding:8px;border:1px solid #cbd5e1;background:#f8fafc;">Cíl</th>
             </tr>
           </thead>
           <tbody>${indicatorHtml}</tbody>
         </table>
-        <h2>VĂ˝bÄ›r poslednĂ­ch aktivit</h2>
+        <h2>Výběr posledních aktivit</h2>
         <table style="border-collapse:collapse;width:100%;">
           <thead>
             <tr>
@@ -1843,7 +1843,7 @@ function buildMonitoringBundleHtml({ indicators, records, clients }) {
               <th style="padding:8px;border:1px solid #cbd5e1;background:#f8fafc;">KA</th>
               <th style="padding:8px;border:1px solid #cbd5e1;background:#f8fafc;">Entita</th>
               <th style="padding:8px;border:1px solid #cbd5e1;background:#f8fafc;">Klient</th>
-              <th style="padding:8px;border:1px solid #cbd5e1;background:#f8fafc;">NĂˇzev</th>
+              <th style="padding:8px;border:1px solid #cbd5e1;background:#f8fafc;">Název</th>
             </tr>
           </thead>
           <tbody>${activityHtml}</tbody>

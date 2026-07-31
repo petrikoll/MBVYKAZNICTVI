@@ -1172,9 +1172,12 @@ function getClientFolderParent_() {
 const BACKUP_STATUS_PROPERTY_ = 'FULL_BACKUP_STATUS_V1';
 const BACKUP_QUEUED_HANDLER_ = 'runQueuedFullBackup';
 const BACKUP_WEEKLY_HANDLER_ = 'runScheduledFullBackup';
+const BACKUP_STALE_AFTER_MS_ = 15 * 60 * 1000;
+const BACKUP_SAFE_RUNTIME_MS_ = 5 * 60 * 1000;
+const BACKUP_PROGRESS_INTERVAL_MS_ = 3000;
 
 function queueFullBackup_(requestedBy) {
-  const current = readBackupStatus_();
+  const current = normalizeBackupStatus_(readBackupStatus_(), new Date());
   if (current.state === 'queued' || current.state === 'running') return current;
 
   deleteTriggersByHandler_(BACKUP_QUEUED_HANDLER_);
@@ -1210,14 +1213,16 @@ function runFullBackupJob_(source) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) return;
   const startedAt = new Date();
+  const runtime = {
+    source: source || 'manual',
+    startedAt: startedAt,
+    startedAtMs: startedAt.getTime(),
+    lastProgressAtMs: 0,
+    processedFiles: 0
+  };
   try {
-    writeBackupStatus_({
-      state: 'running',
-      source: source || 'manual',
-      startedAt: startedAt.toISOString(),
-      message: 'Probíhá export tabulky a klientských složek.'
-    });
-    const result = createFullBackup_();
+    updateBackupProgress_(runtime, 'Připravuji export tabulky a klientských složek.', true);
+    const result = createFullBackup_(runtime);
     writeBackupStatus_(Object.assign({
       state: 'success',
       source: source || 'manual',
@@ -1239,7 +1244,7 @@ function runFullBackupJob_(source) {
   }
 }
 
-function createFullBackup_() {
+function createFullBackup_(runtime) {
   const generatedAt = new Date();
   const zipName = buildBackupFileName_(generatedAt);
   const blobs = [];
@@ -1256,10 +1261,10 @@ function createFullBackup_() {
   };
 
   const spreadsheetFile = DriveApp.getFileById(CONFIG.spreadsheetId);
-  addFileToBackup_(spreadsheetFile, 'hlavni-tabulka', blobs, manifest, usedArchivePaths);
+  addFileToBackup_(spreadsheetFile, 'hlavni-tabulka', blobs, manifest, usedArchivePaths, runtime);
 
   const clientRoot = getClientFolderParent_();
-  collectFolderForBackup_(clientRoot, 'klientske-slozky', blobs, manifest, usedArchivePaths);
+  collectFolderForBackup_(clientRoot, 'klientske-slozky', blobs, manifest, usedArchivePaths, runtime);
 
   manifest.fileCount = manifest.files.length;
   manifest.errorCount = manifest.errors.length;
@@ -1269,6 +1274,8 @@ function createFullBackup_() {
     throw new Error('Záloha nebyla vytvořena kompletně. Počet chyb při exportu: ' + manifest.errors.length + '.');
   }
 
+  assertBackupRuntime_(runtime);
+  updateBackupProgress_(runtime, 'Vytvářím výsledný ZIP archiv.', true);
   const zipBlob = Utilities.zip(blobs, zipName);
   const backupFolder = getBackupFolder_();
   const backupFile = backupFolder.createFile(zipBlob);
@@ -1290,18 +1297,21 @@ function createFullBackup_() {
   };
 }
 
-function collectFolderForBackup_(folder, path, blobs, manifest, usedArchivePaths) {
+function collectFolderForBackup_(folder, path, blobs, manifest, usedArchivePaths, runtime) {
+  assertBackupRuntime_(runtime);
   const files = folder.getFiles();
-  while (files.hasNext()) addFileToBackup_(files.next(), path, blobs, manifest, usedArchivePaths);
+  while (files.hasNext()) addFileToBackup_(files.next(), path, blobs, manifest, usedArchivePaths, runtime);
 
   const folders = folder.getFolders();
   while (folders.hasNext()) {
+    assertBackupRuntime_(runtime);
     const child = folders.next();
-    collectFolderForBackup_(child, path + '/' + sanitizeBackupPathPart_(child.getName()), blobs, manifest, usedArchivePaths);
+    collectFolderForBackup_(child, path + '/' + sanitizeBackupPathPart_(child.getName()), blobs, manifest, usedArchivePaths, runtime);
   }
 }
 
-function addFileToBackup_(file, path, blobs, manifest, usedArchivePaths) {
+function addFileToBackup_(file, path, blobs, manifest, usedArchivePaths, runtime) {
+  assertBackupRuntime_(runtime);
   const originalName = file.getName();
   try {
     const spec = backupExportSpec_(file.getMimeType(), originalName);
@@ -1327,7 +1337,33 @@ function addFileToBackup_(file, path, blobs, manifest, usedArchivePaths) {
       path: path,
       error: String(error && error.message || error)
     });
+  } finally {
+    if (runtime) {
+      runtime.processedFiles = Number(runtime.processedFiles || 0) + 1;
+      updateBackupProgress_(runtime, 'Probíhá export tabulky a klientských složek.', false);
+    }
   }
+}
+
+function assertBackupRuntime_(runtime) {
+  if (!runtime || !runtime.startedAtMs) return;
+  if (Date.now() - runtime.startedAtMs < BACKUP_SAFE_RUNTIME_MS_) return;
+  throw new Error('Záloha překročila bezpečný časový limit. Nebyl vytvořen neúplný archiv; spusťte ji prosím znovu.');
+}
+
+function updateBackupProgress_(runtime, message, force) {
+  if (!runtime) return;
+  const now = new Date();
+  if (!force && now.getTime() - Number(runtime.lastProgressAtMs || 0) < BACKUP_PROGRESS_INTERVAL_MS_) return;
+  runtime.lastProgressAtMs = now.getTime();
+  writeBackupStatus_({
+    state: 'running',
+    source: runtime.source || 'manual',
+    startedAt: runtime.startedAt.toISOString(),
+    heartbeatAt: now.toISOString(),
+    processedFiles: Number(runtime.processedFiles || 0),
+    message: message || 'Probíhá vytváření kompletní zálohy.'
+  });
 }
 
 function uniqueBackupArchivePath_(requestedPath, usedArchivePaths) {
@@ -1413,7 +1449,9 @@ function installWeeklyBackupTrigger_() {
 }
 
 function getBackupStatus_() {
-  const status = readBackupStatus_();
+  const rawStatus = readBackupStatus_();
+  const status = normalizeBackupStatus_(rawStatus, new Date());
+  if (status.stale && !rawStatus.stale) writeBackupStatus_(status);
   try {
     status.weeklyEnabled = hasTrigger_(BACKUP_WEEKLY_HANDLER_);
   } catch (error) {
@@ -1425,6 +1463,21 @@ function getBackupStatus_() {
   }
   status.retentionCount = Number(CONFIG.backupRetentionCount) || 12;
   return status;
+}
+
+function normalizeBackupStatus_(status, now) {
+  const next = Object.assign({}, status || {});
+  if (next.state !== 'queued' && next.state !== 'running') return next;
+  const referenceValue = next.heartbeatAt || next.startedAt || next.requestedAt;
+  const referenceTime = new Date(referenceValue || '').getTime();
+  const nowTime = (now instanceof Date ? now : new Date(now || Date.now())).getTime();
+  if (Number.isFinite(referenceTime) && Number.isFinite(nowTime) && nowTime - referenceTime <= BACKUP_STALE_AFTER_MS_) return next;
+  return Object.assign({}, next, {
+    state: 'error',
+    stale: true,
+    finishedAt: new Date(nowTime).toISOString(),
+    message: 'Předchozí záloha se ve stanoveném čase nedokončila. Je možné ji spustit znovu.'
+  });
 }
 
 function readBackupStatus_() {

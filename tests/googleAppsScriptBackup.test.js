@@ -76,3 +76,26 @@ test('duplicitní názvy souborů v ZIPu dostanou číselnou příponu', () => {
     'klientske-slozky/KLIENT-0007/MON LIST-3.xlsx'
   );
 });
+
+test('běžící záloha se po patnácti minutách označí jako přerušená', () => {
+  const normalized = context.normalizeBackupStatus_({
+    state: 'running',
+    startedAt: '2026-07-22T10:00:00.000Z',
+    heartbeatAt: '2026-07-22T10:02:00.000Z'
+  }, new Date('2026-07-22T10:18:00.001Z'));
+
+  assert.equal(normalized.state, 'error');
+  assert.equal(normalized.stale, true);
+  assert.match(normalized.message, /spustit znovu/);
+});
+
+test('pravidelně aktualizovaná záloha zůstane aktivní', () => {
+  const normalized = context.normalizeBackupStatus_({
+    state: 'running',
+    heartbeatAt: '2026-07-22T10:17:30.000Z',
+    processedFiles: 24
+  }, new Date('2026-07-22T10:18:00.000Z'));
+
+  assert.equal(normalized.state, 'running');
+  assert.equal(normalized.processedFiles, 24);
+});

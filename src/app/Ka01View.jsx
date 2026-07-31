@@ -27,6 +27,67 @@ const ACTOR_OPTIONS = [
   '\u0161kola', 'neziskov\u00e1 organizace', 'komunitn\u00ed akt\u00e9r', 'jin\u00fd subjekt'
 ].map((value) => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) }));
 
+const DIALOG_FOCUSABLE_SELECTOR = [
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  'a[href]',
+  '[tabindex]:not([tabindex="-1"])'
+].join(',');
+
+function useAccessibleDialog(open, onClose) {
+  const dialogRef = React.useRef(null);
+  const closeRef = React.useRef(onClose);
+  closeRef.current = onClose;
+
+  React.useEffect(() => {
+    if (!open || typeof document === 'undefined') return undefined;
+    const dialog = dialogRef.current;
+    if (!dialog) return undefined;
+    const previouslyFocused = document.activeElement;
+    const focusFirstControl = () => {
+      const firstControl = dialog.querySelector(DIALOG_FOCUSABLE_SELECTOR);
+      (firstControl || dialog).focus();
+    };
+    const frameId = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame(focusFirstControl)
+      : window.setTimeout(focusFirstControl, 0);
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeRef.current?.();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(dialog.querySelectorAll(DIALOG_FOCUSABLE_SELECTOR));
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(frameId);
+      else window.clearTimeout(frameId);
+      if (previouslyFocused && typeof previouslyFocused.focus === 'function') previouslyFocused.focus();
+    };
+  }, [open]);
+
+  return dialogRef;
+}
+
 function Ka01View({
   ka01Draft, setKa01Draft, ka01ActorDraft, setKa01ActorDraft,
   ka01ActorCustomValue, updateKa01ActorEntry, ka01PlaceOptions,
@@ -136,6 +197,14 @@ function Ka01View({
       ? Array.from(new Set([...previous, contactId]))
       : previous.filter((id) => id !== contactId));
   };
+  const attendanceTypeDialogRef = useAccessibleDialog(
+    attendanceTypePickerOpen,
+    () => setAttendanceTypePickerOpen(false)
+  );
+  const attendancePersonDialogRef = useAccessibleDialog(
+    Boolean(attendanceActorRecord),
+    closeAttendanceContactPicker
+  );
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
@@ -304,7 +373,17 @@ function Ka01View({
       </Panel>
 
       {attendanceTypePickerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-labelledby="attendance-type-dialog-title">
+        <div
+          ref={attendanceTypeDialogRef}
+          tabIndex={-1}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="attendance-type-dialog-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setAttendanceTypePickerOpen(false);
+          }}
+        >
           <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
             <div className="mb-4">
               <h2 id="attendance-type-dialog-title" className="text-lg font-bold text-slate-900">Vyberte druh prezenční listiny</h2>
@@ -333,7 +412,17 @@ function Ka01View({
       )}
 
       {attendanceActorRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-labelledby="attendance-person-dialog-title">
+        <div
+          ref={attendancePersonDialogRef}
+          tabIndex={-1}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="attendance-person-dialog-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeAttendanceContactPicker();
+          }}
+        >
           <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
             <div className="mb-4">
               <h2 id="attendance-person-dialog-title" className="text-lg font-bold text-slate-900">Vyberte osoby na prezenční listinu</h2>
