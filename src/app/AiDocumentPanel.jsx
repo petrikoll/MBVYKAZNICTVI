@@ -15,7 +15,6 @@ function AiDocumentPanel({
   generatorDraft,
   setGeneratorDraft,
   clients,
-  tpmRecords = [],
   workers,
   generatedText,
   setGeneratedText,
@@ -39,18 +38,6 @@ function AiDocumentPanel({
   hideStyleFeedback = false,
   panelClassName = ''
 }) {
-  const MENTOR_BARRIER_OPTIONS = [
-    'Nestabilní docházka',
-    'Pozdní příchody',
-    'Nízké pracovní tempo',
-    'Nejistota v pracovních úkolech',
-    'Komunikační obtíže na pracovišti',
-    'Konflikty na pracovišti',
-    'Nízká motivace',
-    'Zdravotní omezení',
-    'Rodinná zátěž',
-    'Dopravní dostupnost'
-  ];
   const KA02_PLACE_OPTIONS = [
     'ambulantn\u00ed',
     'ter\u00e9nn\u00ed',
@@ -153,7 +140,6 @@ function AiDocumentPanel({
   };
 
   const isKa02Form = ['plan', 'consultation'].includes(generatorDraft.selectedKey);
-  const isMentorForm = false;
   const ka02WorkerOptionsByDocument = {
     consultation: ['Soci\u00e1ln\u00ed pracovn\u00edk', 'Case manager'],
     plan: ['Soci\u00e1ln\u00ed pracovn\u00edk']
@@ -165,23 +151,12 @@ function AiDocumentPanel({
     value: worker,
     label: worker
   }));
-  const mentorTpmOptions = (tpmRecords || [])
-    .filter((record) => !lockClientSelection || !lockedClientId || record.clientId === lockedClientId)
-    .map((record) => {
-    const startDate = record.payload?.startDate || record.activityDate || '';
-    const employer = record.payload?.employer || 'Bez zaměstnavatele';
-    return {
-      value: record.id,
-      label: `${record.clientName || 'Bez klienta'} · ${employer}${startDate ? ` · ${startDate}` : ''}`,
-      clientId: record.clientId || ''
-    };
-    });
   const ka02Duration = formatDurationFromTimes(generatorDraft.ka02StartTime, generatorDraft.ka02EndTime);
   const options = Object.entries(reportPrompts)
     .filter(([key]) => allowedKeys.includes(key))
     .map(([key, value]) => ({ value: key, label: value.label }));
   const isSingleKeyPanel = options.length <= 1;
-  const headerGridClass = isMentorForm ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-2' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-4';
+  const headerGridClass = 'grid gap-3 sm:grid-cols-2 lg:grid-cols-4';
 
   const updateDraft = (patch) => {
     onClearSaveNotice?.();
@@ -195,26 +170,6 @@ function AiDocumentPanel({
       linkedPlanGoalId: goalId,
       linkedPlanGoalLabel: selected?.label || ''
     });
-  };
-  const parseBarrierItems = (value) =>
-    String(value || '')
-      .split(';')
-      .map((item) => item.trim())
-      .filter(Boolean);
-  const mergeBarriers = (items) => Array.from(new Set(items.map((item) => item.trim()).filter(Boolean))).join('; ');
-  const barrierItems = parseBarrierItems(generatorDraft.barriers);
-  const selectedPresetBarriers = barrierItems.filter((item) => MENTOR_BARRIER_OPTIONS.includes(item));
-  const customBarrierItems = barrierItems.filter((item) => !MENTOR_BARRIER_OPTIONS.includes(item));
-  const addPresetBarrier = (barrier) => {
-    if (!barrier) return;
-    updateDraft({ barriers: mergeBarriers([...barrierItems, barrier]) });
-  };
-  const removeBarrier = (barrier) => {
-    updateDraft({ barriers: mergeBarriers(barrierItems.filter((item) => item !== barrier)) });
-  };
-  const updateCustomBarriers = (value) => {
-    const customs = parseBarrierItems(value);
-    updateDraft({ barriers: mergeBarriers([...selectedPresetBarriers, ...customs]) });
   };
   const updateGeneratedText = (value) => {
     setGeneratedText(value);
@@ -359,7 +314,7 @@ function AiDocumentPanel({
               />
             </div>
           </div>
-          {(isKa02Form || isMentorForm) && generatorDraft.selectedKey !== 'plan' && (
+          {isKa02Form && generatorDraft.selectedKey !== 'plan' && (
             <SelectField
               label="Cíl IP *"
               help={HELP.aiGoalLink}
@@ -669,7 +624,7 @@ function AiDocumentPanel({
               : 'Všechna povinná pole pro uložení jsou vyplněna.'}
           </div>
         )}
-        {!isMentorForm && generationNotice && (
+        {generationNotice && (
           <div
             className={`rounded-xl px-3 py-2 text-sm font-semibold ${
               aiGenerationStatus === 'error'

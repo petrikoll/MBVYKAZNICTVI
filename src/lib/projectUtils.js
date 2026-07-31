@@ -448,8 +448,9 @@ function getEffectiveRecordKa(record = {}) {
   return record.ka || '';
 }
 
-function buildGeneratorRecord({ client, generatorDraft, generatedText, selectedTpmRecord = null }) {
+function buildGeneratorRecord({ client, generatorDraft, generatedText }) {
   const config = REPORT_PROMPTS[generatorDraft.selectedKey];
+  if (!config) throw new Error('Nepodporovaný typ AI dokumentu.');
   const linkedGoalPayload = {
     linkedPlanGoalId: generatorDraft.linkedPlanGoalId || '',
     linkedPlanGoalLabel: generatorDraft.linkedPlanGoalLabel || ''
@@ -578,22 +579,7 @@ function buildGeneratorRecord({ client, generatorDraft, generatedText, selectedT
     };
   }
 
-  return {
-    ...basePayload,
-    entityType: 'mentor_report_document',
-    worker: 'Mentor/Kouč',
-    payload: {
-      ...linkedGoalPayload,
-      tpmRecordId: generatorDraft.tpmRecordId || selectedTpmRecord?.id || '',
-      tpmEmployer: selectedTpmRecord?.payload?.employer || '',
-      tpmStartDate: selectedTpmRecord?.payload?.startDate || '',
-      workplace: generatorDraft.workplace,
-      progressSummary: generatorDraft.nextSteps || generatorDraft.progressSummary,
-      barriers: generatorDraft.barriers,
-      nextSupportSteps: generatorDraft.nextSteps
-    },
-    indicatorFlags: { ka03MentorReports: true }
-  };
+  throw new Error('Nepodporovaný typ AI dokumentu.');
 }
 
 function buildKa02Record(entityType, draft, client) {
@@ -757,24 +743,6 @@ function buildKa03Record(entityType, draft, client) {
     };
   }
 
-  if (entityType === 'mentoring_records') {
-    return {
-      ...basePayload,
-      entityType,
-      title: `Mentoring Archivní aktivita - ${client.fullName}`,
-      payload: {
-        ...linkedGoalPayload,
-        employer: draft.employer,
-        workplace: draft.workplace,
-        mentoringFrequency: draft.mentoringFrequency,
-        progressSummary: draft.progressSummary,
-        barriers: draft.barriers,
-        nextSupportSteps: draft.nextSupportSteps
-      },
-      indicatorFlags: {}
-    };
-  }
-
   if (entityType === 'employment_records') {
     return {
       ...basePayload,
@@ -795,18 +763,7 @@ function buildKa03Record(entityType, draft, client) {
     };
   }
 
-  return {
-    ...basePayload,
-    entityType: 'mentor_report_document',
-    title: draft.mentorReportTitle || `Referenční zpráva mentora - ${client.fullName}`,
-    documentText: draft.mentorReportText,
-    payload: {
-      ...linkedGoalPayload,
-      workplace: draft.workplace,
-      employer: draft.employer
-    },
-    indicatorFlags: { ka03MentorReports: true }
-  };
+  throw new Error('Nepodporovaný typ archivního záznamu.');
 }
 
 function buildFallbackGeneratedText(label, client, fields) {
@@ -1022,9 +979,7 @@ const CLIENT_SUPPORT_TYPE_META = [
   { key: 'cv_outputs', label: 'Archivní výstup' },
   { key: 'job_simulators', label: 'Pracovní simulátor' },
   { key: 'tpm_records', label: 'Archivní aktivita' },
-  { key: 'mentoring_records', label: 'Mentoring' },
   { key: 'employment_records', label: 'Pracovní uplatnění' },
-  { key: 'mentor_report_document', label: 'Archivní zpráva' }
 ];
 
 function extractSupportMinutes(record) {

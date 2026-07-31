@@ -1,8 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../src/lib/aiSafety.js';
+import { buildSensitiveTerms, parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../src/lib/aiSafety.js';
 
 test('sanitizace odstraní identifikátory', () => assert.deepEqual(sanitizeAiInput({ fullName: 'Jan Novák', datumNarozeni: '1980-01-01', supportArea: 'bydlení' }), { supportArea: 'bydlení' }));
+test('sanitizace odstraní také interní ID a adresní údaje', () => assert.deepEqual(sanitizeAiInput({ clientId: 'K-123', psc: '79305', cisloPopisne: '12', supportArea: 'bydlení' }), { supportArea: 'bydlení' }));
+test('seznam citlivých výrazů obsahuje identitu klienta i ručně předané osoby', () => {
+  const terms = buildSensitiveTerms({ id: 'K-123', fullName: 'Jan Novák', telefon: '777111222' }, ['Petr Svoboda']);
+  assert.deepEqual(terms, ['K-123', 'Jan Novák', '777111222', 'Petr Svoboda']);
+});
 test('redakce odstraní jméno v poznámce', () => assert.equal(redactClientIdentifiers('Jednal Jan Novák.', { fullName: 'Jan Novák' }), 'Jednal [identifikační údaj odstraněn].'));
 test('parser přijme JSON v kódovém bloku', () => assert.equal(parseAiJson('```json\n{"recordText":"text"}\n```').recordText, 'text'));
 test('zápis ponechá uzamčený typ podpory z formuláře i při odlišné AI hodnotě', () => {

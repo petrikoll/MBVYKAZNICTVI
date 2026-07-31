@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { handleDocxExportRequest } from './docxExport.js';
 import { handleGoogleAppsScriptProxy } from './googleAppsScriptProxy.js';
+import { handleGeminiProxy } from './geminiProxy.js';
 
 const docxExportPlugin = () => ({
   name: 'docx-export-api',
@@ -32,6 +33,20 @@ const googleSheetsProxyPlugin = (proxyConfig) => ({
   }
 });
 
+const geminiProxyPlugin = (proxyConfig) => ({
+  name: 'gemini-proxy-api',
+  configureServer(server) {
+    server.middlewares.use((request, response, next) => {
+      const pathname = String(request.url || '').split('?')[0];
+      if (pathname !== '/api/gemini') {
+        next();
+        return;
+      }
+      void handleGeminiProxy(request, response, proxyConfig);
+    });
+  }
+});
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
@@ -41,6 +56,11 @@ export default defineConfig(({ mode }) => {
       googleSheetsProxyPlugin({
         appsScriptUrl: env.GOOGLE_APPS_SCRIPT_URL || env.VITE_CLIENTS_API_URL,
         appsScriptToken: env.GOOGLE_APPS_SCRIPT_TOKEN || env.VITE_CLIENTS_API_TOKEN
+      }),
+      geminiProxyPlugin({
+        apiKey: env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY,
+        defaultModel: env.GEMINI_MODEL || env.VITE_GEMINI_MODEL,
+        fallbackModel: env.GEMINI_FALLBACK_MODEL || env.VITE_GEMINI_FALLBACK_MODEL
       })
     ],
     server: {

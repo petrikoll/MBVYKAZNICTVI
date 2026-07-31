@@ -105,7 +105,7 @@ const COMMON_AI_QUALITY_RULES = [
   'V\u00fdstupy slou\u017e\u00ed jako podklad pro soci\u00e1ln\u00ed pr\u00e1ci, klientskou dokumentaci a projektovou evidenci.',
   'Pracuj pouze s \u00fadaji, kter\u00e9 jsou v\u00fdslovn\u011b uvedeny ve vstupu.',
   'Nevym\u00fd\u0161lej osoby, diagn\u00f3zy, zam\u011bstn\u00e1n\u00ed, dluhy, motivaci, v\u00fdsledky, rozhodnut\u00ed, term\u00edny ani n\u00e1vazn\u00e9 slu\u017eby.',
-  'Neodes\u00edlej ani neopakuj jm\u00e9no, p\u0159\u00edjmen\u00ed ani datum narozen\u00ed klienta a vyh\u00fdbej se zbyte\u010dn\u00e9 nep\u0159\u00edm\u00e9 identifikaci.',
+  'Vstup je anonymizovan\u00fd. Nikdy nepo\u017eaduj, nedopl\u0148uj ani neopakuj jm\u00e9no, p\u0159\u00edjmen\u00ed, datum narozen\u00ed, kontakt, adresu nebo jin\u00fd identifik\u00e1tor klienta \u010di zapojen\u00e9 osoby.',
   'Chyb\u011bj\u00edc\u00ed nebo nepodstatn\u00e9 \u00fadaje vynech.',
   'Pi\u0161 \u010desky, v\u011bcn\u011b, profesion\u00e1ln\u011b a auditn\u011b obhajiteln\u011b.'
 ].join('\n');
@@ -174,7 +174,7 @@ const REPORT_PROMPTS = {
       '\u010cas / d\u00e9lka: ' + (fields.durationMinutes || 0) + ' minut',
       'Forma poskytov\u00e1n\u00ed: ' + (fields.place || fields.ka02Place || ''),
       'C\u00edl IP / zak\u00e1zka: ' + (fields.linkedPlanGoalLabel || ''),
-      fields.caseManagementMode ? 'Zapojen\u00ed akt\u00e9\u0159i: ' + ((fields.partnerNames || []).join('; ') || 'bez zapojen\u00fdch akt\u00e9r\u016f') : '',
+      fields.caseManagementMode ? 'Po\u010det zapojen\u00fdch akt\u00e9r\u016f: ' + Number(fields.participantCount || 0) : '',
       'Popis pr\u016fb\u011bhu: ' + (fields.topics || ''),
       'Dolo\u017een\u00fd v\u00fdsledek: ' + (fields.outcome || ''),
       'Dal\u0161\u00ed kroky: ' + (fields.nextSteps || ''),

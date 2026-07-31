@@ -54,7 +54,7 @@ Nejlépe strukturovaný prompt. Doplnit formální responseSchema a změnit roli
 
 ### Aktuální prompt
 
-Bez samostatného system promptu. Vytvoř souvislý projektový zápis KA2-Tvorba sítě. Popisuj jen doložený obsah, výsledek a kroky. Piš 3–6 vět, u porady RT 5–8 vět. Nevymýšlej osoby, rozhodnutí, úkoly, odpovědnosti ani termíny. Použij pokyn podle typu: porada RT, koordinační, individuální, skupinová nebo rozšíření/udržení sítě. Data: typ aktivity, počet účastníků, osoby, místo a popis.
+Vytvoř souvislý projektový zápis KA2-Tvorba sítě. Popisuj jen doložený obsah, výsledek a kroky. Nevymýšlej osoby, rozhodnutí, úkoly, odpovědnosti ani termíny. Do Gemini se posílá typ aktivity, anonymní počet účastníků, místo a popis; jména účastníků se neposílají.
 
 ### Komentář
 
@@ -70,13 +70,13 @@ Bez samostatného system promptu. Vytvoř profesionální souhrn zakázky klient
 
 Riziko směšování plánu, výkonu a výsledku. Doporučena pevná struktura a kontrola nepřímé identifikace.
 
-## Specializované dokumenty debt / therapy / cv / simulator / mentor
+## Aktivní dokumenty
 
-System prompt obsahuje pouze společná pravidla. User prompt je celý objekt formuláře předaný jako JSON.stringify(fields).
+Aktivní generátor nabízí pouze individuální plán a zápis podpory. Každý z nich má vlastní účel, pravidla a výstupní strukturu. Starší nepoužívané šablony nejsou součástí aktivního rozhraní.
 
 ### Komentář
 
-Velmi slabé rozlišení účelu. Potřebují vlastní odborné osnovy, nebo odstranění z aktivního rozhraní.
+Rozlišení účelu je vynucené samostatným promptem a kontrolou výstupu. Identifikátory klienta a zapojených osob se odstraňují v prohlížeči i znovu na serveru.
 
 ## Hlavní nesoulady
 

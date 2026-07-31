@@ -1,4 +1,9 @@
-const SENSITIVE_KEYS = new Set(['firstname','lastname','fullname','name','birthdate','datumnarozeni','personalid','rodnecislo','address','adresa','street','ulice','phone','telefon','email','datovaschranka']);
+const SENSITIVE_KEYS = new Set([
+  'id', 'clientid', 'selectedclientid', 'sheetrowkey',
+  'firstname', 'lastname', 'fullname', 'name', 'birthdate', 'datumnarozeni',
+  'personalid', 'rodnecislo', 'address', 'adresa', 'street', 'ulice',
+  'cislopopisne', 'psc', 'phone', 'telefon', 'email', 'datovaschranka'
+]);
 const normalizeKey = (key) => String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 function sanitizeAiInput(value) {
@@ -12,10 +17,30 @@ function sanitizeAiInput(value) {
 
 function redactClientIdentifiers(value, client = {}) {
   let text = String(value || '');
-  const identifiers = [client.fullName, client.jmeno, client.prijmeni, client.datumNarozeni, client.telefon, client.email, client.datovaSchranka, client.adresa, [client.ulice, client.cisloPopisne].filter(Boolean).join(' ')]
+  const identifiers = [client.id, client.sheetRowKey, client.fullName, client.jmeno, client.prijmeni, client.datumNarozeni, client.telefon, client.email, client.datovaSchranka, client.adresa, [client.ulice, client.cisloPopisne].filter(Boolean).join(' ')]
     .map((item) => String(item || '').trim()).filter((item) => item.length >= 3).sort((a, b) => b.length - a.length);
   identifiers.forEach((identifier) => { text = text.replaceAll(identifier, '[identifikační údaj odstraněn]'); });
   return text;
+}
+
+function buildSensitiveTerms(client = {}, additionalTerms = []) {
+  const clientTerms = [
+    client.id,
+    client.sheetRowKey,
+    client.fullName,
+    client.jmeno,
+    client.prijmeni,
+    client.datumNarozeni,
+    client.telefon,
+    client.email,
+    client.datovaSchranka,
+    client.adresa,
+    client.ulice,
+    [client.ulice, client.cisloPopisne].filter(Boolean).join(' ')
+  ];
+  return Array.from(new Set([...clientTerms, ...(Array.isArray(additionalTerms) ? additionalTerms : [])]
+    .map((item) => String(item || '').trim())
+    .filter((item) => item.length >= 3)));
 }
 
 function parseAiJson(value) {
@@ -61,4 +86,4 @@ function validatePlanOutput(output, source) {
   return output;
 }
 
-export { parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput };
+export { buildSensitiveTerms, parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput };

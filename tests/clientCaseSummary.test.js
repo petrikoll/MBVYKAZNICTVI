@@ -11,7 +11,6 @@ test('AI souhrn zakázky používá jen současný individuální plán a podpor
     { id: 'therapy', entityType: 'therapy_sessions' },
     { id: 'cv', entityType: 'cv_outputs' },
     { id: 'simulator', entityType: 'job_simulators' },
-    { id: 'mentoring', entityType: 'mentoring_records' },
     { id: 'employment', entityType: 'employment_records' }
   ];
 
