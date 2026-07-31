@@ -1,3 +1,5 @@
+import { GOAL_STATUS, normalizeGoalStatus } from './goalStatus.js';
+
 function normalize(value) {
   return String(value || '')
     .trim()
@@ -30,6 +32,10 @@ function formatHours(minutes) {
   return String(hours).replace('.', ',') + ' hod.';
 }
 
+function formatHoursInline(minutes) {
+  return formatHours(minutes).replace(/\.$/, '');
+}
+
 function uniqueClientCount(records) {
   const ids = new Set();
   records.forEach((record) => {
@@ -41,6 +47,142 @@ function uniqueClientCount(records) {
     recordIds.filter(Boolean).forEach((id) => ids.add(String(id)));
   });
   return ids.size;
+}
+
+function countPhrase(count, one, few, many) {
+  const value = Number(count || 0);
+  const absolute = Math.abs(value);
+  const form = absolute === 1 ? one : absolute >= 2 && absolute <= 4 ? few : many;
+  return `${value} ${form}`;
+}
+
+function countCategory(count) {
+  const absolute = Math.abs(Number(count || 0));
+  if (absolute === 1) return 'one';
+  if (absolute >= 2 && absolute <= 4) return 'few';
+  return 'many';
+}
+
+function hasDocumentedValue(value) {
+  const normalized = normalize(value);
+  return Boolean(normalized && !['neuvedeno', 'neuveden', 'neuvedena', 'nezjisteno', 'bez vysledku'].includes(normalized));
+}
+
+function planGoals(record) {
+  const candidates = [record?.goals, record?.payload?.goals, record?.payload?.structuredGoals];
+  return candidates.find((value) => Array.isArray(value)) || [];
+}
+
+function goalProgressSummary(plans) {
+  if (!plans.length) return '';
+  const goals = plans.flatMap(planGoals);
+  if (!goals.length) {
+    return `U ${countPhrase(plans.length, 'individuálního plánu', 'individuálních plánů', 'individuálních plánů')} nejsou v dostupné strukturované evidenci uloženy jednotlivé stavy cílů, proto jejich plnění nelze číselně vyhodnotit.`;
+  }
+
+  const statusCounts = goals.reduce((counts, goal) => {
+    const status = normalizeGoalStatus(goal);
+    counts[status] = (counts[status] || 0) + 1;
+    return counts;
+  }, {});
+  const completed = statusCounts[GOAL_STATUS.COMPLETED] || 0;
+  const partiallyCompleted = statusCounts[GOAL_STATUS.PARTIALLY_COMPLETED] || 0;
+  const notCompleted = statusCounts[GOAL_STATUS.NOT_COMPLETED] || 0;
+  const open = statusCounts[GOAL_STATUS.OPEN] || 0;
+  const closed = completed + partiallyCompleted + notCompleted;
+  const evaluated = goals.filter((goal) => (
+    normalizeGoalStatus(goal) !== GOAL_STATUS.OPEN && hasDocumentedValue(goal?.goalEvaluation)
+  )).length;
+
+  return [
+    `Stav cílů v individuálních plánech evidovaných nebo aktualizovaných ve sledovaném období: celkem ${countPhrase(goals.length, 'cíl', 'cíle', 'cílů')}; splněné ${completed}, částečně splněné ${partiallyCompleted}, nesplněné ${notCompleted} a otevřené ${open}.`,
+    closed > 0
+      ? `Slovní vyhodnocení bylo doloženo u ${evaluated} z ${closed} uzavřených cílů.`
+      : 'Ve sledovaném období nebyl v těchto plánech evidován žádný uzavřený cíl.'
+  ].join(' ');
+}
+
+function linkedGoalId(record) {
+  return String(record?.linkedPlanGoalId || record?.payload?.linkedPlanGoalId || '').trim();
+}
+
+function supportEvidenceSummary(records) {
+  if (!records.length) return '';
+  const linkedToGoal = records.filter((record) => {
+    const id = linkedGoalId(record);
+    return id && id !== 'one-time-order';
+  }).length;
+  const oneTimeOrders = records.filter((record) => linkedGoalId(record) === 'one-time-order').length;
+  const documentedOutcomes = records.filter((record) => hasDocumentedValue(documentedOutcome(record))).length;
+  const documentedNextSteps = records.filter((record) => hasDocumentedValue(documentedNextStep(record))).length;
+  const parts = [];
+  if (linkedToGoal || oneTimeOrders) {
+    parts.push(`Počet plnění navázaných na konkrétní cíl individuálního plánu: ${linkedToGoal}; počet jednorázových zakázek: ${oneTimeOrders}.`);
+  }
+  if (documentedOutcomes || documentedNextSteps) {
+    parts.push(`Doložený výsledek byl zaznamenán u ${countPhrase(documentedOutcomes, 'plnění', 'plnění', 'plnění')} a navazující krok u ${countPhrase(documentedNextSteps, 'plnění', 'plnění', 'plnění')}.`);
+  }
+  return parts.join(' ');
+}
+
+function partnerNamesFromRecord(record) {
+  const payload = record?.payload || {};
+  return [payload.partnerNames, payload.registeredPartnerNames, payload.manualPartnerNames]
+    .flatMap((value) => Array.isArray(value) ? value : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+}
+
+function addPartnerNames(target, records) {
+  records.forEach((record) => {
+    partnerNamesFromRecord(record).forEach((name) => target.add(normalize(name)));
+  });
+}
+
+const SAFE_ACTIVITY_TYPE_BY_ENTITY = {
+  debt_cases: 'Dluhová práce',
+  therapy_sessions: 'Terapeutická podpora',
+  cv_outputs: 'Podpora při tvorbě životopisu',
+  job_simulators: 'Nácvik pracovního pohovoru',
+  tpm_records: 'Tréninkové pracovní místo',
+  employment_records: 'Podpora pracovního uplatnění'
+};
+
+const SAFE_SUPPORT_AREA_BY_ENTITY = {
+  debt_cases: 'Finance/dluhy',
+  therapy_sessions: 'Zdraví',
+  cv_outputs: 'Zaměstnání',
+  job_simulators: 'Zaměstnání',
+  tpm_records: 'Zaměstnání',
+  employment_records: 'Zaměstnání'
+};
+
+function activityType(record) {
+  return record?.payload?.consultationType || SAFE_ACTIVITY_TYPE_BY_ENTITY[record?.entityType] || '';
+}
+
+function supportArea(record) {
+  return record?.payload?.supportArea || SAFE_SUPPORT_AREA_BY_ENTITY[record?.entityType] || '';
+}
+
+function supportPlace(record) {
+  const payload = record?.payload || {};
+  const specific = payload.supportSpecific || {};
+  return payload.place || specific.fieldWorkPlace || specific.contactPlace || specific.accompanimentPlace || '';
+}
+
+function documentedOutcome(record) {
+  const payload = record?.payload || {};
+  const specific = payload.supportSpecific || {};
+  return payload.outcome || payload.solutionPlan || payload.recommendations || payload.developmentAreas || payload.progressSummary ||
+    specific.accompanimentResult || specific.achievedProgress || specific.cooperationInterest || '';
+}
+
+function documentedNextStep(record) {
+  const payload = record?.payload || {};
+  const specific = payload.supportSpecific || {};
+  return payload.nextSteps || payload.nextSupportSteps || payload.plannedSteps || specific.recommendedProcedure ||
+    specific.followupHelp || specific.recommendation || '';
 }
 
 function topValues(records, selector, limit = 5) {
@@ -77,13 +219,20 @@ function buildKa1Text(records) {
   const all = plans.concat(support);
   if (!all.length) return 'Ve sledovaném období nebyla v KA1 evidována individuální podpora ani práce s individuálními plány.';
 
-  const areas = topValues(support, (record) => record.payload?.supportArea);
-  const types = topValues(support, (record) => record.payload?.consultationType || record.title);
+  const areas = topValues(support, supportArea);
+  const types = topValues(support, activityType);
+  const places = topValues(support, supportPlace, 4);
+  const supportMinutes = support.reduce((sum, record) => sum + recordMinutes(record), 0);
+  const planMinutes = plans.reduce((sum, record) => sum + recordMinutes(record), 0);
   const minutes = all.reduce((sum, record) => sum + recordMinutes(record), 0);
   return [
-    `Průběh realizace ve sledovaném období: V KA01 byla poskytována přímá práce a individuální podpora ${uniqueClientCount(all)} klientům. Evidováno bylo ${support.length} výkonů podpory a ${plans.length} vytvořených nebo aktualizovaných individuálních plánů v celkovém rozsahu ${formatHours(minutes)}`,
+    `Průběh realizace ve sledovaném období: V KA01 byla poskytována přímá práce a individuální podpora ${countPhrase(uniqueClientCount(all), 'klientovi', 'klientům', 'klientům')}. Evidence obsahovala ${countPhrase(support.length, 'výkon podpory', 'výkony podpory', 'výkonů podpory')} a ${countPhrase(plans.length, 'vytvořený nebo aktualizovaný individuální plán', 'vytvořené nebo aktualizované individuální plány', 'vytvořených nebo aktualizovaných individuálních plánů')} v celkovém rozsahu ${formatHours(minutes)}`,
+    supportMinutes > 0 && planMinutes > 0 ? `Z celkového času připadalo ${formatHoursInline(supportMinutes)} na přímou podporu a ${formatHoursInline(planMinutes)} na práci s individuálními plány.` : '',
     areas.length ? `Podpora se nejčastěji zaměřovala na oblasti ${sentenceList(areas)}.` : '',
     types.length ? `V evidenci jsou doloženy zejména formy práce ${sentenceList(types)}.` : '',
+    places.length ? `Nejčastěji evidované formy nebo místa poskytování byly ${sentenceList(places)}.` : '',
+    goalProgressSummary(plans),
+    supportEvidenceSummary(support),
     'Vazba na účel a cíl aktivity: Doložené činnosti směřovaly k prevenci sociálního vyloučení a zhoršování situace klientů, ke zvýšení dostupnosti sociální podpory a k posilování soběstačnosti a odpovědnosti klientů. Podpora vycházela z evidovaných potřeb klientů a podle povahy zakázky navazovala na cíle individuálních plánů.',
     `Metodický rámec KA01 podle právního aktu zahrnuje ${KA01_METHOD_FRAMEWORK}. Výše uvedené počty a formy zachycují pouze činnosti skutečně doložené v evidenci za zvolené období.`,
     `Místo realizace podle právního aktu: ${PROJECT_ACTIVITY_AREA}.`
@@ -96,19 +245,21 @@ function buildKa2CaseText(records) {
   );
   if (!caseRecords.length) return 'Ve sledovaném období nebyly v KA2 evidovány aktivity case managementu.';
 
-  const areas = topValues(caseRecords, (record) => record.payload?.supportArea);
-  const types = topValues(caseRecords, (record) => record.payload?.consultationType || record.title);
+  const areas = topValues(caseRecords, supportArea);
+  const types = topValues(caseRecords, activityType);
+  const places = topValues(caseRecords, supportPlace, 4);
   const partnerNames = new Set();
-  caseRecords.forEach((record) => {
-    const names = Array.isArray(record.payload?.partnerNames) ? record.payload.partnerNames : [];
-    names.filter(Boolean).forEach((name) => partnerNames.add(normalize(name)));
-  });
+  addPartnerNames(partnerNames, caseRecords);
   const minutes = caseRecords.reduce((sum, record) => sum + recordMinutes(record), 0);
+  const activityCountCategory = countCategory(caseRecords.length);
+  const partnerCountCategory = countCategory(partnerNames.size);
   return [
-    `V části KA02 zaměřené na case management bylo realizováno ${caseRecords.length} aktivit pro ${uniqueClientCount(caseRecords)} klientů v celkovém rozsahu ${formatHours(minutes)}`,
-    partnerNames.size ? `Do koordinace podpory bylo zapojeno ${partnerNames.size} různých spolupracujících aktérů nebo subjektů.` : '',
+    `V části KA02 zaměřené na case management ${activityCountCategory === 'one' ? 'byla realizována' : activityCountCategory === 'few' ? 'byly realizovány' : 'bylo realizováno'} ${countPhrase(caseRecords.length, 'aktivita', 'aktivity', 'aktivit')} pro ${countPhrase(uniqueClientCount(caseRecords), 'klienta', 'klienty', 'klientů')} v celkovém rozsahu ${formatHours(minutes)}`,
+    partnerNames.size ? `Do koordinace podpory se ${partnerCountCategory === 'one' ? 'zapojil' : partnerCountCategory === 'few' ? 'zapojili' : 'zapojilo'} ${countPhrase(partnerNames.size, 'různý spolupracující aktér nebo subjekt', 'různí spolupracující aktéři nebo subjekty', 'různých spolupracujících aktérů nebo subjektů')}.` : '',
     areas.length ? `Řešené zakázky se nejčastěji týkaly oblastí ${sentenceList(areas)}.` : '',
     types.length ? `Evidované aktivity zahrnovaly zejména ${sentenceList(types)}.` : '',
+    places.length ? `Nejčastěji evidované formy nebo místa jednání byly ${sentenceList(places)}.` : '',
+    supportEvidenceSummary(caseRecords),
     'Doložená práce byla zaměřena na komplexní plánování a realizaci podpory klienta za účasti návazných služeb, institucí a odborníků, na koordinaci rolí zapojených aktérů a na domlouvání dalších kroků.'
   ].filter(Boolean).join(' ');
 }
@@ -118,16 +269,20 @@ function buildKa2NetworkText(records) {
   if (!network.length) return 'Ve sledovaném období nebyly v KA2 evidovány aktivity tvorby a rozvoje sítě.';
 
   const types = topValues(network, (record) => record.payload?.type || record.title);
+  const places = topValues(network, (record) => record.payload?.place, 4);
   const partnerNames = new Set();
-  network.forEach((record) => {
-    const names = Array.isArray(record.payload?.partnerNames) ? record.payload.partnerNames : [];
-    names.filter(Boolean).forEach((name) => partnerNames.add(normalize(name)));
-  });
+  addPartnerNames(partnerNames, network);
   const minutes = network.reduce((sum, record) => sum + recordMinutes(record), 0);
+  const documentedOutcomes = network.filter((record) => hasDocumentedValue(documentedOutcome(record))).length;
+  const documentedNextSteps = network.filter((record) => hasDocumentedValue(documentedNextStep(record))).length;
+  const activityCountCategory = countCategory(network.length);
+  const partnerCountCategory = countCategory(partnerNames.size);
   return [
-    `V části KA02 zaměřené na tvorbu a rozvoj sítě bylo uskutečněno ${network.length} síťových a koordinačních aktivit${minutes ? ` v rozsahu ${formatHours(minutes)}` : ''}.`,
-    partnerNames.size ? `V evidenci se objevilo ${partnerNames.size} různých spolupracujících subjektů.` : '',
+    `V části KA02 zaměřené na tvorbu a rozvoj sítě ${activityCountCategory === 'one' ? 'byla uskutečněna' : activityCountCategory === 'few' ? 'byly uskutečněny' : 'bylo uskutečněno'} ${countPhrase(network.length, 'síťová nebo koordinační aktivita', 'síťové nebo koordinační aktivity', 'síťových nebo koordinačních aktivit')}${minutes ? ` v rozsahu ${formatHours(minutes)}` : '.'}`,
+    partnerNames.size ? `V evidenci se ${partnerCountCategory === 'one' ? 'objevil' : partnerCountCategory === 'few' ? 'objevily' : 'objevilo'} ${countPhrase(partnerNames.size, 'různý spolupracující subjekt', 'různé spolupracující subjekty', 'různých spolupracujících subjektů')}.` : '',
     types.length ? `Realizované aktivity zahrnovaly zejména ${sentenceList(types)}.` : '',
+    places.length ? `Nejčastěji evidovaná místa nebo formy setkání byly ${sentenceList(places)}.` : '',
+    documentedOutcomes || documentedNextSteps ? `Doložený výstup byl zaznamenán u ${countPhrase(documentedOutcomes, 'setkání', 'setkání', 'setkání')} a další krok u ${countPhrase(documentedNextSteps, 'setkání', 'setkání', 'setkání')}.` : '',
     'Činnost probíhala prostřednictvím aktivní komunikace a setkávání, navazování a rozvíjení vztahů se spolupracujícími organizacemi a směřovala k vytvoření a udržování funkční místní sítě.'
   ].filter(Boolean).join(' ');
 }
