@@ -36,6 +36,8 @@ test('ZOR spojí case management a tvorbu sítě do jednoho členěného textu K
 
   assert.match(texts['KA01 – Přímá práce s klienty – terénní práce'], /1 klientům/);
   assert.match(texts['KA01 – Přímá práce s klienty – terénní práce'], /2,5 hod\./);
+  assert.match(texts['KA01 – Přímá práce s klienty – terénní práce'], /sociální depistáž/);
+  assert.match(texts['KA01 – Přímá práce s klienty – terénní práce'], /Ondrášov/);
   assert.deepEqual(Object.keys(texts), [
     'KA01 – Přímá práce s klienty – terénní práce',
     'KA02 – Koordinace a síťování služeb',
@@ -47,8 +49,13 @@ test('ZOR spojí case management a tvorbu sítě do jednoho členěného textu K
   assert.match(texts['KA02 – Koordinace a síťování služeb'], /b\) Koordinace a síťování služeb/);
   assert.match(texts['KA02 – Koordinace a síťování služeb'], /1 síťových/);
   assert.match(texts['KA02 – Koordinace a síťování služeb'], /0,8 hod\./);
+  assert.match(texts['KA02 – Koordinace a síťování služeb'], /multioborová případová setkávání/);
+  assert.match(texts['KA02 – Koordinace a síťování služeb'], /přístup zaměřený na řešení/);
+  assert.match(texts['KA02 – Koordinace a síťování služeb'], /Nová Véska/);
   assert.match(texts['KA03 – Profesní vzdělávání a supervize týmu'], /2,5 hod\./);
   assert.match(texts['KA03 – Profesní vzdělávání a supervize týmu'], /1,5 hod\./);
+  assert.match(texts['KA03 – Profesní vzdělávání a supervize týmu'], /syndromu vyhoření/);
+  assert.match(texts['KA03 – Profesní vzdělávání a supervize týmu'], /skupinová i individuální supervizní setkání/);
 });
 
 test('ZOR nepropíše identifikátor ani jméno klienta do výsledku', () => {
@@ -80,12 +87,13 @@ test('ZOR vrátí srozumitelný text i pro prázdné období', () => {
 
 test('text horizontálních principů vychází z právního aktu a zakazuje nedoložená tvrzení', () => {
   const kaTexts = buildZorTexts([]);
-  const prompt = buildHorizontalPrinciplesAiPrompt({ periodLabel: '03/2026 - 08/2026', kaTexts });
+  const prompt = buildHorizontalPrinciplesAiPrompt({ periodLabel: '07/2026 - 12/2026', kaTexts });
   const fallback = buildHorizontalPrinciplesFallbackText();
 
   assert.match(prompt, /rovné příležitosti žen a mužů/i);
   assert.match(prompt, /nediskriminace/i);
   assert.match(prompt, /Nevymýšlej konkrétní opatření/i);
+  assert.match(prompt, /metodický rámec.*pouze kontext projektu/i);
   assert.match(prompt, /CZ\.03\.02\.01\/00\/25_106\/0006125/);
   assert.match(fallback, /individuální nepříznivé sociální situace/i);
   assert.match(fallback, /bez rozdílu pohlaví/i);
