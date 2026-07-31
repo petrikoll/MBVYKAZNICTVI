@@ -1,14 +1,22 @@
 import React from 'react';
-import { Activity, AlertTriangle, Archive, ArrowLeft, Brain, ClipboardCopy, Download, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target } from 'lucide-react';
+import { Activity, AlertTriangle, Archive, ArrowLeft, Brain, ClipboardCopy, Download, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target, Users } from 'lucide-react';
 
 import { HelpIcon, Panel, SelectField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { REPORTING_PERIODS, WORKERS } from '../config/projectConfig.js';
 import { backupProgressText, isBackupStatusActive } from '../lib/backupStatus.js';
 
+const formatEvidenceDate = (value) => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${Number(match[3])}. ${Number(match[2])}. ${match[1]}` : String(value || '');
+};
+
 const ProgressRow = ({ item }) => {
   const hasTarget = Number(item.target) > 0;
   const percent = hasTarget ? Math.min(100, Math.round((Number(item.current || 0) / item.target) * 100)) : 0;
+  const evidence = Array.isArray(item.evidence) ? item.evidence : [];
+  const evidenceLabel = item.evidenceLabel || 'Započtené osoby';
+  const tooltipId = `goal-evidence-${item.key}`;
   const helpByGoal = {
     'security-short': HELP.dashboardShortSecurity,
     'services-short': HELP.dashboardShortServices,
@@ -16,7 +24,11 @@ const ProgressRow = ({ item }) => {
     'inclusion-short': HELP.dashboardInclusion
   };
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
+    <div
+      className="group relative rounded-lg border border-slate-200 bg-white p-3 outline-none transition hover:z-30 hover:border-indigo-300 focus:z-30 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200"
+      tabIndex={0}
+      aria-describedby={tooltipId}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-1 text-sm font-semibold text-slate-800">{item.label}<HelpIcon help={helpByGoal[item.key] || null} /></div>
         <div className="shrink-0 text-sm font-bold text-slate-900">{item.current}{hasTarget ? ' / ' + item.target : ''}</div>
@@ -27,6 +39,36 @@ const ProgressRow = ({ item }) => {
           <div className="h-full rounded-full bg-indigo-500" style={{ width: percent + '%' }} />
         </div>
       )}
+      <div className="mt-2 flex items-center gap-1 text-[11px] font-medium text-indigo-700">
+        <Users className="h-3.5 w-3.5" />
+        Najeďte pro kontrolní detail
+      </div>
+      <div
+        id={tooltipId}
+        role="tooltip"
+        className="invisible absolute left-0 top-full z-50 mt-2 w-[min(36rem,calc(100vw-2rem))] translate-y-1 rounded-xl border border-indigo-200 bg-white p-3 text-left opacity-0 shadow-xl transition group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus:visible group-focus:translate-y-0 group-focus:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100"
+      >
+        <div className="mb-2 flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
+          <strong className="text-xs text-slate-900">{evidenceLabel}</strong>
+          <span className="text-xs font-bold text-indigo-700">{evidence.length}</span>
+        </div>
+        {evidence.length === 0 ? (
+          <p className="text-xs text-slate-500">Pro tento cíl zatím není započtena žádná položka.</p>
+        ) : (
+          <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
+            {evidence.map((entry, index) => (
+              <li key={entry.key || `${item.key}-${index}`} className="rounded-lg bg-slate-50 px-3 py-2 text-xs">
+                <div className="font-bold text-slate-900">{entry.clientName || 'Bez přiřazeného klienta'}</div>
+                <div className="mt-0.5 text-slate-700">
+                  {[formatEvidenceDate(entry.date), entry.performance].filter(Boolean).join(' · ') || 'Zdrojový výkon neuveden'}
+                </div>
+                {entry.area && <div className="mt-0.5 text-slate-500">Oblast: {entry.area}</div>}
+                {entry.detail && <div className="mt-0.5 text-slate-500">{entry.detail}</div>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 };

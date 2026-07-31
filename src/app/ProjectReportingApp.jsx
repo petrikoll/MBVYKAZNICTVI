@@ -2920,48 +2920,101 @@ function App() {
       const area = normalize(record.payload?.supportArea);
       return aliases.some((alias) => area.includes(normalize(alias)));
     };
+    const clientIndex = new Map(clients.map((client) => [client.id, client]));
+    const clientNamesForRecord = (record, fallbackClient = null) => {
+      if (fallbackClient?.fullName) return fallbackClient.fullName;
+      const clientIds = Array.isArray(record.clientIds) ? record.clientIds : record.clientId ? [record.clientId] : [];
+      const names = clientIds
+        .map((clientId) => clientIndex.get(clientId)?.fullName)
+        .filter(Boolean);
+      return names.length > 0 ? names.join(', ') : record.clientName || 'Bez přiřazeného klienta';
+    };
+    const goalEvidenceFromRecord = (record, client = null, detail = '') => ({
+      key: `${client?.id || 'record'}-${record.id || record._id || `${record.entityType || 'record'}-${record.activityDate || ''}-${record.title || ''}`}`,
+      clientName: clientNamesForRecord(record, client),
+      date: record.activityDate || record.date || '',
+      performance: record.payload?.consultationType || record.payload?.type || record.title || record.entityType || 'Výkon',
+      area: record.payload?.supportArea || '',
+      detail
+    });
     const isCompletedGoal = (goal) => isGoalCompleted(goal);
-    const evaluatedLongGoal = (clientId, aliases) => {
-      const plans = (contextRecordsByClient.get(clientId) || []).filter((record) => record.entityType === 'plans');
-      const activities = (filteredRecordsByClient.get(clientId) || []).filter(
+    const evaluatedLongGoalEvidence = (client, aliases) => {
+      const plans = (contextRecordsByClient.get(client.id) || []).filter((record) => record.entityType === 'plans');
+      const activities = (filteredRecordsByClient.get(client.id) || []).filter(
         (record) => isLongTermProjectGoalEvidenceRecord(record) && areaMatches(record, aliases)
       );
-      return activities.some((activity) => {
+      for (const activity of activities) {
         const goalId = String(activity.linkedPlanGoalId || activity.payload?.linkedPlanGoalId || '');
-        if (!goalId || goalId === 'one-time-order') return false;
-        return plans.some((plan) => {
+        if (!goalId || goalId === 'one-time-order') continue;
+        for (const plan of plans) {
           const finalEvaluation = String(plan.finalEvaluation || plan.payload?.finalEvaluation || '').trim();
           const goal = getPlanGoals(plan).find(
             (item, index) => String(item.goalId || item.id || ('goal-' + (index + 1))) === goalId
           );
-          return Boolean(goal && isCompletedGoal(goal) && (String(goal.goalEvaluation || '').trim() || finalEvaluation));
-        });
-      });
+          if (goal && isCompletedGoal(goal) && (String(goal.goalEvaluation || '').trim() || finalEvaluation)) {
+            const goalLabel = activity.linkedPlanGoalLabel || activity.payload?.linkedPlanGoalLabel || goal.goalText || goal.text || '';
+            return goalEvidenceFromRecord(activity, client, goalLabel ? `Cíl individuálního plánu: ${goalLabel}` : 'Vyhodnocený cíl individuálního plánu');
+          }
+        }
+      }
+      return null;
     };
-    const completedShortOrder = (clientId, aliases) =>
-      (filteredRecordsByClient.get(clientId) || []).some((record) => {
-        if (!isShortTermProjectGoalEvidenceRecord(record) || !areaMatches(record, aliases)) return false;
-        const outcome = String(record.payload?.outcome || record.documentText || '').trim();
-        const goalId = String(record.linkedPlanGoalId || record.payload?.linkedPlanGoalId || '');
+    const completedShortOrderEvidence = (client, aliases) => {
+      const record = (filteredRecordsByClient.get(client.id) || []).find((item) => {
+        if (!isShortTermProjectGoalEvidenceRecord(item) || !areaMatches(item, aliases)) return false;
+        const outcome = String(item.payload?.outcome || item.documentText || '').trim();
+        const goalId = String(item.linkedPlanGoalId || item.payload?.linkedPlanGoalId || '');
         return Boolean(outcome && (!goalId || goalId === 'one-time-order'));
       });
-    const countLongGoal = (aliases) => longTermClients.filter((client) => evaluatedLongGoal(client.id, aliases)).length;
-    const countShortGoal = (aliases) => shortTermClients.filter((client) => completedShortOrder(client.id, aliases)).length;
-    const countSocialInclusionGoal = () => shortTermClients.filter((client) => {
-      const distinctAreas = new Set(
-        (filteredRecordsByClient.get(client.id) || [])
-          .filter((record) => {
-            const ka = normalize(record.ka).replace(/\s/g, '');
-            return isShortTermProjectGoalEvidenceRecord(record) && ['ka1', 'ka01', 'ka2', 'ka02'].includes(ka);
-          })
-          .map((record) => normalize(record.payload?.supportArea))
-          .filter((area) => area && area !== normalize('soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed'))
-      );
-      return distinctAreas.size >= 3;
-    }).length;
+      return record ? goalEvidenceFromRecord(record, client, 'Dokončená jednorázová zakázka') : null;
+    };
+    const longGoalEvidence = (aliases) => longTermClients
+      .map((client) => evaluatedLongGoalEvidence(client, aliases))
+      .filter(Boolean);
+    const shortGoalEvidence = (aliases) => shortTermClients
+      .map((client) => completedShortOrderEvidence(client, aliases))
+      .filter(Boolean);
+    const socialInclusionEvidence = shortTermClients.map((client) => {
+      const areas = new Map();
+      (filteredRecordsByClient.get(client.id) || []).forEach((record) => {
+        const ka = normalize(record.ka).replace(/\s/g, '');
+        if (!isShortTermProjectGoalEvidenceRecord(record) || !['ka1', 'ka01', 'ka2', 'ka02'].includes(ka)) return;
+        const normalizedArea = normalize(record.payload?.supportArea);
+        if (!normalizedArea || normalizedArea === normalize('soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed') || areas.has(normalizedArea)) return;
+        areas.set(normalizedArea, record);
+      });
+      if (areas.size < 3) return null;
+      const areaRecords = Array.from(areas.values());
+      const areaLabels = areaRecords.map((record) => record.payload?.supportArea).filter(Boolean);
+      const performances = Array.from(new Set(areaRecords.map(
+        (record) => record.payload?.consultationType || record.payload?.type || record.title || record.entityType
+      ).filter(Boolean)));
+      return {
+        key: `inclusion-${client.id}`,
+        clientName: client.fullName || client.id,
+        date: '',
+        performance: performances.join(', '),
+        area: areaLabels.join(', '),
+        detail: `${areas.size} různé oblasti podpory v KA1/KA2`
+      };
+    }).filter(Boolean);
 
-    const caseMeetingCount = filteredRecords.filter(isCaseMeetingDashboardRecord).length;
-    const outreachCount = filteredRecords.filter(isDepistageRecord).length;
+    const caseMeetingRecords = filteredRecords.filter(isCaseMeetingDashboardRecord);
+    const outreachRecords = filteredRecords.filter(isDepistageRecord);
+    const caseMeetingEvidence = caseMeetingRecords.map((record) => goalEvidenceFromRecord(record));
+    const outreachEvidence = outreachRecords.map((record) => goalEvidenceFromRecord(record));
+    const goalEvidenceByKey = {
+      'parenting-long': longGoalEvidence(['rodina']),
+      'housing-long': longGoalEvidence(['bydlení']),
+      'work-long': longGoalEvidence(['zaměstnání']),
+      'finance-long': longGoalEvidence(['finance/dluhy', 'dluhy']),
+      'security-short': shortGoalEvidence(['bydlení', 'finance/dluhy', 'zaměstnání', 'práva/povinnosti']),
+      'services-short': shortGoalEvidence(['zdraví', 'bezpečí', 'vzdělání', 'služby']),
+      'parenting-short': shortGoalEvidence(['rodina']),
+      'inclusion-short': socialInclusionEvidence,
+      outreach: outreachEvidence,
+      'case-meetings': caseMeetingEvidence
+    };
     const hoursValue = (value) => {
       const minutes = hoursToMinutes(value);
       return minutes > 0 ? minutes / 60 : 0;
@@ -3046,35 +3099,39 @@ function App() {
         { key: '670102', code: '670 102', label: 'Vyu\u017e\u00edv\u00e1n\u00ed podpo\u0159en\u00fdch slu\u017eeb', current: shortEligible.length, target: 100 }
       ],
       longGoals: [
-        { key: 'parenting-long', label: 'Rodi\u010dovsk\u00e9 kompetence', current: countLongGoal(['rodina']), target: 11 },
-        { key: 'housing-long', label: 'Bydlen\u00ed', current: countLongGoal(['bydlen\u00ed']), target: 5 },
-        { key: 'work-long', label: 'Pracovn\u00ed kompetence', current: countLongGoal(['zam\u011bstn\u00e1n\u00ed']), target: 5 },
-        { key: 'finance-long', label: 'Finan\u010dn\u00ed situace', current: countLongGoal(['finance/dluhy', 'dluhy']), target: 5 }
+        { key: 'parenting-long', label: 'Rodi\u010dovsk\u00e9 kompetence', current: goalEvidenceByKey['parenting-long'].length, target: 11, evidence: goalEvidenceByKey['parenting-long'] },
+        { key: 'housing-long', label: 'Bydlen\u00ed', current: goalEvidenceByKey['housing-long'].length, target: 5, evidence: goalEvidenceByKey['housing-long'] },
+        { key: 'work-long', label: 'Pracovn\u00ed kompetence', current: goalEvidenceByKey['work-long'].length, target: 5, evidence: goalEvidenceByKey['work-long'] },
+        { key: 'finance-long', label: 'Finan\u010dn\u00ed situace', current: goalEvidenceByKey['finance-long'].length, target: 5, evidence: goalEvidenceByKey['finance-long'] }
       ],
       shortGoals: [
         {
           key: 'security-short',
           label: 'Soci\u00e1ln\u00ed zabezpe\u010den\u00ed',
-          current: countShortGoal(['bydlen\u00ed', 'finance/dluhy', 'zam\u011bstn\u00e1n\u00ed', 'pr\u00e1va/povinnosti']),
-          target: 50
+          current: goalEvidenceByKey['security-short'].length,
+          target: 50,
+          evidence: goalEvidenceByKey['security-short']
         },
         {
           key: 'services-short',
           label: 'P\u0159\u00edstup ke slu\u017eb\u00e1m',
-          current: countShortGoal(['zdrav\u00ed', 'bezpe\u010d\u00ed', 'vzd\u011bl\u00e1n\u00ed', 'slu\u017eby']),
-          target: 25
+          current: goalEvidenceByKey['services-short'].length,
+          target: 25,
+          evidence: goalEvidenceByKey['services-short']
         },
-        { key: 'parenting-short', label: 'Rodi\u010dovsk\u00e9 kompetence', current: countShortGoal(['rodina']), target: 20 },
-        { key: 'inclusion-short', label: 'Soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed (min. 3 oblasti v KA1/KA2)', current: countSocialInclusionGoal(), target: 5 }
+        { key: 'parenting-short', label: 'Rodi\u010dovsk\u00e9 kompetence', current: goalEvidenceByKey['parenting-short'].length, target: 20, evidence: goalEvidenceByKey['parenting-short'] },
+        { key: 'inclusion-short', label: 'Soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed (min. 3 oblasti v KA1/KA2)', current: goalEvidenceByKey['inclusion-short'].length, target: 5, evidence: goalEvidenceByKey['inclusion-short'] }
       ],
       activityGoals: [
-        { key: 'outreach', label: 'Depist\u00e1\u017en\u00ed z\u00e1znamy', current: outreachCount, target: 100 },
+        { key: 'outreach', label: 'Depist\u00e1\u017en\u00ed z\u00e1znamy', current: goalEvidenceByKey.outreach.length, target: 100, evidence: goalEvidenceByKey.outreach, evidenceLabel: 'Započtené záznamy' },
         {
           key: 'case-meetings',
           label: 'P\u0159\u00edpadov\u00e1 / multioborov\u00e1 setk\u00e1n\u00ed',
-          current: caseMeetingCount,
+          current: goalEvidenceByKey['case-meetings'].length,
           target: 15,
-          note: CASE_MEETING_DASHBOARD_NOTE
+          note: CASE_MEETING_DASHBOARD_NOTE,
+          evidence: goalEvidenceByKey['case-meetings'],
+          evidenceLabel: 'Započtené záznamy'
         }
       ],
       professionalDevelopmentStats,
