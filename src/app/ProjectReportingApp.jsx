@@ -5709,6 +5709,11 @@ ${rawOutput}` }] }],
     });
   };
 
+  const filteredClientSupportRecords = useMemo(
+    () => getUniqueClientSupportRecords(filteredRecords),
+    [filteredRecords]
+  );
+
   const exportActivitiesCsv = () => {
     const rows = filteredRecords.map((record) => [
       record.activityDate || '',
@@ -5821,13 +5826,13 @@ ${rawOutput}` }] }],
   };
 
   const exportAllRecordsBackup = () => {
-    const supportRecords = getUniqueClientSupportRecords(filteredRecords);
+    const supportRecords = filteredClientSupportRecords;
     const content = buildAllRecordsBackupHtml(supportRecords, clients);
     downloadHtmlDocument(content, `zapisy-podpory-${todayIso()}.doc`);
   };
   const exportDetailedOutputsXlsx = async () => {
     if (isExportingDetailedOutputs) return;
-    const supportRecords = getUniqueClientSupportRecords(filteredRecords);
+    const supportRecords = filteredClientSupportRecords;
     if (!supportRecords.length) {
       setFlash('Pro zvolené filtry nejsou evidovány žádné výkony k exportu.');
       return;
@@ -7773,7 +7778,10 @@ ${rawPlanOutput}` }] }],
               exportAllRecordsBackup={exportAllRecordsBackup}
               exportDetailedOutputsXlsx={exportDetailedOutputsXlsx}
               isExportingDetailedOutputs={isExportingDetailedOutputs}
-              supportExportCount={getUniqueClientSupportRecords(filteredRecords).length}
+              supportExportCount={filteredClientSupportRecords.length}
+              analyticsRecords={filteredClientSupportRecords}
+              clients={clients}
+              onOpenClient={(clientId) => openClient(clientId, 'clients')}
               dashboardFilters={dashboardFilters}
               setDashboardFilters={setDashboardFilters}
               filteredRecords={filteredRecords}

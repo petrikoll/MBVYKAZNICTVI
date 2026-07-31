@@ -5,6 +5,7 @@ import { HelpIcon, Panel, SelectField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { REPORTING_PERIODS, WORKERS } from '../config/projectConfig.js';
 import { backupProgressText, isBackupStatusActive } from '../lib/backupStatus.js';
+import ReportingAnalyticsView from './ReportingAnalyticsView.jsx';
 
 const formatEvidenceDate = (value) => {
   const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -137,6 +138,9 @@ function ReportingView({
   exportDetailedOutputsXlsx,
   isExportingDetailedOutputs = false,
   supportExportCount,
+  analyticsRecords = [],
+  clients = [],
+  onOpenClient,
   dashboardFilters,
   setDashboardFilters,
   filteredRecords,
@@ -153,6 +157,7 @@ function ReportingView({
   handleInstallWeeklyBackup
 }) {
   const [showDetailedOutputs, setShowDetailedOutputs] = React.useState(false);
+  const [detailedSection, setDetailedSection] = React.useState('analytics');
   const overview = dashboardOverview || { indicators: [], longGoals: [], shortGoals: [], activityGoals: [], professionalDevelopmentStats: [], partnerMetrics: [], risks: [] };
   React.useEffect(() => {
     if (!showDetailedOutputs && (dashboardFilters.ka !== 'all' || dashboardFilters.worker !== 'all')) {
@@ -188,6 +193,11 @@ function ReportingView({
             <h1 className="text-xl font-bold text-slate-900">Podrobné výstupy</h1>
             <p className="mt-1 text-sm text-slate-600">Sestavy a podklady pro vykazování podle zvoleného období, aktivity a pracovníka.</p>
           </div>
+        </div>
+
+        <div className="inline-flex rounded-xl border border-slate-300 bg-slate-100 p-1" role="tablist" aria-label="Část podrobných výstupů">
+          <button type="button" role="tab" aria-selected={detailedSection === 'analytics'} onClick={() => setDetailedSection('analytics')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${detailedSection === 'analytics' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Analýzy a grafy</button>
+          <button type="button" role="tab" aria-selected={detailedSection === 'reports'} onClick={() => setDetailedSection('reports')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${detailedSection === 'reports' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Sestavy a exporty</button>
         </div>
 
         <Panel
@@ -242,24 +252,30 @@ function ReportingView({
           </div>
         </Panel>
 
-        <Panel title="Základní sestavy XLSX" description="Jeden sešit obsahuje dva samostatné listy a lze jej dále rozšiřovat o další sestavy." icon={FileSpreadsheet}>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><strong className="text-sm text-blue-900">Podrobné výkony</strong><p className="mt-1 text-xs text-blue-800">Jednotlivé výkony včetně času, klienta, pracovníka, oblasti, výsledku, dalšího kroku, cíle IP a textu zápisu.</p></div>
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4"><strong className="text-sm text-emerald-900">Klienti a podpora</strong><p className="mt-1 text-xs text-emerald-800">Počet výkonů a hodin celkem, samostatně telefonická podpora a ostatní formy podpory.</p></div>
-          </div>
-        </Panel>
+        {detailedSection === 'analytics' ? (
+          <ReportingAnalyticsView records={analyticsRecords} clients={clients} onOpenClient={onOpenClient} />
+        ) : (
+          <>
+            <Panel title="Základní sestavy XLSX" description="Jeden sešit obsahuje dva samostatné listy a lze jej dále rozšiřovat o další sestavy." icon={FileSpreadsheet}>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><strong className="text-sm text-blue-900">Podrobné výkony</strong><p className="mt-1 text-xs text-blue-800">Jednotlivé výkony včetně času, klienta, pracovníka, oblasti, výsledku, dalšího kroku, cíle IP a textu zápisu.</p></div>
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4"><strong className="text-sm text-emerald-900">Klienti a podpora</strong><p className="mt-1 text-xs text-emerald-800">Počet výkonů a hodin celkem, samostatně telefonická podpora a ostatní formy podpory.</p></div>
+              </div>
+            </Panel>
 
-        {zorTexts && (
-          <Panel title={'Texty pro ZOR (' + zorTexts.periodLabel + ')'} description="Pracovní návrhy popisu pokroku za sledované období." icon={FileText}>
-            <div className="space-y-3">
-              {Object.entries(zorTexts.texts).map(([ka, value]) => (
-                <div key={ka} className="rounded-lg border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between gap-3"><strong>{ka}</strong><button type="button" onClick={() => copyToClipboard(value, setCopied)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold"><ClipboardCopy className="h-4 w-4" />{copied ? 'Zkopírováno' : 'Kopírovat'}</button></div>
-                  <div className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{value}</div>
+            {zorTexts && (
+              <Panel title={'Texty pro ZOR (' + zorTexts.periodLabel + ')'} description="Pracovní návrhy popisu pokroku za sledované období." icon={FileText}>
+                <div className="space-y-3">
+                  {Object.entries(zorTexts.texts).map(([ka, value]) => (
+                    <div key={ka} className="rounded-lg border border-slate-200 bg-white p-4">
+                      <div className="flex items-center justify-between gap-3"><strong>{ka}</strong><button type="button" onClick={() => copyToClipboard(value, setCopied)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold"><ClipboardCopy className="h-4 w-4" />{copied ? 'Zkopírováno' : 'Kopírovat'}</button></div>
+                      <div className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{value}</div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </Panel>
+              </Panel>
+            )}
+          </>
         )}
       </div>
     );
