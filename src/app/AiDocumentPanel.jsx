@@ -4,12 +4,7 @@ import { CheckCircle2, Download, Loader2, Save, Sparkles } from 'lucide-react';
 import { CheckboxField, HelpIcon, InputField, Panel, SaveInlineNotice, SelectField, TextAreaField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { KU_SUPPORT_DEFAULT_CODE, KU_SUPPORT_TYPE_OPTIONS } from '../config/projectConfig.js';
-
-const PHYSICAL_SIGNED_FILED_OUTREACH_TEXT = [
-  'Zápis k depistáži byl fyzicky podepsán a založen do klientské dokumentace.',
-  'Elektronický záznam slouží pouze k evidenci základních údajů o aktivitě v programu.',
-  'Podrobný obsah aktivity je uveden ve fyzicky založeném zápisu.'
-].join(' ');
+import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 
 function AiDocumentPanel({
   allowedKeys,
@@ -252,7 +247,9 @@ function AiDocumentPanel({
     }
   });
   const updatePhysicalSignedFiled = (checked) => {
-    const generatedTextValue = checked ? PHYSICAL_SIGNED_FILED_OUTREACH_TEXT : generatedText;
+    const generatedTextValue = checked
+      ? buildPhysicalSignedFiledOutreachText(supportSpecific.physicalRecordComment)
+      : generatedText;
     if (checked) setGeneratedText(generatedTextValue);
     updateDraft({
       supportSpecific: {
@@ -265,6 +262,17 @@ function AiDocumentPanel({
         nextSteps: '',
         generatedText: generatedTextValue
       } : {})
+    });
+  };
+  const updatePhysicalRecordComment = (value) => {
+    const generatedTextValue = buildPhysicalSignedFiledOutreachText(value);
+    setGeneratedText(generatedTextValue);
+    updateDraft({
+      supportSpecific: {
+        ...supportSpecific,
+        physicalRecordComment: value
+      },
+      generatedText: generatedTextValue
     });
   };
   const CASE_PARTNER_CUSTOM_VALUE = '__manual_person__';
@@ -581,9 +589,18 @@ function AiDocumentPanel({
               </div>
             )}
             {isSignedFiledOutreach && (
-              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                Zápis je veden fyzicky. Popis, Výsledek a Navazující krok jsou proto v elektronickém formuláři neaktivní a zápis lze vygenerovat bez jejich vyplnění.
-              </p>
+              <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm text-amber-900">
+                  Zápis je veden fyzicky. Popis, Výsledek a Navazující krok jsou proto neaktivní. K evidenci ale můžete doplnit elektronický komentář.
+                </p>
+                <TextAreaField
+                  label="Elektronický komentář k fyzickému zápisu"
+                  help={HELP.supportSpecific_physicalRecordComment}
+                  value={supportSpecific.physicalRecordComment || ''}
+                  onChange={updatePhysicalRecordComment}
+                  rows={3}
+                />
+              </div>
             )}
             <div className="grid gap-3 sm:grid-cols-3">
               <div>

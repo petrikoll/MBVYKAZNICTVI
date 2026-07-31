@@ -95,6 +95,7 @@ import {
 import { buildClientSelectionPool } from '../lib/clientSelection.js';
 import { buildClientCaseAiPrompt, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
 import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
+import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { buildHorizontalPrinciplesAiPrompt, buildHorizontalPrinciplesFallbackText, buildZorTexts } from '../lib/zorSummary.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
 import sfLogoImage from '../assets/eu-spolufinancovano-logo.png';
@@ -190,11 +191,6 @@ const isPhysicalSignedFiledOutreach = (draft = {}) =>
   !draft.caseManagementMode &&
   isDepistageType(draft.consultationType) &&
   Boolean(draft.supportSpecific?.physicalSignedFiled);
-const buildPhysicalSignedFiledOutreachText = () => [
-  'Zápis k depistáži byl fyzicky podepsán a založen do klientské dokumentace.',
-  'Elektronický záznam slouží pouze k evidenci základních údajů o aktivitě v programu.',
-  'Podrobný obsah aktivity je uveden ve fyzicky založeném zápisu.'
-].join(' ');
 const APP_VERSION_LABEL = 'verze 2026-07-10';
 const AI_MODEL_OPTIONS = [
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
@@ -4230,11 +4226,11 @@ function App() {
     if (generatorDraft.selectedKey === 'mentor' && !selectedTpmRecord) {
     }
     if (isPhysicalSignedFiledOutreach(generatorDraft)) {
-      const physicalText = buildPhysicalSignedFiledOutreachText();
+      const physicalText = buildPhysicalSignedFiledOutreachText(generatorDraft.supportSpecific?.physicalRecordComment);
       setGeneratedText(physicalText);
       setLastGeneratedText(physicalText);
       setGeneratorDraft((prev) => ({ ...prev, topics: '', outcome: '', nextSteps: '', generatedText: physicalText }));
-      setGenerationNotice('Zápis je fyzicky podepsán a založen. Elektronický text byl vytvořen bez vyplnění polí Popis, Výsledek a Navazující krok.');
+      setGenerationNotice('Zápis je fyzicky podepsán a založen. Elektronický text obsahuje potvrzení o fyzickém uložení a případný doplňující komentář.');
       setFlash('Zápis pro fyzicky založenou depistáž byl připraven.');
       setAiGenerationStatus('success');
       return;

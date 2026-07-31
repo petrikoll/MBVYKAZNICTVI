@@ -112,7 +112,7 @@ const COMMON_AI_QUALITY_RULES = [
 
 const SUPPORT_SPECIFIC_LABELS = {
   contactPlace: 'Misto depistaze', contactMethod: 'Zpusob kontaktu',
-  cooperationInterest: 'Zajem o dalsi spolupraci', mappedAreas: 'Dalsi zjistene oblasti', risks: 'Rizika',
+  cooperationInterest: 'Zajem o dalsi spolupraci', physicalRecordComment: 'Elektronicky komentar k fyzickemu zapisu', mappedAreas: 'Dalsi zjistene oblasti', risks: 'Rizika',
   clientResources: 'Zdroje klienta', clientNeeds: 'Potreby klienta', providedInformation: 'Poskytnute informace',
   recommendedProcedure: 'Doporuceny postup', fieldWorkPlace: 'Misto vykonu', visitPurpose: 'Ucel navstevy',
   accompanimentPlace: 'Kam doprovod probehl', accompanimentPurpose: 'Ucel doprovodu', accompanimentResult: 'Vysledek doprovodu',
