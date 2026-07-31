@@ -5,6 +5,7 @@ import { CheckboxField, HelpIcon, InputField, Panel, SaveInlineNotice, SelectFie
 import { HELP } from '../config/helpCatalog.js';
 import { KU_SUPPORT_DEFAULT_CODE, KU_SUPPORT_TYPE_OPTIONS } from '../config/projectConfig.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
+import { PROJECT_TIME_OPTIONS } from '../lib/timeOptions.js';
 
 function AiDocumentPanel({
   allowedKeys,
@@ -127,14 +128,8 @@ function AiDocumentPanel({
       field('recommendation', 'Doporu\u010den\u00ed')
     ]
   };
-  const WORKDAY_TIME_OPTIONS = Array.from({ length: 21 }, (_, index) => {
-    const totalMinutes = 7 * 60 + index * 30;
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = String(totalMinutes % 60).padStart(2, '0');
-    return `${hours}:${minutes}`;
-  });
   const timeOptionsWithValue = (value) =>
-    value && !WORKDAY_TIME_OPTIONS.includes(value) ? [value, ...WORKDAY_TIME_OPTIONS] : WORKDAY_TIME_OPTIONS;
+    value && !PROJECT_TIME_OPTIONS.includes(value) ? [value, ...PROJECT_TIME_OPTIONS] : PROJECT_TIME_OPTIONS;
   const parseTimeToMinutes = (value) => {
     const match = String(value || '').trim().match(/^(\d{1,2})[:.](\d{2})$/);
     if (!match) return null;

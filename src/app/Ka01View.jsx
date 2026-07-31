@@ -12,6 +12,7 @@ import {
   selectedContactIds
 } from '../lib/actorContacts.js';
 import { truncate } from '../lib/projectUtils.js';
+import { PROJECT_TIME_OPTIONS } from '../lib/timeOptions.js';
 
 const ACTIVITY_OPTIONS = [
   { value: 'koordina\u010dn\u00ed setk\u00e1n\u00ed', label: 'Koordina\u010dn\u00ed setk\u00e1n\u00ed' },
@@ -45,11 +46,7 @@ function Ka01View({
   const [attendanceActorRecord, setAttendanceActorRecord] = React.useState(null);
   const [attendanceContactIds, setAttendanceContactIds] = React.useState([]);
   const [attendanceTypePickerOpen, setAttendanceTypePickerOpen] = React.useState(false);
-  const timeOptions = React.useMemo(() => Array.from({ length: 21 }, (_, index) => {
-    const total = 7 * 60 + index * 30;
-    return Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
-  }), []);
-  const timesWithCurrent = (value) => value && !timeOptions.includes(value) ? [value, ...timeOptions] : timeOptions;
+  const timesWithCurrent = (value) => value && !PROJECT_TIME_OPTIONS.includes(value) ? [value, ...PROJECT_TIME_OPTIONS] : PROJECT_TIME_OPTIONS;
   const isTeamMeeting = String(ka01Draft.networkType || '').toLowerCase() === 'porada';
   const sortedActors = React.useMemo(
     () => [...ka01ActorRegistryRecords].sort((a, b) => String(a.payload?.name || '').localeCompare(String(b.payload?.name || ''), 'cs')),
