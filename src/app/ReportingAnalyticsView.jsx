@@ -2,7 +2,6 @@ import React from 'react';
 import {
   BarChart3,
   CalendarDays,
-  CheckCircle2,
   Clock3,
   FilterX,
   ListFilter,
@@ -263,13 +262,6 @@ function ReportingAnalyticsView({ records = [], clients = [], onOpenClient }) {
     setSelectedRecordKey('');
   };
 
-  const qualityCounts = {
-    'missing-area': rows.filter((row) => !row.supportArea).length,
-    'missing-outcome': rows.filter((row) => !row.hasOutcome).length,
-    'without-goal': rows.filter((row) => row.goalLinkKind === 'none').length,
-    'outreach-comment': filterAnalyticsRows(rows, { smartFilter: 'outreach-comment' }).length
-  };
-
   return (
     <div className="space-y-5">
       <section className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm">
@@ -357,20 +349,6 @@ function ReportingAnalyticsView({ records = [], clients = [], onOpenClient }) {
             </div>
           </div>
         )}
-      </section>
-
-      <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-        <h3 className="flex items-center gap-2 text-sm font-bold text-amber-950"><CheckCircle2 className="h-4 w-4" />Rychlé kontroly úplnosti</h3>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {[
-            ['missing-area', 'Chybí oblast', qualityCounts['missing-area']],
-            ['missing-outcome', 'Chybí výsledek', qualityCounts['missing-outcome']],
-            ['without-goal', 'Bez vazby na cíl', qualityCounts['without-goal']],
-            ['outreach-comment', 'Depistáž s komentářem', qualityCounts['outreach-comment']]
-          ].map(([value, label, count]) => (
-            <button key={value} type="button" onClick={() => setFilters((prev) => ({ ...prev, smartFilter: prev.smartFilter === value ? 'all' : value }))} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${filters.smartFilter === value ? 'border-amber-600 bg-amber-600 text-white' : 'border-amber-300 bg-white text-amber-900 hover:bg-amber-100'}`}>{label}: {count}</button>
-          ))}
-        </div>
       </section>
 
       <section className="space-y-3">
