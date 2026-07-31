@@ -84,6 +84,16 @@ function sendFile(response, filePath) {
 }
 
 const server = createServer((request, response) => {
+  const healthPath = String(request.url || '/').split('?')[0];
+  if ((request.method === 'GET' || request.method === 'HEAD') && healthPath === '/healthz') {
+    response.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store'
+    });
+    response.end(request.method === 'HEAD' ? undefined : 'ok');
+    return;
+  }
+
   if (!isAuthorized(request)) {
     requireAuth(response);
     return;
