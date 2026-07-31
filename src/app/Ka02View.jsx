@@ -9,6 +9,7 @@ function Ka02View({
   onUpdateRecord,
   ka02Draft,
   setKa02Draft,
+  onSelectedClientChange,
   setGeneratorDraft,
   renderAiDocumentPanel,
   ka02AiDocumentKeys,
@@ -54,6 +55,7 @@ function Ka02View({
           onUpdateRecord={onUpdateRecord}
           selectedClientId={ka02Draft.selectedClientId}
           onClientChange={(clientId) => {
+            onSelectedClientChange(clientId);
             setKa02Draft((prev) => ({ ...prev, selectedClientId: clientId }));
             setGeneratorDraft((prev) => ({
               ...prev,

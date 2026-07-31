@@ -46,7 +46,7 @@ function ReadOnlyPlan({ clients, records, selectedClientId, onClientChange }) {
   );
 }
 
-function Ka2CaseManagementView({ clients, records, ka02Draft, setKa02Draft, setGeneratorDraft, renderAiDocumentPanel, computedIndicators }) {
+function Ka2CaseManagementView({ clients, records, ka02Draft, setKa02Draft, onSelectedClientChange, setGeneratorDraft, renderAiDocumentPanel, computedIndicators }) {
   const selectedClientName = clients.find((client) => client.id === ka02Draft.selectedClientId)?.fullName || '';
 
   React.useEffect(() => {
@@ -62,6 +62,7 @@ function Ka2CaseManagementView({ clients, records, ka02Draft, setKa02Draft, setG
 
   const caseCount = Array.isArray(computedIndicators) ? computedIndicators.find((item) => item.key === 'ka02Consultations')?.current || 0 : 0;
   const selectClient = (clientId) => {
+    onSelectedClientChange(clientId);
     setKa02Draft((prev) => ({ ...prev, selectedClientId: clientId }));
     setGeneratorDraft((prev) => ({
       ...prev,

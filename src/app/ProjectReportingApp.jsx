@@ -83,6 +83,16 @@ import {
 } from '../components/ui.jsx';
 import { appId, auth, db, hasFirebaseConfig } from '../lib/firebase.js';
 import { parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
+import {
+  actorContactsToSheetFields,
+  buildAttendanceParticipants,
+  contactsFromSheetRow,
+  createEmptyActorContact,
+  isAttendanceReadyContact,
+  normalizeActorContacts,
+  selectedContactIds
+} from '../lib/actorContacts.js';
+import { buildClientSelectionPool } from '../lib/clientSelection.js';
 import { buildClientCaseAiPrompt, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
 import { buildHorizontalPrinciplesAiPrompt, buildHorizontalPrinciplesFallbackText, buildZorTexts } from '../lib/zorSummary.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
@@ -1608,6 +1618,8 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
     const id = asSheetText(row.partner_id);
     const name = asSheetText(row.nazev_subjektu || row.subjekt || row.name);
     if (!id && !name) return;
+    const contacts = contactsFromSheetRow(row);
+    const primaryContact = contacts[0] || createEmptyActorContact();
     records.push({
       id: id || 'partner-' + name,
       remoteSource: 'google-sheet',
@@ -1622,10 +1634,14 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
         actorType: asSheetText(row.typ_aktera),
         networkOrigin: asSheetText(row.puvod_site),
         joinedNetworkDate: asSheetDate(row.datum_zapojeni),
-        contactName: asSheetText(row.kontaktni_osoba),
-        contactRole: asSheetText(row.funkce),
-        phone: asSheetText(row.telefon),
-        email: asSheetText(row.email),
+        contacts,
+        contactName: primaryContact.name,
+        contactTitle: primaryContact.title,
+        contactFirstName: primaryContact.firstName,
+        contactLastName: primaryContact.lastName,
+        contactRole: primaryContact.role,
+        phone: primaryContact.phone,
+        email: primaryContact.email,
         cooperationStatus: asSheetText(row.status) || 'zapojen? akt?r'
       },
       indicatorFlags: { ka01ActorRegistry: true },
@@ -1926,6 +1942,7 @@ const createKa01ActorDraft = () => ({
   contactRole: '',
   phone: '',
   email: '',
+  contacts: [createEmptyActorContact()],
   communicationNote: '',
   cooperationStatus: 'potenciální aktér',
   joinedNetworkDate: '',
@@ -2056,7 +2073,7 @@ const KA01_DRAFT_CONTENT_FIELDS = [
 
 const KA01_ACTOR_DRAFT_CONTENT_FIELDS = [
   'id', 'name', 'networkOrigin', 'ico', 'municipality', 'web', 'contactTitle', 'contactFirstName',
-  'contactLastName', 'contactName', 'contactRole', 'phone', 'email', 'communicationNote',
+  'contactLastName', 'contactName', 'contactRole', 'phone', 'email', 'contacts', 'communicationNote',
   'joinedNetworkDate', 'lastContactDate', 'inactivityReason', 'roleOtherText', 'plannedOutreachMonth',
   'outreachDate', 'outreachResult', 'formalJoinDate', 'cooperationBarrierNote'
 ];
@@ -2209,6 +2226,7 @@ function App() {
     contactRole: '',
     phone: '',
     email: '',
+    contacts: [createEmptyActorContact()],
     communicationNote: '',
     cooperationStatus: 'potenciální aktér',
     joinedNetworkDate: '',
@@ -2528,10 +2546,16 @@ function App() {
     );
   }, [clients, currentWorker, canSeeAllClients]);
 
-  const clientSelectionPool = useMemo(() => {
-    if (mainView === 'clients' && showAllClients) return clients;
-    return accessibleClients;
-  }, [mainView, showAllClients, clients, accessibleClients]);
+  const clientSelectionPool = useMemo(
+    () => buildClientSelectionPool({
+      clients,
+      accessibleClients,
+      selectedClientId,
+      mainView,
+      showAllClients
+    }),
+    [mainView, showAllClients, clients, accessibleClients, selectedClientId]
+  );
 
   const selectedClient = selectedClientId ?clientIndex[selectedClientId] : null;
 
@@ -3146,9 +3170,16 @@ function App() {
     setKa01AttendanceSelection((prev) => {
       const next = { ...prev };
       ka01ActorRegistryRecords.forEach((record) => {
-        if (typeof next[record.id] === 'boolean') return;
+        const contacts = normalizeActorContacts(record.payload || {});
+        if (Array.isArray(next[record.id])) {
+          next[record.id] = selectedContactIds(next[record.id], contacts)
+            .filter((contactId) => contacts.some((contact) => contact.id === contactId && isAttendanceReadyContact(contact)));
+          return;
+        }
         const defaultValue = Boolean(record.payload?.includeInAttendance);
-        next[record.id] = defaultValue;
+        next[record.id] = defaultValue
+          ? contacts.filter(isAttendanceReadyContact).map((contact) => contact.id)
+          : [];
       });
       return next;
     });
@@ -3635,6 +3666,7 @@ function App() {
     const payload = record.payload || {};
 
     if (record.entityType === 'actor_registry') {
+      const contactSheetFields = actorContactsToSheetFields(payload);
       const result = await postGoogleSheetAction({
         action: 'savePartner',
         partner: {
@@ -3643,10 +3675,7 @@ function App() {
           typ_aktera: payload.actorType || '',
           puvod_site: payload.networkOrigin || 'st\u00e1vaj\u00edc\u00ed',
           datum_zapojeni: payload.joinedNetworkDate || record.activityDate || '',
-          kontaktni_osoba: payload.contactName || [payload.contactTitle, payload.contactFirstName, payload.contactLastName].filter(Boolean).join(' '),
-          funkce: payload.contactRole || payload.role || '',
-          telefon: payload.phone || '',
-          email: payload.email || '',
+          ...contactSheetFields,
           status: 'Platn\u00fd'
         }
       });
@@ -5186,7 +5215,8 @@ ${rawOutput}` }] }],
   const handleSaveKa01ActorRegistry = async () => {
     const name = String(ka01ActorDraft.name || '').trim();
     const origin = String(ka01ActorDraft.networkOrigin || '').trim();
-    const contactName = String(ka01ActorDraft.contactName || '').trim();
+    const contacts = normalizeActorContacts({ contacts: ka01ActorDraft.contacts });
+    const primaryContact = contacts[0] || createEmptyActorContact();
     clearSaveButtonNotice('actor');
     if (!name) { setSaveButtonNotice('actor', 'error', 'Aktér nebyl uložen: vyplňte název subjektu.'); setFlash('Vyplňte název subjektu.'); return; }
     if (!ka01ActorDraft.actorType) { setSaveButtonNotice('actor', 'error', 'Aktér nebyl uložen: vyberte typ aktéra.'); setFlash('Vyberte typ aktéra.'); return; }
@@ -5202,18 +5232,12 @@ ${rawOutput}` }] }],
       record.entityType === 'actor_registry'
       && record.id !== editingId
       && String(record.payload?.name || '').trim().toLowerCase() === name.toLowerCase()
-      && String(record.payload?.contactName || '').trim().toLowerCase() === contactName.toLowerCase()
     );
     if (duplicate) {
-      setSaveButtonNotice('actor', 'error', 'Aktér nebyl uložen: tento subjekt a kontaktní osoba už existují.');
+      setSaveButtonNotice('actor', 'error', 'Aktér nebyl uložen: tento subjekt už existuje. Upravte jej a přidejte další kontaktní osobu.');
+      setFlash('Tento subjekt už je v registru. Přidejte osobu přes jeho úpravu.');
+      return;
     }
-    if (duplicate) { setFlash('Tento subjekt a kontaktn\u00ed osoba u\u017e jsou v registru.'); return; }
-
-    const tokens = contactName.split(/\s+/).filter(Boolean);
-    const titlePattern = /^(Mgr\.?|Ing\.?|Bc\.?|JUDr\.?|MUDr\.?|PhDr\.?|doc\.?|prof\.?|DiS\.?)$/i;
-    const contactTitle = tokens.length && titlePattern.test(tokens[0]) ? tokens.shift() : '';
-    const contactFirstName = tokens.shift() || '';
-    const contactLastName = tokens.join(' ');
     const actorRecord = {
       entityType: 'actor_registry',
       ka: 'KA2',
@@ -5228,13 +5252,14 @@ ${rawOutput}` }] }],
         actorType: ka01ActorDraft.actorType,
         networkOrigin: origin,
         joinedNetworkDate: origin.toLowerCase().includes('nov') ? ka01ActorDraft.joinedNetworkDate : '',
-        contactName,
-        contactTitle,
-        contactFirstName,
-        contactLastName,
-        contactRole: String(ka01ActorDraft.contactRole || '').trim(),
-        phone: String(ka01ActorDraft.phone || '').trim(),
-        email: String(ka01ActorDraft.email || '').trim(),
+        contacts,
+        contactName: primaryContact.name,
+        contactTitle: primaryContact.title,
+        contactFirstName: primaryContact.firstName,
+        contactLastName: primaryContact.lastName,
+        contactRole: primaryContact.role,
+        phone: primaryContact.phone,
+        email: primaryContact.email,
         cooperationStatus: 'aktivn\u011b zapojen'
       },
       indicatorFlags: { ka01NetworkSize: 1 }
@@ -5251,11 +5276,14 @@ ${rawOutput}` }] }],
       id: '', name: '', networkOrigin: '', actorType: 'obec / m\u011bsto',
       ico: '', municipality: '', web: '', contactTitle: '', contactFirstName: '', contactLastName: '',
       contactName: '', contactRole: '', phone: '', email: '', joinedNetworkDate: '',
+      contacts: [createEmptyActorContact()],
       communicationNote: '', lastContactDate: '', inactivityReason: ''
     }));
   };
   const handleEditKa01ActorRegistry = (record) => {
     const payload = record.payload || {};
+    const contacts = normalizeActorContacts(payload);
+    const editableContacts = contacts.length ? contacts : [createEmptyActorContact()];
     const fullName = String(payload.contactName || '').trim();
     const splitTitle = String(payload.contactTitle || '').trim();
     const splitFirst = String(payload.contactFirstName || '').trim();
@@ -5296,59 +5324,36 @@ ${rawOutput}` }] }],
       contactTitle: parsedTitle,
       contactFirstName: parsedFirst,
       contactLastName: parsedLast,
+      contacts: editableContacts,
       id: record.id
     });
     setFlash('Karta aktéra byla načtena k úpravě.');
   };
 
-  const toggleKa01ActorAttendance = (recordId, checked) => {
+  const setKa01ActorAttendanceContacts = (recordId, contactIds) => {
     setKa01AttendanceSelection((prev) => ({
       ...prev,
-      [recordId]: Boolean(checked)
+      [recordId]: Array.from(new Set((contactIds || []).map(String)))
     }));
   };
 
   const exportKa01AttendanceSheet = async () => {
-    const selected = ka01ActorRegistryRecords.filter((record) => {
-      if (!ka01AttendanceSelection[record.id]) return false;
-      const payload = record.payload || {};
-      const fullName = String(payload.contactName || '').trim();
-      const fallbackTokens = fullName.split(/\s+/).filter(Boolean);
-      const titleRegex = /^(Mgr\.?|Ing\.?|Bc\.?|JUDr\.?|MUDr\.?|PhDr\.?|doc\.?|prof\.?|DiS\.?)$/i;
-      const title = String(payload.contactTitle || '').trim()
-        || (fallbackTokens.length > 0 && titleRegex.test(fallbackTokens[0]) ? fallbackTokens[0] : '');
-      const firstName = String(payload.contactFirstName || '').trim()
-        || (fallbackTokens.length > 0 ? (title ? (fallbackTokens[1] || '') : fallbackTokens[0]) : '');
-      const lastName = String(payload.contactLastName || '').trim()
-        || (fallbackTokens.length > 0 ? fallbackTokens.slice(title ? 2 : 1).join(' ') : '');
-      const subject = String(payload.name || '').trim();
-      return Boolean(firstName && lastName && subject);
-    });
+    const selectedParticipants = buildAttendanceParticipants(ka01ActorRegistryRecords, ka01AttendanceSelection);
 
-    if (selected.length === 0) {
-      setFlash('Označ alespoň jednoho aktéra s vyplněným jménem, příjmením a subjektem.');
+    if (selectedParticipants.length === 0) {
+      setFlash('Vyberte alespoň jednu osobu s vyplněným jménem a příjmením.');
       return;
     }
 
-    const attendanceRowCount = Math.max(15, selected.length);
+    const attendanceRowCount = Math.max(15, selectedParticipants.length);
     const rows = Array.from({ length: attendanceRowCount }, (_, index) => {
-      const record = selected[index];
-      const payload = record?.payload || {};
-      const fullName = String(payload.contactName || '').trim();
-      const fallbackTokens = fullName.split(/\s+/).filter(Boolean);
-      const titleRegex = /^(Mgr\.?|Ing\.?|Bc\.?|JUDr\.?|MUDr\.?|PhDr\.?|doc\.?|prof\.?|DiS\.?)$/i;
-      const title = String(payload.contactTitle || '').trim()
-        || (fallbackTokens.length > 0 && titleRegex.test(fallbackTokens[0]) ? fallbackTokens[0] : '');
-      const firstName = String(payload.contactFirstName || '').trim()
-        || (fallbackTokens.length > 0 ? (title ? (fallbackTokens[1] || '') : fallbackTokens[0]) : '');
-      const lastName = String(payload.contactLastName || '').trim()
-        || (fallbackTokens.length > 0 ? fallbackTokens.slice(title ? 2 : 1).join(' ') : '');
+      const participant = selectedParticipants[index];
       return {
         order: String(index + 1),
-        firstName: record ? firstName : '',
-        lastName: record ? lastName : '',
-        organization: String(payload.name || '').trim(),
-        role: String(payload.contactRole || '').trim()
+        firstName: participant?.firstName || '',
+        lastName: participant?.lastName || '',
+        organization: participant?.organization || '',
+        role: participant?.role || ''
       };
     });
 
@@ -5447,7 +5452,7 @@ ${rawOutput}` }] }],
       }
 
       doc.save(`prezencni_listina_${todayIso()}.pdf`);
-      setFlash(`Prezenční listina byla stažena do PDF pro ${selected.length} aktérů.`);
+      setFlash(`Prezenční listina byla stažena do PDF pro ${selectedParticipants.length} osob.`);
     } catch (error) {
       wrapper?.remove();
       console.error('KA01 attendance PDF export error:', error);
@@ -7247,12 +7252,13 @@ ${rawPlanOutput}` }] }],
         {mainView === 'ka2case' && (
           <React.Suspense fallback={<LazyViewFallback />}>
             <Ka2CaseManagementView
-              clients={accessibleClients}
+              clients={clientSelectionPool}
               records={records}
               onSaveRecord={saveRecord}
               onUpdateRecord={updateExistingRecord}
               ka02Draft={ka02Draft}
               setKa02Draft={setKa02Draft}
+              onSelectedClientChange={setSelectedClientId}
               setGeneratorDraft={setGeneratorDraft}
               renderAiDocumentPanel={renderAiDocumentPanel}
               computedIndicators={computedIndicators}
@@ -7286,7 +7292,7 @@ ${rawPlanOutput}` }] }],
               handleSaveKa01ActorRegistry={handleSaveKa01ActorRegistry}
               networkSaveNotice={saveButtonNotices.network}
               actorSaveNotice={saveButtonNotices.actor}
-              toggleKa01ActorAttendance={toggleKa01ActorAttendance}
+              setKa01ActorAttendanceContacts={setKa01ActorAttendanceContacts}
               ka01AttendanceSelection={ka01AttendanceSelection}
               exportKa01AttendanceSheet={exportKa01AttendanceSheet}
               handleEditKa01ActorRegistry={handleEditKa01ActorRegistry}
@@ -7309,12 +7315,13 @@ ${rawPlanOutput}` }] }],
         {mainView === 'ka02' && (
           <React.Suspense fallback={<LazyViewFallback />}>
             <Ka02View
-              clients={accessibleClients}
+              clients={clientSelectionPool}
               records={records}
               onSaveRecord={saveRecord}
               onUpdateRecord={updateExistingRecord}
               ka02Draft={ka02Draft}
               setKa02Draft={setKa02Draft}
+              onSelectedClientChange={setSelectedClientId}
               setGeneratorDraft={setGeneratorDraft}
               renderAiDocumentPanel={renderAiDocumentPanel}
               ka02AiDocumentKeys={KA02_AI_DOCUMENT_KEYS}

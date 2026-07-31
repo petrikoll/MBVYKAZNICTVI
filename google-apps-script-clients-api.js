@@ -442,7 +442,9 @@ function listPartners_() {
 function savePartner_(partner) {
   const sheet = getSpreadsheet_().getSheetByName(CONFIG.partnerSheetName);
   if (!sheet) throw new Error('Missing sheet: ' + CONFIG.partnerSheetName);
-  const headers = getHeaders_(sheet);
+  let headers = getHeaders_(sheet);
+  ensureHeader_(sheet, headers, 'kontaktni_osoby_json');
+  headers = getHeaders_(sheet);
   const partnerIdColumn = headers.indexOf('partner_id') + 1;
   if (!partnerIdColumn) throw new Error('Missing partner_id column');
 
