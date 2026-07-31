@@ -481,6 +481,16 @@ function getEffectiveRecordKa(record = {}) {
   return record.ka || '';
 }
 
+const CASE_MEETING_DASHBOARD_NOTE = 'Načítá se ze záznamů odpovídajících aktivním filtrům dashboardu. Započítá se záznam, jehož Typ podpory, Typ aktivity nebo název obsahuje „případov…“ či „multiobor…“; typicky jde o KA2 – Case management (list Setkání).';
+
+function isCaseMeetingDashboardRecord(record = {}) {
+  const type = String(record.payload?.consultationType || record.payload?.type || record.title || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return type.includes('pripadov') || type.includes('multiobor');
+}
+
 function buildGeneratorRecord({ client, generatorDraft, generatedText }) {
   const config = REPORT_PROMPTS[generatorDraft.selectedKey];
   if (!config) throw new Error('Nepodporovaný typ AI dokumentu.');
@@ -1877,6 +1887,8 @@ export {
   buildIndicators,
   computedIndicatorsMap,
   getEffectiveRecordKa,
+  CASE_MEETING_DASHBOARD_NOTE,
+  isCaseMeetingDashboardRecord,
   buildGeneratorRecord,
   buildKa02Record,
   buildKa03Record,

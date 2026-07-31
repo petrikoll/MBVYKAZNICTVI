@@ -134,6 +134,8 @@ import {
   getClientSupportBreakdown,
   getClientStats,
   getEffectiveRecordKa,
+  CASE_MEETING_DASHBOARD_NOTE,
+  isCaseMeetingDashboardRecord,
   groupRecordsByType,
   loadLocalRecords,
   mapSheetRowToClient,
@@ -2926,10 +2928,7 @@ function App() {
       return distinctAreas.size >= 3;
     }).length;
 
-    const caseMeetingCount = filteredRecords.filter((record) => {
-      const type = normalize(record.payload?.consultationType || record.payload?.type || record.title);
-      return type.includes('pripadov') || type.includes('multiobor');
-    }).length;
+    const caseMeetingCount = filteredRecords.filter(isCaseMeetingDashboardRecord).length;
     const outreachCount = filteredRecords.filter((record) =>
       normalize(record.payload?.consultationType || record.title).includes('depist')
     ).length;
@@ -3040,7 +3039,13 @@ function App() {
       ],
       activityGoals: [
         { key: 'outreach', label: 'Depist\u00e1\u017en\u00ed z\u00e1znamy', current: outreachCount, target: 100 },
-        { key: 'case-meetings', label: 'P\u0159\u00edpadov\u00e1 / multioborov\u00e1 setk\u00e1n\u00ed', current: caseMeetingCount, target: 15 }
+        {
+          key: 'case-meetings',
+          label: 'P\u0159\u00edpadov\u00e1 / multioborov\u00e1 setk\u00e1n\u00ed',
+          current: caseMeetingCount,
+          target: 15,
+          note: CASE_MEETING_DASHBOARD_NOTE
+        }
       ],
       professionalDevelopmentStats,
       partnerMetrics: [
