@@ -2171,8 +2171,9 @@ function App() {
   const [isSummarizingCase, setIsSummarizingCase] = useState(false);
   const [isExportingClientCaseDocx, setIsExportingClientCaseDocx] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
-  const [installPrompt, setInstallPrompt] = useState(null);
+  const [installPrompt, setInstallPrompt] = useState(() => window.__MB_INSTALL_PROMPT__ || null);
   const [isAppInstalled, setIsAppInstalled] = useState(false);
+  const [installHelpVisible, setInstallHelpVisible] = useState(false);
   const [copied, setCopied] = useState(false);
   const [clientCaseSummary, setClientCaseSummary] = useState('');
   const [goalAlertsExpanded, setGoalAlertsExpanded] = useState(false);
@@ -2215,14 +2216,19 @@ function App() {
     };
     const handleInstallPrompt = (event) => {
       event.preventDefault();
+      window.__MB_INSTALL_PROMPT__ = event;
       setInstallPrompt(event);
+      setInstallHelpVisible(false);
     };
     const handleInstalled = () => {
+      window.__MB_INSTALL_PROMPT__ = null;
       setInstallPrompt(null);
       setIsAppInstalled(true);
+      setInstallHelpVisible(false);
     };
 
     updateInstalledState();
+    if (window.__MB_INSTALL_PROMPT__) setInstallPrompt(window.__MB_INSTALL_PROMPT__);
     window.addEventListener('beforeinstallprompt', handleInstallPrompt);
     window.addEventListener('appinstalled', handleInstalled);
     standaloneQuery.addEventListener?.('change', updateInstalledState);
@@ -3370,12 +3376,22 @@ function App() {
   };
 
   const installApplication = async () => {
-    if (!installPrompt) return;
-    await installPrompt.prompt();
-    const choice = await installPrompt.userChoice;
+    const availablePrompt = installPrompt || window.__MB_INSTALL_PROMPT__;
+    if (!availablePrompt) {
+      setInstallHelpVisible(true);
+      setFlash('Chrome zatím instalační okno nepřipravil. Postup instalace je zobrazen pod tlačítkem.');
+      return;
+    }
+    await availablePrompt.prompt();
+    const choice = await availablePrompt.userChoice;
+    window.__MB_INSTALL_PROMPT__ = null;
     setInstallPrompt(null);
     if (choice?.outcome === 'accepted') {
+      setInstallHelpVisible(false);
       setFlash('Instalace aplikace byla potvrzena.');
+    } else {
+      setInstallHelpVisible(true);
+      setFlash('Instalace byla zavřena. Můžeš ji později spustit znovu přes nabídku Chrome.');
     }
   };
 
@@ -6488,16 +6504,22 @@ ${rawPlanOutput}` }] }],
               className="mx-auto h-20 w-auto max-w-[72px] object-contain lg:justify-self-center"
             />
             <div className="flex flex-col gap-2 text-sm lg:justify-self-end">
-              {!isAppInstalled && installPrompt && (
+              {!isAppInstalled && (
                 <button
                   type="button"
                   onClick={installApplication}
                   className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:bg-blue-100"
-                  title="Nainstalovat aplikaci do počítače nebo telefonu"
+                  title={installPrompt ? 'Nainstalovat aplikaci do počítače nebo telefonu' : 'Zobrazit možnost nebo návod k instalaci aplikace'}
                 >
                   <Download className="h-4 w-4" />
                   Nainstalovat aplikaci
                 </button>
+              )}
+              {!isAppInstalled && installHelpVisible && (
+                <div className="max-w-[300px] rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900 shadow-sm" role="status">
+                  <p className="font-semibold">Chrome zatím automatické instalační okno nenabídl.</p>
+                  <p className="mt-1">V nabídce Chrome <strong>⋮</strong> vyber <strong>Nainstalovat stránku jako aplikaci</strong>. Pokud položka ještě není dostupná, jednou na stránce klikni, nech ji alespoň 30 sekund otevřenou a potom ji obnov.</p>
+                </div>
               )}
               <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" htmlFor="global-worker-select">
                 Pracovník pro aplikaci

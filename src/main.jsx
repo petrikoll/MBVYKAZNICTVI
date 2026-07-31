@@ -4,6 +4,17 @@ import { createRoot } from 'react-dom/client';
 import ProjectReportingApp from './app/ProjectReportingApp.jsx';
 import './styles.css';
 
+// Chrome může událost vyvolat ještě před dokončením prvního renderu Reactu.
+// Zachytíme ji proto hned při startu a obrazovka si ji následně převezme.
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  window.__MB_INSTALL_PROMPT__ = event;
+});
+
+window.addEventListener('appinstalled', () => {
+  window.__MB_INSTALL_PROMPT__ = null;
+});
+
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ProjectReportingApp />

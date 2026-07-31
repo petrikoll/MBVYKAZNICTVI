@@ -18,3 +18,21 @@ test('service worker neukládá citlivá API do mezipaměti', async () => {
   assert.match(serviceWorker, /pathname\.startsWith\('\/api\/'\)/);
   assert.match(serviceWorker, /isPrivateApi/);
 });
+
+test('instalační událost se zachytí ještě před prvním renderem aplikace', async () => {
+  const mainSource = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8');
+  const renderPosition = mainSource.indexOf('createRoot(');
+  const promptPosition = mainSource.indexOf("window.addEventListener('beforeinstallprompt'");
+
+  assert.ok(promptPosition >= 0);
+  assert.ok(promptPosition < renderPosition);
+  assert.match(mainSource, /window\.__MB_INSTALL_PROMPT__ = event/);
+});
+
+test('instalační tlačítko zůstane viditelné i před zpřístupněním výzvy Chrome', async () => {
+  const appSource = await readFile(new URL('../src/app/ProjectReportingApp.jsx', import.meta.url), 'utf8');
+
+  assert.match(appSource, /\{!isAppInstalled && \(\s*<button/);
+  assert.match(appSource, /Nainstalovat stránku jako aplikaci/);
+  assert.match(appSource, /alespoň 30 sekund otevřenou/);
+});
