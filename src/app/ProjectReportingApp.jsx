@@ -2171,6 +2171,8 @@ function App() {
   const [isSummarizingCase, setIsSummarizingCase] = useState(false);
   const [isExportingClientCaseDocx, setIsExportingClientCaseDocx] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isAppInstalled, setIsAppInstalled] = useState(false);
   const [copied, setCopied] = useState(false);
   const [clientCaseSummary, setClientCaseSummary] = useState('');
   const [goalAlertsExpanded, setGoalAlertsExpanded] = useState(false);
@@ -2205,6 +2207,32 @@ function App() {
   useEffect(() => {
     storeGlobalWorker(globalWorker || WORKERS[0]);
   }, [globalWorker]);
+
+  useEffect(() => {
+    const standaloneQuery = window.matchMedia('(display-mode: standalone)');
+    const updateInstalledState = () => {
+      setIsAppInstalled(standaloneQuery.matches || window.navigator.standalone === true);
+    };
+    const handleInstallPrompt = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+    const handleInstalled = () => {
+      setInstallPrompt(null);
+      setIsAppInstalled(true);
+    };
+
+    updateInstalledState();
+    window.addEventListener('beforeinstallprompt', handleInstallPrompt);
+    window.addEventListener('appinstalled', handleInstalled);
+    standaloneQuery.addEventListener?.('change', updateInstalledState);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
+      window.removeEventListener('appinstalled', handleInstalled);
+      standaloneQuery.removeEventListener?.('change', updateInstalledState);
+    };
+  }, []);
 
   useEffect(() => {
     const nextWorker = globalWorker || WORKERS[0];
@@ -3339,6 +3367,16 @@ function App() {
   const setFlash = (message) => {
     setStatusMessage(message);
     window.setTimeout(() => setStatusMessage(''), 3000);
+  };
+
+  const installApplication = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    setInstallPrompt(null);
+    if (choice?.outcome === 'accepted') {
+      setFlash('Instalace aplikace byla potvrzena.');
+    }
   };
 
   const setSaveButtonNotice = (key, tone, text) => {
@@ -6425,6 +6463,17 @@ ${rawPlanOutput}` }] }],
               className="mx-auto h-20 w-auto max-w-[72px] object-contain lg:justify-self-center"
             />
             <div className="flex flex-col gap-2 text-sm lg:justify-self-end">
+              {!isAppInstalled && installPrompt && (
+                <button
+                  type="button"
+                  onClick={installApplication}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:bg-blue-100"
+                  title="Nainstalovat aplikaci do počítače nebo telefonu"
+                >
+                  <Download className="h-4 w-4" />
+                  Nainstalovat aplikaci
+                </button>
+              )}
               <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" htmlFor="global-worker-select">
                 Pracovník pro aplikaci
               </label>

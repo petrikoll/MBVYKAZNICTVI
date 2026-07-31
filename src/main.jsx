@@ -9,3 +9,11 @@ createRoot(document.getElementById('root')).render(
     <ProjectReportingApp />
   </React.StrictMode>
 );
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((error) => {
+      console.warn('Registrace instalovatelné aplikace se nezdařila:', error);
+    });
+  });
+}
