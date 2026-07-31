@@ -141,6 +141,8 @@ import {
   getClientSupportBreakdown,
   getClientStats,
   getEffectiveRecordKa,
+  isDepistageRecord,
+  isProjectGoalEvidenceRecord,
   CASE_MEETING_DASHBOARD_NOTE,
   isCaseMeetingDashboardRecord,
   groupRecordsByType,
@@ -208,7 +210,7 @@ const isPhysicalSignedFiledOutreach = (draft = {}) =>
   !draft.caseManagementMode &&
   isDepistageType(draft.consultationType) &&
   Boolean(draft.supportSpecific?.physicalSignedFiled);
-const APP_VERSION_LABEL = 'verze 2026-07-31';
+const APP_VERSION_LABEL = 'verze 2026-08-01';
 const DEFAULT_AI_MODEL = 'gemini-2.5-flash';
 
 const KA01_ACTIVITY_AI_CONTEXT = [
@@ -2920,7 +2922,7 @@ function App() {
     const evaluatedLongGoal = (clientId, aliases) => {
       const plans = (contextRecordsByClient.get(clientId) || []).filter((record) => record.entityType === 'plans');
       const activities = (filteredRecordsByClient.get(clientId) || []).filter(
-        (record) => record.entityType !== 'plans' && areaMatches(record, aliases)
+        (record) => isProjectGoalEvidenceRecord(record) && areaMatches(record, aliases)
       );
       return activities.some((activity) => {
         const goalId = String(activity.linkedPlanGoalId || activity.payload?.linkedPlanGoalId || '');
@@ -2936,7 +2938,7 @@ function App() {
     };
     const completedShortOrder = (clientId, aliases) =>
       (filteredRecordsByClient.get(clientId) || []).some((record) => {
-        if (record.entityType === 'plans' || !areaMatches(record, aliases)) return false;
+        if (!isProjectGoalEvidenceRecord(record) || !areaMatches(record, aliases)) return false;
         const outcome = String(record.payload?.outcome || record.documentText || '').trim();
         const goalId = String(record.linkedPlanGoalId || record.payload?.linkedPlanGoalId || '');
         return Boolean(outcome && (!goalId || goalId === 'one-time-order'));
@@ -2948,7 +2950,7 @@ function App() {
         (filteredRecordsByClient.get(client.id) || [])
           .filter((record) => {
             const ka = normalize(record.ka).replace(/\s/g, '');
-            return record.entityType !== 'plans' && ['ka1', 'ka01', 'ka2', 'ka02'].includes(ka);
+            return isProjectGoalEvidenceRecord(record) && ['ka1', 'ka01', 'ka2', 'ka02'].includes(ka);
           })
           .map((record) => normalize(record.payload?.supportArea))
           .filter((area) => area && area !== normalize('soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed'))
@@ -2957,9 +2959,7 @@ function App() {
     }).length;
 
     const caseMeetingCount = filteredRecords.filter(isCaseMeetingDashboardRecord).length;
-    const outreachCount = filteredRecords.filter((record) =>
-      normalize(record.payload?.consultationType || record.title).includes('depist')
-    ).length;
+    const outreachCount = filteredRecords.filter(isDepistageRecord).length;
     const hoursValue = (value) => {
       const minutes = hoursToMinutes(value);
       return minutes > 0 ? minutes / 60 : 0;

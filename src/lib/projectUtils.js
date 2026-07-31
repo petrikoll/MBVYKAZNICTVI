@@ -28,6 +28,19 @@ function durationMinutesFromTimes(startTime, endTime) {
   return duration > 0 ? duration : 0;
 }
 
+function isDepistageRecord(record = {}) {
+  return [record.payload?.consultationType, record.consultationType, record.title]
+    .some((value) => String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .includes('depist'));
+}
+
+function isProjectGoalEvidenceRecord(record = {}) {
+  return record.entityType !== 'plans' && !isDepistageRecord(record);
+}
+
 function getKa02DurationMinutes(draft) {
   return durationMinutesFromTimes(draft.ka02StartTime, draft.ka02EndTime);
 }
@@ -1887,6 +1900,8 @@ export {
   buildIndicators,
   computedIndicatorsMap,
   getEffectiveRecordKa,
+  isDepistageRecord,
+  isProjectGoalEvidenceRecord,
   CASE_MEETING_DASHBOARD_NOTE,
   isCaseMeetingDashboardRecord,
   buildGeneratorRecord,

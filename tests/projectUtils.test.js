@@ -1,6 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildFallbackGeneratedText, getClientSupportBreakdown, mapSheetRowToClient } from '../src/lib/projectUtils.js';
+import {
+  buildFallbackGeneratedText,
+  getClientSupportBreakdown,
+  isDepistageRecord,
+  isProjectGoalEvidenceRecord,
+  mapSheetRowToClient
+} from '../src/lib/projectUtils.js';
+
+test('depistáž se nerozpoznává jako podklad pro plnění projektového cíle', () => {
+  const outreach = {
+    entityType: 'consultations',
+    payload: { consultationType: 'Depistáž' }
+  };
+  const fieldWork = {
+    entityType: 'consultations',
+    payload: { consultationType: 'Terénní sociální práce' }
+  };
+
+  assert.equal(isDepistageRecord(outreach), true);
+  assert.equal(isProjectGoalEvidenceRecord(outreach), false);
+  assert.equal(isProjectGoalEvidenceRecord(fieldWork), true);
+  assert.equal(isProjectGoalEvidenceRecord({ entityType: 'plans' }), false);
+});
 
 test('import pole převede starší roli klíčového pracovníka na skutečné jméno', () => {
   const row = Array(23).fill('');
