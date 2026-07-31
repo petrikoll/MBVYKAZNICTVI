@@ -126,6 +126,7 @@ import {
   extractGeminiText,
   getClientSupportBreakdown,
   getClientStats,
+  getEffectiveRecordKa,
   groupRecordsByType,
   loadLocalRecords,
   mapSheetRowToClient,
@@ -2700,7 +2701,7 @@ function App() {
   const filteredRecords = useMemo(() => {
     return storedActivityRecords.filter((record) => {
       const matchesPeriod = isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod);
-      const matchesKa = dashboardFilters.ka === 'all' || record.ka === dashboardFilters.ka;
+      const matchesKa = dashboardFilters.ka === 'all' || getEffectiveRecordKa(record) === dashboardFilters.ka;
       const matchesWorker = dashboardFilters.worker === 'all' || record.worker === dashboardFilters.worker;
       return matchesPeriod && matchesKa && matchesWorker;
     });

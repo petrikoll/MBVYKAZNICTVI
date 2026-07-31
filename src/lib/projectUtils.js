@@ -443,6 +443,11 @@ function makeIndicator(key, ka, label, target, counts) {
   };
 }
 
+function getEffectiveRecordKa(record = {}) {
+  if (record.payload?.caseManagementMode) return 'KA2';
+  return record.ka || '';
+}
+
 function buildGeneratorRecord({ client, generatorDraft, generatedText, selectedTpmRecord = null }) {
   const config = REPORT_PROMPTS[generatorDraft.selectedKey];
   const linkedGoalPayload = {
@@ -451,7 +456,7 @@ function buildGeneratorRecord({ client, generatorDraft, generatedText, selectedT
   };
   const basePayload = {
     entityType: config.entityType,
-    ka: config.ka,
+    ka: generatorDraft.caseManagementMode ? 'KA2' : config.ka,
     title: `${config.label} - ${client.fullName}`,
     activityDate: generatorDraft.date,
     worker: generatorDraft.worker,
@@ -1883,6 +1888,7 @@ export {
   buildPartnerStats,
   buildIndicators,
   computedIndicatorsMap,
+  getEffectiveRecordKa,
   buildGeneratorRecord,
   buildKa02Record,
   buildKa03Record,
