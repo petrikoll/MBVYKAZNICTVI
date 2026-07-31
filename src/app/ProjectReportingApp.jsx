@@ -94,6 +94,7 @@ import {
 } from '../lib/actorContacts.js';
 import { buildClientSelectionPool } from '../lib/clientSelection.js';
 import { buildClientCaseAiPrompt, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
+import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
 import { buildHorizontalPrinciplesAiPrompt, buildHorizontalPrinciplesFallbackText, buildZorTexts } from '../lib/zorSummary.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
 import sfLogoImage from '../assets/eu-spolufinancovano-logo.png';
@@ -709,7 +710,7 @@ function parseGoalDeadline(value) {
 }
 
 function isGoalEvaluatedOrClosed(goal, planRecord = null) {
-  return Boolean(goal?.isCompleted) ||
+  return isGoalTerminal(goal) ||
     Boolean(String(goal?.goalEvaluation || '').trim()) ||
     Boolean(String(planRecord?.finalEvaluation || planRecord?.payload?.finalEvaluation || '').trim());
 }
@@ -765,7 +766,8 @@ function normalizePlanGoalForAi(goal, index) {
     goalDescription: cleanGeneratedText(goal.goalDescription || ''),
     actionSteps: cleanGeneratedText(goal.actionSteps || ''),
     deadline: goal.deadline || goal.targetDate || '',
-    isCompleted: Boolean(goal.isCompleted),
+    goalStatus: normalizeGoalStatus(goal),
+    isCompleted: isGoalCompleted(goal),
     goalEvaluation: cleanGeneratedText(goal.goalEvaluation || '')
   };
 }
@@ -821,8 +823,9 @@ function parseStructuredPlanAiResult(rawValue, sourceRecord) {
       goalDescription: cleanGeneratedText(aiGoal.goalDescription || sourceGoal.goalDescription || ''),
       actionSteps: cleanGeneratedText(aiGoal.actionSteps || sourceGoal.actionSteps || ''),
       targetDate: sourceGoal.targetDate || null,
-      isCompleted: Boolean(sourceGoal.isCompleted),
-      goalEvaluation: sourceGoal.isCompleted ? cleanGeneratedText(aiGoal.goalEvaluation || sourceGoal.goalEvaluation || '') : sourceGoal.goalEvaluation || ''
+      goalStatus: normalizeGoalStatus(sourceGoal),
+      isCompleted: isGoalCompleted(sourceGoal),
+      goalEvaluation: isGoalTerminal(sourceGoal) ? cleanGeneratedText(aiGoal.goalEvaluation || sourceGoal.goalEvaluation || '') : ''
     };
   });
 
@@ -840,6 +843,8 @@ function buildAcceptedPlanTextFromStructuredDraft(structuredDraft) {
     lines.push(`${index + 1}. Cíl: ${goal.goalDescription || ''}`);
     lines.push(`Akční kroky: ${goal.actionSteps || ''}`);
     if (goal.targetDate || goal.deadline) lines.push(`Termín: ${String(goal.targetDate || goal.deadline).slice(0, 10)}`);
+    lines.push(`Stav: ${goalStatusLabel(goal).toLowerCase()}`);
+    if (isGoalTerminal(goal) && goal.goalEvaluation) lines.push(`Vyhodnocení cíle: ${goal.goalEvaluation}`);
   });
   if (structuredDraft.finalEvaluation) lines.push('', 'Závěrečné vyhodnocení:', structuredDraft.finalEvaluation);
   return lines.join('\n').trim();
@@ -894,7 +899,7 @@ function buildPersonalDevelopmentPlanText(planRecord, client = null) {
       lines.push(`${index + 1}. ${cleanGeneratedText(goal.goalDescription || 'Bez popisu cíle.')}`);
       if (goal.actionSteps) lines.push(`   Kroky: ${cleanGeneratedText(goal.actionSteps)}`);
       if (targetDate) lines.push(`   Termín: ${targetDate}`);
-      lines.push(`   Stav: ${goal.isCompleted ? 'splněn' : 'otevřen'}`);
+      lines.push(`   Stav: ${goalStatusLabel(goal).toLowerCase()}`);
       if (goal.goalEvaluation) lines.push(`   Vyhodnocení: ${cleanGeneratedText(goal.goalEvaluation)}`);
     });
   } else {
@@ -957,11 +962,11 @@ function buildClientCaseQualityWarnings(client, timeline) {
   if (unsupportedGoalLinks.length) warnings.push(`Některé navazující podpory nemají vazbu na cíl IPR (${unsupportedGoalLinks.length} záznamů).`);
 
 
-  const completedGoals = goals.filter((goal) => goal.isCompleted);
-  const goalsMissingEvaluation = completedGoals.filter((goal) => !String(goal.goalEvaluation || '').trim());
-  if (goalsMissingEvaluation.length) warnings.push(`Některé splněné cíle nemají vyplněné hodnocení (${goalsMissingEvaluation.length}).`);
-  if (goals.length && goals.every((goal) => goal.isCompleted) && !planRecords.some((record) => String(record.finalEvaluation || record.payload?.finalEvaluation || '').trim())) {
-    warnings.push('Všechny cíle jsou označené jako splněné, ale chybí závěrečné vyhodnocení plánu.');
+  const closedGoals = goals.filter(isGoalTerminal);
+  const goalsMissingEvaluation = closedGoals.filter((goal) => !String(goal.goalEvaluation || '').trim());
+  if (goalsMissingEvaluation.length) warnings.push(`Některé uzavřené cíle nemají vyplněné hodnocení (${goalsMissingEvaluation.length}).`);
+  if (goals.length && goals.every((goal) => isGoalTerminal(goal) && String(goal.goalEvaluation || '').trim()) && !planRecords.some((record) => String(record.finalEvaluation || record.payload?.finalEvaluation || '').trim())) {
+    warnings.push('Všechny cíle jsou uzavřené a vyhodnocené, ale chybí závěrečné vyhodnocení plánu.');
   }
 
   return warnings;
@@ -984,9 +989,9 @@ function buildClientCaseSummary(client, timeline, supportBreakdown) {
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
-  const completedGoals = goals.filter((goal) => goal.isCompleted).length;
-  const evaluatedGoals = goals.filter((goal) => goal.isCompleted && String(goal.goalEvaluation || '').trim()).length;
-  const allGoalsEvaluated = goals.length > 0 && goals.every((goal) => goal.isCompleted && String(goal.goalEvaluation || '').trim());
+  const completedGoals = goals.filter(isGoalCompleted).length;
+  const evaluatedGoals = goals.filter((goal) => isGoalTerminal(goal) && String(goal.goalEvaluation || '').trim()).length;
+  const allGoalsEvaluated = goals.length > 0 && goals.every((goal) => isGoalTerminal(goal) && String(goal.goalEvaluation || '').trim());
   const finalEvaluation = String(planRecord?.finalEvaluation || planRecord?.payload?.finalEvaluation || '').trim();
 
   const lines = [
@@ -1010,8 +1015,8 @@ function buildClientCaseSummary(client, timeline, supportBreakdown) {
     goals.forEach((goal, index) => {
       const targetDate = formatCaseSummaryDate(goal.targetDate);
       lines.push(`${index + 1}. ${cleanGeneratedText(goal.goalDescription || 'Bez popisu cíle.')}`);
-      lines.push(`   Stav: ${goal.isCompleted ? 'splněn' : 'otevřen'}${targetDate ? `, termín: ${targetDate}` : ''}`);
-      if (goal.isCompleted && String(goal.goalEvaluation || '').trim()) {
+      lines.push(`   Stav: ${goalStatusLabel(goal).toLowerCase()}${targetDate ? `, termín: ${targetDate}` : ''}`);
+      if (isGoalTerminal(goal) && String(goal.goalEvaluation || '').trim()) {
         lines.push(`   Vyhodnocení cíle: ${cleanGeneratedText(goal.goalEvaluation)}`);
       }
     });
@@ -1045,9 +1050,9 @@ function buildClientCaseSummary(client, timeline, supportBreakdown) {
   if (finalEvaluation) {
     lines.push(finalEvaluation);
   } else if (allGoalsEvaluated) {
-    lines.push('Všechny cíle jsou označené jako splněné a vyhodnocené. Závěrečné slovní vyhodnocení ještě není doplněné v plánu osobního rozvoje.');
+    lines.push('Všechny cíle jsou uzavřené a slovně vyhodnocené. Závěrečné slovní vyhodnocení ještě není doplněné v plánu osobního rozvoje.');
   } else {
-    lines.push('Závěrečné vyhodnocení zatím není kompletní, protože nejsou splněné a vyhodnocené všechny cíle v plánu osobního rozvoje.');
+    lines.push('Závěrečné vyhodnocení zatím není kompletní, protože nejsou uzavřené a vyhodnocené všechny cíle v plánu osobního rozvoje.');
   }
 
   return lines.join('\n');
@@ -2803,10 +2808,7 @@ function App() {
       const area = normalize(record.payload?.supportArea);
       return aliases.some((alias) => area.includes(normalize(alias)));
     };
-    const isCompletedGoal = (goal) => {
-      const value = goal?.isCompleted;
-      return value === true || ['ano', 'true', '1', 'splnen', 'splneno'].includes(normalize(value));
-    };
+    const isCompletedGoal = (goal) => isGoalCompleted(goal);
     const evaluatedLongGoal = (clientId, aliases) => {
       const plans = (contextRecordsByClient.get(clientId) || []).filter((record) => record.entityType === 'plans');
       const activities = (filteredRecordsByClient.get(clientId) || []).filter(
@@ -2920,7 +2922,7 @@ function App() {
     const missingGoalEvaluationCount = supportedClients.filter((client) =>
       (contextRecordsByClient.get(client.id) || [])
         .filter((record) => record.entityType === 'plans')
-        .some((plan) => getPlanGoals(plan).some((goal) => isCompletedGoal(goal) && !String(goal.goalEvaluation || '').trim()))
+        .some((plan) => getPlanGoals(plan).some((goal) => isGoalTerminal(goal) && !String(goal.goalEvaluation || '').trim()))
     ).length;
     const completeMonitoringCount = longTermClients.filter(hasCompleteMonitoringData).length;
     const partnerStats = buildPartnerStats({
@@ -2974,7 +2976,7 @@ function App() {
         { key: 'long-not-counted', label: 'Nad 40 hodin, ale nezapo\u010dteno do 600 000', count: longTermClients.length - longEligible.length, detail: 'Chyb\u00ed povinn\u00e9 monitorovac\u00ed \u00fadaje' },
         { key: 'short-not-counted', label: 'Pod 40 hodin, ale nezapo\u010dteno do 670 102', count: shortTermClients.length - shortEligible.length, detail: 'Chyb\u00ed minim\u00e1ln\u00ed registra\u010dn\u00ed \u00fadaje' },
         { key: 'missing-plan', label: 'Chyb\u00ed individu\u00e1ln\u00ed pl\u00e1n u 40+', count: missingPlanCount, detail: 'Riziko pro dolo\u017een\u00ed dlouhodob\u00e9 podpory' },
-        { key: 'missing-evaluation', label: 'Chyb\u00ed vyhodnocen\u00ed c\u00edle', count: missingGoalEvaluationCount, detail: 'Spln\u011bn\u00fd c\u00edl nem\u00e1 slovn\u00ed vyhodnocen\u00ed' }
+        { key: 'missing-evaluation', label: 'Chyb\u00ed vyhodnocen\u00ed c\u00edle', count: missingGoalEvaluationCount, detail: 'Uzav\u0159en\u00fd c\u00edl nem\u00e1 slovn\u00ed vyhodnocen\u00ed' }
       ]
     };
   }, [clients, filteredRecords, professionalDevelopmentRecords, records, selectedReportingPeriod]);
@@ -3753,21 +3755,26 @@ function App() {
             ? payload.structuredGoals
             : [];
       const normalizedGoals = sourceGoals.length
-        ? sourceGoals.map((goal, index) => ({
-            goalId: goal.goalId || goal.id || ('goal-' + (index + 1)),
-            goalDescription: goal.goalDescription || goal.description || '',
-            actionSteps: Array.isArray(goal.actionSteps) ? goal.actionSteps.join('\n') : goal.actionSteps || '',
-            targetDate: goal.targetDate && typeof goal.targetDate.toDate === 'function'
-              ? goal.targetDate.toDate().toISOString().slice(0, 10)
-              : String(goal.targetDate || goal.deadline || '').slice(0, 10),
-            isCompleted: Boolean(goal.isCompleted),
-            goalEvaluation: goal.goalEvaluation || ''
-          }))
+        ? sourceGoals.map((goal, index) => {
+            const goalStatus = normalizeGoalStatus(goal);
+            return {
+              goalId: goal.goalId || goal.id || ('goal-' + (index + 1)),
+              goalDescription: goal.goalDescription || goal.description || '',
+              actionSteps: Array.isArray(goal.actionSteps) ? goal.actionSteps.join('\n') : goal.actionSteps || '',
+              targetDate: goal.targetDate && typeof goal.targetDate.toDate === 'function'
+                ? goal.targetDate.toDate().toISOString().slice(0, 10)
+                : String(goal.targetDate || goal.deadline || '').slice(0, 10),
+              goalStatus,
+              isCompleted: goalStatus === GOAL_STATUS.COMPLETED,
+              goalEvaluation: goalStatus === GOAL_STATUS.OPEN ? '' : goal.goalEvaluation || ''
+            };
+          })
         : [{
             goalId: 'goal-1',
             goalDescription: typeof payload.goals === 'string' ? payload.goals : '',
             actionSteps: payload.plannedSteps || '',
             targetDate: '',
+            goalStatus: GOAL_STATUS.OPEN,
             isCompleted: false,
             goalEvaluation: ''
           }];

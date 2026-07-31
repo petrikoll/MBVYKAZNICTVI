@@ -3,6 +3,7 @@ import { Target } from 'lucide-react';
 
 import { HelpIcon, Panel, SaveInlineNotice } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
+import { GOAL_STATUS, GOAL_STATUS_OPTIONS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
 import { selectLatestClientPlan } from '../lib/planSelection.js';
 
 const emptyGoal = {
@@ -10,6 +11,7 @@ const emptyGoal = {
   goalDescription: '',
   actionSteps: '',
   targetDate: '',
+  goalStatus: GOAL_STATUS.OPEN,
   isCompleted: false,
   goalEvaluation: ''
 };
@@ -85,7 +87,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
   const goalsReadyForFinalEvaluation = useMemo(
     () =>
       plan.goals.length > 0 &&
-      plan.goals.every((goal) => goal.isCompleted && goal.goalEvaluation.trim()),
+      plan.goals.every((goal) => isGoalTerminal(goal) && goal.goalEvaluation.trim()),
     [plan.goals]
   );
 
@@ -119,7 +121,8 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
             goalDescription: goal.goalDescription || '',
             actionSteps: Array.isArray(goal.actionSteps) ? goal.actionSteps.join('\n') : goal.actionSteps || '',
             targetDate: timestampToDateInput(goal.targetDate || goal.deadline),
-            isCompleted: Boolean(goal.isCompleted),
+            goalStatus: normalizeGoalStatus(goal),
+            isCompleted: isGoalCompleted(goal),
             goalEvaluation: goal.goalEvaluation || ''
           }))
         : [{ ...emptyGoal }],
@@ -138,6 +141,20 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
       goals: current.goals.map((goal, goalIndex) =>
         goalIndex === index ? { ...goal, [field]: value } : goal
       )
+    }));
+  };
+
+  const updateGoalStatus = (index, goalStatus) => {
+    setPlan((current) => ({
+      ...current,
+      goals: current.goals.map((goal, goalIndex) => goalIndex === index
+        ? {
+          ...goal,
+          goalStatus,
+          isCompleted: goalStatus === GOAL_STATUS.COMPLETED,
+          goalEvaluation: goalStatus === GOAL_STATUS.OPEN ? '' : goal.goalEvaluation
+        }
+        : goal)
     }));
   };
 
@@ -160,14 +177,18 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
   const buildStructuredPlan = () => ({
     situationDescription: plan.situationDescription.trim(),
     durationMinutes: Number(plan.durationMinutes),
-    goals: plan.goals.map((goal, index) => ({
-      goalId: ensureGoalId(goal, index),
-      goalDescription: goal.goalDescription.trim(),
-      actionSteps: goal.actionSteps.trim(),
-      targetDate: dateInputToTimestamp(goal.targetDate),
-      isCompleted: Boolean(goal.isCompleted),
-      goalEvaluation: goal.isCompleted ? goal.goalEvaluation.trim() : ''
-    })),
+    goals: plan.goals.map((goal, index) => {
+      const goalStatus = normalizeGoalStatus(goal);
+      return {
+        goalId: ensureGoalId(goal, index),
+        goalDescription: goal.goalDescription.trim(),
+        actionSteps: goal.actionSteps.trim(),
+        targetDate: dateInputToTimestamp(goal.targetDate),
+        goalStatus,
+        isCompleted: goalStatus === GOAL_STATUS.COMPLETED,
+        goalEvaluation: goalStatus === GOAL_STATUS.OPEN ? '' : goal.goalEvaluation.trim()
+      };
+    }),
     finalEvaluation: goalsReadyForFinalEvaluation ? plan.finalEvaluation.trim() : '',
     updatedAt: new Date().toISOString()
   });
@@ -186,8 +207,8 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
       lines.push(`${index + 1}. Cíl: ${goal.goalDescription || 'Neuvedeno'}`);
       lines.push(`Akční kroky: ${goal.actionSteps || 'Neuvedeno'}`);
       if (goal.targetDate) lines.push(`Termín: ${goal.targetDate}`);
-      lines.push(`Stav: ${goal.isCompleted ? 'splněn' : 'otevřen'}`);
-      if (goal.isCompleted && goal.goalEvaluation) {
+      lines.push(`Stav: ${goalStatusLabel(goal).toLowerCase()}`);
+      if (isGoalTerminal(goal) && goal.goalEvaluation) {
         lines.push(`Vyhodnocení cíle: ${goal.goalEvaluation}`);
       }
       lines.push('');
@@ -315,7 +336,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
                     </button>
                   </div>
 
-                  <div className={`mt-2 grid gap-2 ${compact ? '' : 'lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_150px_96px] lg:items-end'}`}>
+                  <div className={`mt-2 grid gap-2 ${compact ? '' : 'lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_150px_180px] lg:items-end'}`}>
                     <div>
                       <label className={labelClassName}>Popis cíle *</label>
                       <AutoResizeTextarea
@@ -346,18 +367,15 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
                         className={inputClassName}
                       />
                     </div>
-                    <label className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm font-medium text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={goal.isCompleted}
-                        onChange={(event) => updateGoal(index, 'isCompleted', event.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      Splněno
-                    </label>
+                    <div>
+                      <label className={labelClassName}>Stav cíle</label>
+                      <select value={normalizeGoalStatus(goal)} onChange={(event) => updateGoalStatus(index, event.target.value)} className={inputClassName}>
+                        {GOAL_STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </div>
                   </div>
 
-                  {goal.isCompleted && (
+                  {isGoalTerminal(goal) && (
                     <div className="mt-2">
                       <label className={labelClassName}>Hodnocení cíle * <HelpIcon help={HELP.iprGoalEvaluation} /></label>
                       <AutoResizeTextarea
@@ -386,7 +404,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
               </div>
             ) : (
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
-                Závěrečné vyhodnocení se zobrazí po splnění a vyhodnocení všech cílů.
+                Závěrečné vyhodnocení se zobrazí, až budou všechny cíle uzavřené a slovně vyhodnocené.
               </div>
             )}
           </>

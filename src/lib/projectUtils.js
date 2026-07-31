@@ -1,5 +1,7 @@
 ﻿import { REPORT_PROMPTS, TARGETS } from '../config/projectConfig.js';
 
+import { goalStatusLabel } from './goalStatus.js';
+
 function todayIso() {
   const now = new Date();
   const year = now.getFullYear();
@@ -1239,7 +1241,7 @@ function buildPlanExportText(record, client) {
       if (goal.actionSteps) lines.push(`   Kroky: ${goal.actionSteps}`);
       const targetDate = formatPlanExportDate(goal.targetDate);
       if (targetDate) lines.push(`   Termín: ${targetDate}`);
-      lines.push(`   Stav: ${goal.isCompleted ? 'splněn' : 'otevřen'}`);
+      lines.push(`   Stav: ${goalStatusLabel(goal).toLowerCase()}`);
       if (goal.goalEvaluation) lines.push(`   Vyhodnocení: ${goal.goalEvaluation}`);
     });
   } else {
@@ -1267,7 +1269,7 @@ function buildPlanPrintHtml(record, client) {
         <table class="goal-table">
           <tr><th>Akční kroky</th><td>${escapeHtml(goal.actionSteps || 'Neuvedeno')}</td></tr>
           <tr><th>Termín</th><td>${escapeHtml(formatPlanExportDate(goal.targetDate) || 'Neuvedeno')}</td></tr>
-          <tr><th>Stav</th><td>${escapeHtml(goal.isCompleted ? 'splněn' : 'otevřen')}</td></tr>
+          <tr><th>Stav</th><td>${escapeHtml(goalStatusLabel(goal).toLowerCase())}</td></tr>
           ${goal.goalEvaluation ? `<tr><th>Vyhodnocení</th><td>${escapeHtml(goal.goalEvaluation)}</td></tr>` : ''}
         </table>
       </section>`).join('')

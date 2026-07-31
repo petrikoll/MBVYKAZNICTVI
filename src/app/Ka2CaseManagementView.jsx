@@ -2,6 +2,7 @@ import React from 'react';
 import { ClipboardList } from 'lucide-react';
 
 import { Panel, SelectField } from '../components/ui.jsx';
+import { goalStatusLabel, isGoalTerminal } from '../lib/goalStatus.js';
 import { selectLatestClientPlan } from '../lib/planSelection.js';
 
 function ReadOnlyPlan({ clients, records, selectedClientId, onClientChange }) {
@@ -33,6 +34,8 @@ function ReadOnlyPlan({ clients, records, selectedClientId, onClientChange }) {
                       <p className="mt-1 whitespace-pre-wrap text-slate-700"><strong>Popis cíle:</strong> {text(goal.goalDescription || goal.description)}</p>
                       {(goal.actionSteps || goal.plannedSteps) && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600"><strong>Akční kroky:</strong> {Array.isArray(goal.actionSteps) ? goal.actionSteps.join('\n') : goal.actionSteps || goal.plannedSteps}</p>}
                       {(goal.targetDate || goal.deadline) && <p className="mt-1 text-xs text-slate-500"><strong>Termín:</strong> {String(goal.targetDate || goal.deadline).slice(0, 10)}</p>}
+                      <p className="mt-1 text-xs text-slate-600"><strong>Stav:</strong> {goalStatusLabel(goal)}</p>
+                      {isGoalTerminal(goal) && goal.goalEvaluation && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600"><strong>Vyhodnocení:</strong> {goal.goalEvaluation}</p>}
                     </div>
                   )) : <p className="text-slate-500">Není zadaný žádný cíl.</p>}
                 </div>
