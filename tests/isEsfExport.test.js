@@ -348,6 +348,8 @@ test('chybějící vzdělání neblokuje CSV a je transparentně vykázáno jako
 
   assert.equal(result.blockingIssues.length, 0);
   assert.equal(result.educationFallbacks.length, 1);
+  assert.equal(result.educationFallbacks[0].kind, 'missing');
+  assert.match(result.educationFallbacks[0].reason, /není vzdělání vyplněno/);
   assert.equal(
     result.rows[0].PodleNejvyssihoDosazenehoVzdelani_MonitorovaciList,
     'VZJN'
@@ -363,6 +365,8 @@ test('nerozpoznané vzdělání použije VZJN a zůstane jen informačním upozo
 
   assert.equal(result.blockingIssues.length, 0);
   assert.equal(result.educationFallbacks.length, 1);
+  assert.equal(result.educationFallbacks[0].kind, 'unrecognized');
+  assert.match(result.educationFallbacks[0].reason, /nemá rozpoznaný formát/);
   assert.equal(
     result.rows[0].PodleNejvyssihoDosazenehoVzdelani_MonitorovaciList,
     'VZJN'

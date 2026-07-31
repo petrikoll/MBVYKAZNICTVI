@@ -614,10 +614,14 @@ async function buildIsEsfPersonExport(clients, options = {}) {
 
   sourceClients.forEach((client, index) => {
     if (!resolveEducationCode(client.vzdelani)) {
+      const educationValue = normalizeText(client.vzdelani);
       educationFallbacks.push({
         clientId: client.id || '',
         clientName: client.fullName || `${client.jmeno || ''} ${client.prijmeni || ''}`.trim(),
-        reason: 'Vzdělání není uvedeno nebo nemá rozpoznanou hodnotu; CSV používá platný obecný kód VZJN.'
+        kind: educationValue ? 'unrecognized' : 'missing',
+        reason: educationValue
+          ? 'Vyplněná hodnota vzdělání nemá rozpoznaný formát; CSV používá platný obecný kód VZJN.'
+          : 'V klientském registru není vzdělání vyplněno; CSV používá platný obecný kód VZJN.'
       });
     }
     let values = buildPersonOutput(client);

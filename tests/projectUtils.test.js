@@ -36,6 +36,16 @@ test('import objektu načte vzdělání i ze staršího nebo popisného záhlav�
   assert.equal(descriptive.vzdelani, 'VŠ');
 });
 
+test('import objektu převede číselné datum Google Sheets na běžné datum', () => {
+  const client = mapSheetRowToClient({
+    klient_id: '1',
+    jmeno: 'Dagmar',
+    datum_narozeni: 16280
+  }, 0);
+
+  assert.equal(client.datumNarozeni, '27.7.1944');
+});
+
 test('statistika použije délku v minutách, když nejsou časy od-do', () => {
   const summary = getClientSupportBreakdown('client-1', [{
     id: 'record-1',

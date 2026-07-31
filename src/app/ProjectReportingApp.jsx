@@ -5682,9 +5682,13 @@ ${rawOutput}` }] }],
       const adjustedText = result.addressAdjustments.length > 0
         ? ` U ${result.addressAdjustments.length} osob byla adresa bezpečně upravena nebo doplněna podle RÚIAN.`
         : '';
-      const educationText = result.educationFallbacks.length > 0
-        ? ` U ${result.educationFallbacks.length} osob nebylo vzdělání rozpoznáno; CSV používá obecný kód VZJN.`
-        : '';
+      const missingEducationCount = result.educationFallbacks.filter((item) => item.kind === 'missing').length;
+      const unrecognizedEducationCount = result.educationFallbacks.length - missingEducationCount;
+      const educationText = result.educationFallbacks.length === 0
+        ? ''
+        : unrecognizedEducationCount === 0
+          ? ` U ${missingEducationCount} osob není v klientském registru vyplněno vzdělání; CSV používá obecný kód VZJN.`
+          : ` U ${missingEducationCount} osob není vzdělání vyplněno a u ${unrecognizedEducationCount} osob nemá rozpoznaný formát; CSV používá obecný kód VZJN.`;
       setIsEsfExportStatus({
         state: result.blockingIssues.length > 0 ? 'warning' : 'success',
         message: result.blockingIssues.length > 0

@@ -228,6 +228,11 @@ function normalizeDateIso(value) {
   if (!value) return '';
   if (typeof value?.toDate === 'function') return value.toDate().toISOString().slice(0, 10);
   const stringValue = String(value).trim();
+  const serialNumber = Number(stringValue.replace(',', '.'));
+  if (/^\d+(?:[.,]\d+)?$/.test(stringValue) && Number.isFinite(serialNumber) && serialNumber >= 1000 && serialNumber <= 80000) {
+    const googleSheetsEpoch = Date.UTC(1899, 11, 30);
+    return new Date(googleSheetsEpoch + Math.floor(serialNumber) * 86400000).toISOString().slice(0, 10);
+  }
   const isoMatch = stringValue.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (isoMatch) {
     return `${isoMatch[1]}-${String(Number(isoMatch[2])).padStart(2, '0')}-${String(Number(isoMatch[3])).padStart(2, '0')}`;

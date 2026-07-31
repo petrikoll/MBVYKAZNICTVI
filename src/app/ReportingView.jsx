@@ -114,6 +114,13 @@ function ReportingView({
   const backupFinishedAt = backupStatus?.finishedAt
     ? new Date(backupStatus.finishedAt).toLocaleString('cs-CZ')
     : '';
+  const educationFallbacks = isEsfExportStatus?.educationFallbacks || [];
+  const missingEducationCount = educationFallbacks.filter((item) => item.kind === 'missing').length;
+  const educationFallbackTitle = missingEducationCount === educationFallbacks.length
+    ? 'Nevyplněné vzdělání'
+    : missingEducationCount > 0
+      ? 'Nevyplněné nebo nerozpoznané vzdělání'
+      : 'Nerozpoznané vzdělání';
   return (
     <div className="space-y-5">
       <Panel
@@ -189,7 +196,7 @@ function ReportingView({
           )}
           {isEsfExportStatus?.educationFallbacks?.length > 0 && (
             <details className="mt-2">
-              <summary className="cursor-pointer font-semibold">Nerozpoznané vzdělání ({isEsfExportStatus.educationFallbacks.length})</summary>
+              <summary className="cursor-pointer font-semibold">{educationFallbackTitle} ({isEsfExportStatus.educationFallbacks.length})</summary>
               <ul className="mt-1 space-y-1 pl-4">
                 {isEsfExportStatus.educationFallbacks.map((item) => (
                   <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.reason}</li>
