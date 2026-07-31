@@ -4,6 +4,7 @@ import { CalendarDays, Download, Plus, Save, Sparkles, Trash2, Users } from 'luc
 import { EmptyState, HelpIcon, InputField, Panel, SaveInlineNotice, SelectField, TextAreaField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import {
+  ATTENDANCE_SHEET_TYPE_OPTIONS,
   createEmptyActorContact,
   isAttendanceReadyContact,
   nextActorContactId,
@@ -43,6 +44,7 @@ function Ka01View({
   const [expandedActorIds, setExpandedActorIds] = React.useState([]);
   const [attendanceActorRecord, setAttendanceActorRecord] = React.useState(null);
   const [attendanceContactIds, setAttendanceContactIds] = React.useState([]);
+  const [attendanceTypePickerOpen, setAttendanceTypePickerOpen] = React.useState(false);
   const timeOptions = React.useMemo(() => Array.from({ length: 21 }, (_, index) => {
     const total = 7 * 60 + index * 30;
     return Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
@@ -257,7 +259,7 @@ function Ka01View({
                 <div className="text-sm font-bold">Uložený registr aktérů</div>
                 <HelpIcon help={HELP.attendanceExport} />
               </div>
-              <button type="button" onClick={exportKa01AttendanceSheet} disabled={attendanceCount === 0} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Vytvořit prezenční listinu ({attendanceCount} osob)</button>
+              <button type="button" onClick={() => setAttendanceTypePickerOpen(true)} disabled={attendanceCount === 0} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Vytvořit prezenční listinu ({attendanceCount} osob)</button>
             </div>
             {sortedActors.length === 0 ? <EmptyState icon={Users} title="Zatím není uložen žádný aktér v síti." /> : (
               <div className="overflow-auto rounded-lg border border-slate-200 bg-white"><table className="min-w-[1100px] w-full divide-y divide-slate-200 text-xs"><thead className="sticky top-0 bg-sky-50 font-semibold uppercase text-sky-800"><tr><th className="px-2 py-2 text-left">Subjekt</th><th className="px-2 py-2 text-left">Typ</th><th className="px-2 py-2 text-left">Kontaktní osoba</th><th className="px-2 py-2 text-left">Funkce</th><th className="px-2 py-2 text-left">Kontakt</th><th className="px-2 py-2 text-left">Původ</th><th className="px-2 py-2 text-left">Datum zapojení</th><th className="px-2 py-2 text-left">Prezenční listina</th><th className="px-2 py-2 text-right">Akce</th></tr></thead><tbody className="divide-y divide-slate-100">
@@ -303,6 +305,35 @@ function Ka01View({
           </div>
         </div>
       </Panel>
+
+      {attendanceTypePickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-labelledby="attendance-type-dialog-title">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="mb-4">
+              <h2 id="attendance-type-dialog-title" className="text-lg font-bold text-slate-900">Vyberte druh prezenční listiny</h2>
+              <p className="mt-1 text-sm text-slate-600">Volba určí nadpis vytvořeného PDF.</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {ATTENDANCE_SHEET_TYPE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    setAttendanceTypePickerOpen(false);
+                    exportKa01AttendanceSheet(option.value);
+                  }}
+                  className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-left text-sm font-semibold text-sky-900 hover:border-sky-400 hover:bg-sky-100"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-5 flex justify-end">
+              <button type="button" onClick={() => setAttendanceTypePickerOpen(false)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Zrušit</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {attendanceActorRecord && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-labelledby="attendance-person-dialog-title">

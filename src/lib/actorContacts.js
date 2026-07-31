@@ -1,5 +1,22 @@
 const CONTACT_TITLE_PATTERN = /^(Bc\.?|BcA\.?|Mgr\.?|MgA\.?|Ing\.?|JUDr\.?|MUDr\.?|MDDr\.?|MVDr\.?|RNDr\.?|PharmDr\.?|PhDr\.?|PaedDr\.?|ThDr\.?|ThLic\.?|doc\.?|prof\.?|DiS\.?)$/i;
 
+const ATTENDANCE_SHEET_TYPE_OPTIONS = [
+  { value: 'network', label: 'Aktéři sítě' },
+  { value: 'supervision', label: 'Supervize' },
+  { value: 'meeting', label: 'Porada' },
+  { value: 'other', label: 'Jiné' }
+];
+
+function attendanceSheetTitle(type = 'network') {
+  const titles = {
+    network: 'Prezenční listina – aktéři sítě',
+    supervision: 'Prezenční listina – supervize',
+    meeting: 'Prezenční listina – porada',
+    other: 'Prezenční listina – ................................................'
+  };
+  return titles[type] || titles.network;
+}
+
 function createEmptyActorContact(id = '') {
   return { id, name: '', title: '', firstName: '', lastName: '', role: '', phone: '', email: '' };
 }
@@ -142,7 +159,9 @@ function buildAttendanceParticipants(records = [], selection = {}) {
 }
 
 export {
+  ATTENDANCE_SHEET_TYPE_OPTIONS,
   actorContactsToSheetFields,
+  attendanceSheetTitle,
   buildAttendanceParticipants,
   contactsFromSheetRow,
   createEmptyActorContact,

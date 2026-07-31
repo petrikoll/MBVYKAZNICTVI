@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  ATTENDANCE_SHEET_TYPE_OPTIONS,
   actorContactsToSheetFields,
+  attendanceSheetTitle,
   buildAttendanceParticipants,
   contactsFromSheetRow,
   createEmptyActorContact,
@@ -105,4 +107,21 @@ test('více titulů před jménem se zachová a titul za jménem zůstane v př�
     phone: '',
     email: ''
   });
+});
+
+test('nabídka prezenční listiny obsahuje všechny požadované druhy', () => {
+  assert.deepEqual(ATTENDANCE_SHEET_TYPE_OPTIONS.map((option) => option.label), [
+    'Aktéři sítě',
+    'Supervize',
+    'Porada',
+    'Jiné'
+  ]);
+});
+
+test('nadpisy prezenční listiny neobsahují označení KA a volba jiné nabízí tečky', () => {
+  assert.equal(attendanceSheetTitle('network'), 'Prezenční listina – aktéři sítě');
+  assert.equal(attendanceSheetTitle('supervision'), 'Prezenční listina – supervize');
+  assert.equal(attendanceSheetTitle('meeting'), 'Prezenční listina – porada');
+  assert.match(attendanceSheetTitle('other'), /^Prezenční listina – \.{20,}$/);
+  ATTENDANCE_SHEET_TYPE_OPTIONS.forEach((option) => assert.doesNotMatch(attendanceSheetTitle(option.value), /\bKA\d*\b/i));
 });

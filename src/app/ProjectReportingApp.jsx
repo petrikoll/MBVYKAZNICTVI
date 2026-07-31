@@ -85,6 +85,7 @@ import { appId, auth, db, hasFirebaseConfig } from '../lib/firebase.js';
 import { parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
 import {
   actorContactsToSheetFields,
+  attendanceSheetTitle,
   buildAttendanceParticipants,
   contactsFromSheetRow,
   createEmptyActorContact,
@@ -5341,7 +5342,7 @@ ${rawOutput}` }] }],
     }));
   };
 
-  const exportKa01AttendanceSheet = async () => {
+  const exportKa01AttendanceSheet = async (sheetType = 'network') => {
     const selectedParticipants = buildAttendanceParticipants(ka01ActorRegistryRecords, ka01AttendanceSelection);
 
     if (selectedParticipants.length === 0) {
@@ -5349,6 +5350,7 @@ ${rawOutput}` }] }],
       return;
     }
 
+    const attendanceTitle = attendanceSheetTitle(sheetType);
     const attendanceRowCount = Math.max(15, selectedParticipants.length);
     const rows = Array.from({ length: attendanceRowCount }, (_, index) => {
       const participant = selectedParticipants[index];
@@ -5396,7 +5398,7 @@ ${rawOutput}` }] }],
       wrapper.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;">
           <div>
-            <h1 style="margin:0 0 8px 0;font-size:34px;line-height:1.2;">KA2 - Prezenční listina aktérů sítě</h1>
+            <h1 style="margin:0 0 8px 0;font-size:34px;line-height:1.2;">${escapeHtml(attendanceTitle)}</h1>
             <p style="margin:0 0 6px 0;font-size:18px;">Datum vytvoření: ${escapeHtml(todayIso())}</p>
             <p style="margin:0;font-size:18px;">Schůzka dne: ........................................   Od: ....................   Do: ....................</p>
           </div>
