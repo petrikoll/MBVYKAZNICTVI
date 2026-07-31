@@ -76,3 +76,33 @@ test('prezenční listina obsahuje jen vybrané osoby z organizace', () => {
     role: 'koordinátorka'
   }]);
 });
+
+test('prezenční listina zachová titul před jménem', () => {
+  const records = [{
+    id: 'partner-1',
+    payload: {
+      name: 'Město',
+      contacts: [{ id: 'contact-1', name: 'Mgr. Jana Malá', role: 'koordinátorka' }]
+    }
+  }];
+
+  const [participant] = buildAttendanceParticipants(records, { 'partner-1': ['contact-1'] });
+
+  assert.equal(participant.firstName, 'Mgr. Jana');
+  assert.equal(participant.lastName, 'Malá');
+});
+
+test('více titulů před jménem se zachová a titul za jménem zůstane v příjmení', () => {
+  assert.deepEqual(normalizeActorContacts({
+    contacts: [{ id: 'contact-1', name: 'doc. RNDr. Petr Novák, Ph.D.' }]
+  })[0], {
+    id: 'contact-1',
+    name: 'doc. RNDr. Petr Novák, Ph.D.',
+    title: 'doc. RNDr.',
+    firstName: 'Petr',
+    lastName: 'Novák, Ph.D.',
+    role: '',
+    phone: '',
+    email: ''
+  });
+});

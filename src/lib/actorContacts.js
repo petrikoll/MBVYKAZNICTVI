@@ -1,4 +1,4 @@
-const CONTACT_TITLE_PATTERN = /^(Mgr\.?|Ing\.?|Bc\.?|JUDr\.?|MUDr\.?|PhDr\.?|doc\.?|prof\.?|DiS\.?)$/i;
+const CONTACT_TITLE_PATTERN = /^(Bc\.?|BcA\.?|Mgr\.?|MgA\.?|Ing\.?|JUDr\.?|MUDr\.?|MDDr\.?|MVDr\.?|RNDr\.?|PharmDr\.?|PhDr\.?|PaedDr\.?|ThDr\.?|ThLic\.?|doc\.?|prof\.?|DiS\.?)$/i;
 
 function createEmptyActorContact(id = '') {
   return { id, name: '', title: '', firstName: '', lastName: '', role: '', phone: '', email: '' };
@@ -13,7 +13,9 @@ function nextActorContactId(contacts = []) {
 
 function splitContactName(value = '') {
   const tokens = String(value || '').trim().split(/\s+/).filter(Boolean);
-  const title = tokens.length && CONTACT_TITLE_PATTERN.test(tokens[0]) ? tokens.shift() : '';
+  const titles = [];
+  while (tokens.length && CONTACT_TITLE_PATTERN.test(tokens[0])) titles.push(tokens.shift());
+  const title = titles.join(' ');
   const firstName = tokens.shift() || '';
   const lastName = tokens.join(' ');
   return { title, firstName, lastName };
@@ -131,7 +133,7 @@ function buildAttendanceParticipants(records = [], selection = {}) {
       .map((contact) => ({
         recordId: record.id,
         contactId: contact.id,
-        firstName: contact.firstName,
+        firstName: [contact.title, contact.firstName].filter(Boolean).join(' '),
         lastName: contact.lastName,
         organization,
         role: contact.role
