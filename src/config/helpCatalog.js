@@ -73,10 +73,10 @@ const HELP = {
   dashboard600: { title: 'Indikátor 600 000', text: 'Počítá klienty se 40 a více hodinami podpory, kteří mají kompletní monitorovací údaje.' },
   dashboard670: { title: 'Indikátor 670 102', text: 'Počítá klienty s podporou nad 0 a pod 40 hodin, kteří mají minimální registrační údaje.' },
   dashboardLongGoals: { title: 'Dlouhodobé cíle', text: 'U klientů se 40 a více hodinami vyžaduje započtení vazbu výkonu na konkrétní splněný a slovně vyhodnocený cíl IP. Výkony typu Depistáž se do plnění cílů nezapočítávají.' },
-  dashboardShortSecurity: { title: 'Sociální zabezpečení', text: 'Započítá krátkodobě podpořeného klienta s doloženým výsledkem podpory v oblasti bydlení, finance/dluhy, zaměstnání nebo práva/povinnosti. Výkony typu Depistáž se nezapočítávají.' },
-  dashboardShortServices: { title: 'Přístup ke službám', text: 'Započítá krátkodobě podpořeného klienta s doloženým výsledkem podpory v oblasti zdraví, bezpečí, vzdělání nebo služby. Výkony typu Depistáž se nezapočítávají.' },
-  dashboardShortParenting: { title: 'Rodičovské kompetence', text: 'Započítá krátkodobě podpořeného klienta s doloženým výsledkem podpory v oblasti rodina. Výkony typu Depistáž se nezapočítávají.' },
-  dashboardInclusion: { title: 'Sociální začlenění', text: 'Započítá krátkodobě podpořeného klienta s podporou nejméně ve třech různých oblastech KA1 nebo KA2. Výkony typu Depistáž se do těchto oblastí nezapočítávají.' },
+  dashboardShortSecurity: { title: 'Sociální zabezpečení', text: 'Započítá krátkodobě podpořeného klienta s doloženým výsledkem podpory v oblasti bydlení, finance/dluhy, zaměstnání nebo práva/povinnosti. Depistáž se započítá pouze s vyplněným elektronickým komentářem.' },
+  dashboardShortServices: { title: 'Přístup ke službám', text: 'Započítá krátkodobě podpořeného klienta s doloženým výsledkem podpory v oblasti zdraví, bezpečí, vzdělání nebo služby. Depistáž se započítá pouze s vyplněným elektronickým komentářem.' },
+  dashboardShortParenting: { title: 'Rodičovské kompetence', text: 'Započítá krátkodobě podpořeného klienta s doloženým výsledkem podpory v oblasti rodina. Depistáž se započítá pouze s vyplněným elektronickým komentářem.' },
+  dashboardInclusion: { title: 'Sociální začlenění', text: 'Započítá krátkodobě podpořeného klienta s podporou nejméně ve třech různých oblastech KA1 nebo KA2. Oblast z depistáže se započítá pouze s vyplněným elektronickým komentářem.' },
   dashboardPartners: { title: 'Partnerská síť', text: 'Počítají se jen partneři s doloženou aktivitou. Jednorázový partner má jednu aktivitu; aktivita za 90 dní vychází z posledního záznamu.' },
   dashboardRisks: { title: 'Kontrolní upozornění', text: 'Nejde o chyby aplikace, ale o údaje nebo situace, které mohou ohrozit správné vykazování projektu.' }
 };

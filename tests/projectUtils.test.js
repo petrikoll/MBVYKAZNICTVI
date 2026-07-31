@@ -4,14 +4,22 @@ import {
   buildFallbackGeneratedText,
   getClientSupportBreakdown,
   isDepistageRecord,
-  isProjectGoalEvidenceRecord,
+  isLongTermProjectGoalEvidenceRecord,
+  isShortTermProjectGoalEvidenceRecord,
   mapSheetRowToClient
 } from '../src/lib/projectUtils.js';
 
-test('depistáž se nerozpoznává jako podklad pro plnění projektového cíle', () => {
+test('depistáž s komentářem se započítá pouze do krátkodobých cílů', () => {
   const outreach = {
     entityType: 'consultations',
     payload: { consultationType: 'Depistáž' }
+  };
+  const commentedOutreach = {
+    entityType: 'consultations',
+    payload: {
+      consultationType: 'Depistáž',
+      supportSpecific: { physicalRecordComment: 'Klient dostal kontakt na službu.' }
+    }
   };
   const fieldWork = {
     entityType: 'consultations',
@@ -19,9 +27,12 @@ test('depistáž se nerozpoznává jako podklad pro plnění projektového cíle
   };
 
   assert.equal(isDepistageRecord(outreach), true);
-  assert.equal(isProjectGoalEvidenceRecord(outreach), false);
-  assert.equal(isProjectGoalEvidenceRecord(fieldWork), true);
-  assert.equal(isProjectGoalEvidenceRecord({ entityType: 'plans' }), false);
+  assert.equal(isShortTermProjectGoalEvidenceRecord(outreach), false);
+  assert.equal(isShortTermProjectGoalEvidenceRecord(commentedOutreach), true);
+  assert.equal(isLongTermProjectGoalEvidenceRecord(commentedOutreach), false);
+  assert.equal(isShortTermProjectGoalEvidenceRecord(fieldWork), true);
+  assert.equal(isLongTermProjectGoalEvidenceRecord(fieldWork), true);
+  assert.equal(isShortTermProjectGoalEvidenceRecord({ entityType: 'plans' }), false);
 });
 
 test('import pole převede starší roli klíčového pracovníka na skutečné jméno', () => {

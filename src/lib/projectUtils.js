@@ -37,8 +37,17 @@ function isDepistageRecord(record = {}) {
       .includes('depist'));
 }
 
-function isProjectGoalEvidenceRecord(record = {}) {
+function hasDepistageComment(record = {}) {
+  return Boolean(String(record.payload?.supportSpecific?.physicalRecordComment || '').trim());
+}
+
+function isLongTermProjectGoalEvidenceRecord(record = {}) {
   return record.entityType !== 'plans' && !isDepistageRecord(record);
+}
+
+function isShortTermProjectGoalEvidenceRecord(record = {}) {
+  if (record.entityType === 'plans') return false;
+  return !isDepistageRecord(record) || hasDepistageComment(record);
 }
 
 function getKa02DurationMinutes(draft) {
@@ -1900,8 +1909,10 @@ export {
   buildIndicators,
   computedIndicatorsMap,
   getEffectiveRecordKa,
+  hasDepistageComment,
   isDepistageRecord,
-  isProjectGoalEvidenceRecord,
+  isLongTermProjectGoalEvidenceRecord,
+  isShortTermProjectGoalEvidenceRecord,
   CASE_MEETING_DASHBOARD_NOTE,
   isCaseMeetingDashboardRecord,
   buildGeneratorRecord,

@@ -142,7 +142,8 @@ import {
   getClientStats,
   getEffectiveRecordKa,
   isDepistageRecord,
-  isProjectGoalEvidenceRecord,
+  isLongTermProjectGoalEvidenceRecord,
+  isShortTermProjectGoalEvidenceRecord,
   CASE_MEETING_DASHBOARD_NOTE,
   isCaseMeetingDashboardRecord,
   groupRecordsByType,
@@ -2922,7 +2923,7 @@ function App() {
     const evaluatedLongGoal = (clientId, aliases) => {
       const plans = (contextRecordsByClient.get(clientId) || []).filter((record) => record.entityType === 'plans');
       const activities = (filteredRecordsByClient.get(clientId) || []).filter(
-        (record) => isProjectGoalEvidenceRecord(record) && areaMatches(record, aliases)
+        (record) => isLongTermProjectGoalEvidenceRecord(record) && areaMatches(record, aliases)
       );
       return activities.some((activity) => {
         const goalId = String(activity.linkedPlanGoalId || activity.payload?.linkedPlanGoalId || '');
@@ -2938,7 +2939,7 @@ function App() {
     };
     const completedShortOrder = (clientId, aliases) =>
       (filteredRecordsByClient.get(clientId) || []).some((record) => {
-        if (!isProjectGoalEvidenceRecord(record) || !areaMatches(record, aliases)) return false;
+        if (!isShortTermProjectGoalEvidenceRecord(record) || !areaMatches(record, aliases)) return false;
         const outcome = String(record.payload?.outcome || record.documentText || '').trim();
         const goalId = String(record.linkedPlanGoalId || record.payload?.linkedPlanGoalId || '');
         return Boolean(outcome && (!goalId || goalId === 'one-time-order'));
@@ -2950,7 +2951,7 @@ function App() {
         (filteredRecordsByClient.get(client.id) || [])
           .filter((record) => {
             const ka = normalize(record.ka).replace(/\s/g, '');
-            return isProjectGoalEvidenceRecord(record) && ['ka1', 'ka01', 'ka2', 'ka02'].includes(ka);
+            return isShortTermProjectGoalEvidenceRecord(record) && ['ka1', 'ka01', 'ka2', 'ka02'].includes(ka);
           })
           .map((record) => normalize(record.payload?.supportArea))
           .filter((area) => area && area !== normalize('soci\u00e1ln\u00ed za\u010dlen\u011bn\u00ed'))
