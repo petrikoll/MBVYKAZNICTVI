@@ -12,6 +12,12 @@ test('manifest obsahuje instalační údaje a obě požadované velikosti ikon',
   await Promise.all(manifest.icons.map((icon) => access(new URL(`../public${icon.src}`, import.meta.url))));
 });
 
+test('chráněný manifest se načítá s přihlašovacími údaji', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+
+  assert.match(html, /<link\s+rel="manifest"\s+href="\/manifest\.webmanifest"\s+crossorigin="use-credentials"\s*\/?>/);
+});
+
 test('service worker neukládá citlivá API do mezipaměti', async () => {
   const serviceWorker = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
 
