@@ -97,7 +97,7 @@ import {
   selectedContactIds
 } from '../lib/actorContacts.js';
 import { buildClientSelectionPool } from '../lib/clientSelection.js';
-import { buildClientCaseAiPrompt, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
+import { buildClientCaseAiPrompt, buildClientCaseSummaryPrintHtml, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
 import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { isBackupStatusActive } from '../lib/backupStatus.js';
@@ -2131,6 +2131,7 @@ function App() {
   const generatedOutputSaveLockRef = useRef(false);
   const [isProvisioningClientFolder, setIsProvisioningClientFolder] = useState(false);
   const [isSummarizingCase, setIsSummarizingCase] = useState(false);
+  const [isExportingClientCaseDocx, setIsExportingClientCaseDocx] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [copied, setCopied] = useState(false);
   const [clientCaseSummary, setClientCaseSummary] = useState('');
@@ -5650,6 +5651,71 @@ ${rawOutput}` }] }],
     }
   };
 
+  const printClientCaseSummary = () => {
+    if (!selectedClient || !clientCaseSummary) return;
+    const printWindow = window.open('', '_blank', 'width=960,height=760');
+    if (!printWindow) {
+      setFlash('Prohlížeč zablokoval tiskové okno. Povolte vyskakovací okna a zkuste to znovu.');
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(buildClientCaseSummaryPrintHtml({
+      clientName: selectedClient.fullName,
+      summary: clientCaseSummary,
+      createdDate: formatDateLabel(todayIso())
+    }));
+    printWindow.document.close();
+    window.setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+    }, 250);
+    setFlash('Otevřel jsem tiskový dialog. Zde lze dokument vytisknout nebo uložit jako PDF.');
+  };
+
+  const exportClientCaseSummaryDocx = async () => {
+    if (!selectedClient || !clientCaseSummary || isExportingClientCaseDocx) return;
+    setIsExportingClientCaseDocx(true);
+    try {
+      const filename = `souhrn-zakazky-${slugify(selectedClient.fullName)}-${todayIso()}.docx`;
+      const response = await fetch('/api/export-record-docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename,
+          title: 'Souhrn zakázky klienta',
+          rows: [
+            { label: 'Klient', value: selectedClient.fullName },
+            { label: 'Datum vytvoření', value: formatDateLabel(todayIso()) },
+            { label: 'Projekt', value: 'Podpora sociální práce v Moravském Berouně II' }
+          ],
+          text: clientCaseSummary
+        })
+      });
+
+      if (!response.ok) {
+        const errorResult = await response.json().catch(() => ({}));
+        throw new Error(errorResult.error || 'Export DOCX selhal.');
+      }
+
+      const blob = await response.blob();
+      const href = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(href);
+      setFlash('Souhrn zakázky klienta byl stažen do DOCX.');
+    } catch (error) {
+      console.error('Client case summary DOCX export error:', error);
+      setFlash(error.message || 'Export souhrnu do DOCX selhal.');
+    } finally {
+      setIsExportingClientCaseDocx(false);
+    }
+  };
+
   const exportJourneyRecord = (record) => {
     if (!record || !selectedClient) return;
     const content = buildRecordHtmlDocument(record, selectedClient);
@@ -6546,16 +6612,36 @@ ${rawPlanOutput}` }] }],
                     )}
                     {clientCaseSummary && (
                       <div className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50/70 p-3">
-                        <div className="mb-1 flex items-center justify-between gap-2">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                           <div className="text-sm font-bold text-indigo-900">Souhrn zakázky klienta</div>
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard(clientCaseSummary, setCopied)}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
-                          >
-                            <ClipboardCopy className="h-3.5 w-3.5" />
-                            Kopírovat
-                          </button>
+                          <div className="flex flex-wrap justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(clientCaseSummary, setCopied)}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                            >
+                              <ClipboardCopy className="h-3.5 w-3.5" />
+                              Kopírovat
+                            </button>
+                            <button
+                              type="button"
+                              onClick={printClientCaseSummary}
+                              title="V tiskovém dialogu lze zvolit také Uložit jako PDF"
+                              className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                            >
+                              <Printer className="h-3.5 w-3.5" />
+                              Tisk / PDF
+                            </button>
+                            <button
+                              type="button"
+                              onClick={exportClientCaseSummaryDocx}
+                              disabled={isExportingClientCaseDocx}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isExportingClientCaseDocx ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                              DOCX
+                            </button>
+                          </div>
                         </div>
                         <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{clientCaseSummary}</pre>
                       </div>
