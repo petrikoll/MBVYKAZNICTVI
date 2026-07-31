@@ -173,23 +173,30 @@ export function buildZorTexts(records = []) {
   };
 }
 
-export function buildHorizontalPrinciplesFallbackText() {
-  return 'Při realizaci projektu byly rovné příležitosti žen a mužů a zásada nediskriminace uplatňovány jako průřezové principy. Přístup k podpoře vycházel z individuální nepříznivé sociální situace a evidovaných potřeb klientů. Poskytovaná podpora směřovala k rovnému přístupu k sociální pomoci, návazným službám a možnostem aktivního začlenění. Způsob práce byl zaměřen na zapojení klienta do řešení vlastní situace, posilování jeho soběstačnosti a respektování individuálních potřeb bez rozdílu pohlaví nebo jiné osobní charakteristiky.';
+export const ZOR_TEXT_MAX_LENGTH = 2000;
+
+export function buildHorizontalPrinciplesTexts() {
+  return {
+    'Rovné příležitosti a nediskriminace': 'Rovné příležitosti a nediskriminace byly při realizaci projektu uplatňovány jako průřezový princip. Přímá terénní práce, case management a koordinace služeb vycházely z individuální nepříznivé sociální situace, skutečných potřeb a cílů klienta, nikoli z osobních charakteristik nebo stereotypních předpokladů. Přístup k sociální pomoci byl zajišťován bez rozdílu věku, pohlaví, zdravotního stavu, rodinného a sociálního postavení, národnosti, etnického původu, náboženství nebo jiného znevýhodnění. Důraz byl kladen na srozumitelnou komunikaci, respekt k důstojnosti klienta, jeho zapojení do plánování řešení a koordinaci návazných služeb. Terénní forma práce na území Moravského Berouna a jeho přilehlých částí podporovala místní dostupnost pomoci. Realizované činnosti tak přispívaly k odstraňování bariér v přístupu k podpoře, aktivnímu začleňování a posilování soběstačnosti a odpovědnosti klientů.',
+    'Rovné příležitosti žen a mužů': 'Rovné příležitosti žen a mužů byly při realizaci projektu zohledňovány průřezově. Ženám i mužům byl zajišťován rovný přístup k terénní sociální práci, sociálnímu poradenství, case managementu a návazným službám. Podpora byla plánována podle individuální situace, potřeb a cílů konkrétního klienta bez stereotypních představ o rolích žen a mužů. Při volbě formy a termínu spolupráce byly zohledňovány pracovní, rodičovské a pečovatelské povinnosti tak, aby nepředstavovaly zbytečnou překážku pro využití podpory. Klienti byli bez ohledu na pohlaví zapojováni do rozhodování o řešení své situace a spolupráce byla vedena s respektem k jejich důstojnosti a odpovědnosti. Projekt tím podporoval rovné podmínky pro aktivní účast, využití dostupné pomoci a zlepšení sociální situace žen i mužů.'
+  };
 }
 
-export function buildHorizontalPrinciplesAiPrompt({ periodLabel, kaTexts } = {}) {
-  const sourceTexts = Object.entries(kaTexts || {})
-    .map(([title, text]) => `${title}:\n${text}`)
-    .join('\n\n');
+export function buildHorizontalPrincipleAiPrompt({ periodLabel, title, text, contextText = '' } = {}) {
   return [
-    'Vytvoř jeden souvislý odstavec do zprávy o realizaci projektu k naplňování horizontálních principů: rovné příležitosti žen a mužů a nediskriminace.',
+    `Uprav pracovní text do zprávy o realizaci projektu pro horizontální princip „${title || 'neuvedeno'}“.`,
     'Závazný kontext právního aktu: projekt Podpora sociální práce v Moravském Berouně II, registrační číslo CZ.03.02.01/00/25_106/0006125, podporuje aktivní začleňování, rovné příležitosti, nediskriminaci, aktivní účast a zlepšení zaměstnatelnosti zejména znevýhodněných skupin.',
     `Vykazované období: ${periodLabel || 'neuvedeno'}.`,
-    'Pracuj pouze s níže uvedenými anonymizovanými souhrny aktivit. Nevymýšlej konkrétní opatření, školení, stížnosti, bezbariérové úpravy, kvóty, personální pravidla ani dosažené dopady, které ve vstupu nejsou doloženy.',
+    'Zachovej význam schváleného pracovního textu a použij profesionální hodnoticí tón. Kontext evidovaných aktivit využij pouze kvalitativně.',
+    'Nevymýšlej konkrétní opatření, školení, stížnosti, bezbariérové úpravy, kvóty, personální pravidla ani dosažené dopady, které nejsou doloženy.',
     'Text označený jako metodický rámec nebo místo realizace podle právního aktu je pouze kontext projektu. Nepopisuj jednotlivé metody z tohoto rámce jako skutečně provedené, pokud nejsou samostatně uvedeny mezi doloženými činnostmi za období.',
-    'Popiš věcně, jak individuální přístup podle potřeb, rovný přístup k podpoře, zapojení klienta do řešení situace a spolupráce služeb přispívaly k těmto principům. Neuváděj jména ani identifikátory. Piš česky, bez markdownu, v rozsahu přibližně 80 až 140 slov.',
+    'Neopakuj statistiky ani číselné údaje. Neuváděj jména, interní identifikátory, nadpis, odrážky ani markdown.',
+    `Vrať jeden souvislý český odstavec o délce přibližně 1100 až 1300 znaků, nejvýše ${ZOR_TEXT_MAX_LENGTH} znaků, ukončený celou větou.`,
+    '',
+    'SCHVÁLENÝ PRACOVNÍ TEXT:',
+    String(text || '').trim() || 'Pracovní text není k dispozici.',
     '',
     'ANONYMIZOVANÉ SOUHRNY AKTIVIT:',
-    sourceTexts || 'Za období nejsou k dispozici evidované aktivity.'
+    String(contextText || '').trim() || 'Za období nejsou k dispozici evidované aktivity.'
   ].join('\n');
 }

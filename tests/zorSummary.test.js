@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildHorizontalPrinciplesAiPrompt,
-  buildHorizontalPrinciplesFallbackText,
+  buildHorizontalPrincipleAiPrompt,
+  buildHorizontalPrinciplesTexts,
   buildZorTexts
 } from '../src/lib/zorSummary.js';
 
@@ -85,16 +85,36 @@ test('ZOR vrátí srozumitelný text i pro prázdné období', () => {
   assert.match(texts['KA03 – Profesní vzdělávání a supervize týmu'], /nebyly/);
 });
 
-test('text horizontálních principů vychází z právního aktu a zakazuje nedoložená tvrzení', () => {
-  const kaTexts = buildZorTexts([]);
-  const prompt = buildHorizontalPrinciplesAiPrompt({ periodLabel: '07/2026 - 12/2026', kaTexts });
-  const fallback = buildHorizontalPrinciplesFallbackText();
+test('ZOR připraví dvě samostatná horizontální témata přizpůsobená projektu', () => {
+  const horizontalTexts = buildHorizontalPrinciplesTexts();
 
-  assert.match(prompt, /rovné příležitosti žen a mužů/i);
+  assert.deepEqual(Object.keys(horizontalTexts), [
+    'Rovné příležitosti a nediskriminace',
+    'Rovné příležitosti žen a mužů'
+  ]);
+  assert.match(horizontalTexts['Rovné příležitosti a nediskriminace'], /terénní práce/i);
+  assert.match(horizontalTexts['Rovné příležitosti a nediskriminace'], /Moravského Berouna/i);
+  assert.match(horizontalTexts['Rovné příležitosti žen a mužů'], /rodičovské a pečovatelské povinnosti/i);
+  assert.doesNotMatch(Object.values(horizontalTexts).join('\n'), /mentor|dluhové poradenství|splátkov/i);
+});
+
+test('AI prompt horizontálního tématu vychází z pracovního textu a zakazuje nedoložená tvrzení', () => {
+  const kaTexts = buildZorTexts([]);
+  const fallback = buildHorizontalPrinciplesTexts()['Rovné příležitosti a nediskriminace'];
+  const prompt = buildHorizontalPrincipleAiPrompt({
+    periodLabel: '07/2026 - 12/2026',
+    title: 'Rovné příležitosti a nediskriminace',
+    text: fallback,
+    contextText: Object.values(kaTexts).join('\n\n')
+  });
+
+  assert.match(prompt, /Rovné příležitosti a nediskriminace/i);
   assert.match(prompt, /nediskriminace/i);
   assert.match(prompt, /Nevymýšlej konkrétní opatření/i);
   assert.match(prompt, /metodický rámec.*pouze kontext projektu/i);
   assert.match(prompt, /CZ\.03\.02\.01\/00\/25_106\/0006125/);
+  assert.match(prompt, /Neopakuj statistiky ani číselné údaje/i);
+  assert.match(prompt, /jeden souvislý český odstavec/i);
   assert.match(fallback, /individuální nepříznivé sociální situace/i);
-  assert.match(fallback, /bez rozdílu pohlaví/i);
+  assert.match(fallback, /bez rozdílu věku, pohlaví/i);
 });

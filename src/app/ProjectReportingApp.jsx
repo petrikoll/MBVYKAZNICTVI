@@ -103,7 +103,7 @@ import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normaliz
 import { buildIsEsfPersonExport, serializeIsEsfPersonCsv } from '../lib/isEsfExport.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { isBackupStatusActive } from '../lib/backupStatus.js';
-import { buildHorizontalPrinciplesAiPrompt, buildHorizontalPrinciplesFallbackText, buildZorTexts } from '../lib/zorSummary.js';
+import { buildHorizontalPrincipleAiPrompt, buildHorizontalPrinciplesTexts, buildZorTexts, ZOR_TEXT_MAX_LENGTH } from '../lib/zorSummary.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
 import sfLogoImage from '../assets/eu-spolufinancovano-logo.png';
 import cityLogoImage from '../assets/moravsky-beroun-erb.jpg';
@@ -6352,26 +6352,42 @@ ${rawPlanOutput}` }] }],
 
     setIsGeneratingZor(true);
     const kaTexts = buildZorTexts(periodRecordsForZor);
-    let horizontalPrinciplesText = buildHorizontalPrinciplesFallbackText();
-    let usedAi = false;
+    const horizontalPrinciplesTexts = buildHorizontalPrinciplesTexts();
+    const horizontalContext = Object.entries(kaTexts)
+      .map(([title, text]) => `${title}:\n${text}`)
+      .join('\n\n');
+    let aiTextCount = 0;
     try {
       const aiModel = DEFAULT_AI_MODEL;
-      const response = await fetchGemini(aiModel, {
-            contents: [{ role: 'user', parts: [{ text: buildHorizontalPrinciplesAiPrompt({
-              periodLabel: selectedReportingPeriod.label,
-              kaTexts
-            }) }] }],
-            systemInstruction: {
-              parts: [{ text: `${AI_SAFETY_BASE}\nVytváříš pouze anonymizovaný text do zprávy o realizaci. Nepřidávej žádné nedoložené skutečnosti a vrať jen výsledný odstavec bez nadpisu.` }]
-            },
-            generationConfig: { temperature: 0.15, maxOutputTokens: 500 }
-          });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result?.error?.message || 'AI text horizontálních principů se nepodařilo vytvořit.');
-      const aiText = cleanGeneratedText(extractGeminiText(result)).trim();
-      if (!aiText) throw new Error('AI vrátila prázdný text horizontálních principů.');
-      horizontalPrinciplesText = aiText;
-      usedAi = true;
+      const results = await Promise.allSettled(Object.entries(horizontalPrinciplesTexts).map(async ([title, fallbackText]) => {
+        const response = await fetchGemini(aiModel, {
+          contents: [{ role: 'user', parts: [{ text: buildHorizontalPrincipleAiPrompt({
+            periodLabel: selectedReportingPeriod.label,
+            title,
+            text: fallbackText,
+            contextText: horizontalContext
+          }) }] }],
+          systemInstruction: {
+            parts: [{ text: `${AI_SAFETY_BASE}\nVytváříš pouze anonymizovaný text do zprávy o realizaci. Nepřidávej žádné nedoložené skutečnosti a vrať jen výsledný odstavec bez nadpisu.` }]
+          },
+          generationConfig: { temperature: 0.15, maxOutputTokens: 700 }
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result?.error?.message || `AI text pro téma „${title}“ se nepodařilo vytvořit.`);
+        const aiText = cleanGeneratedText(extractGeminiText(result)).trim();
+        if (aiText.length < 200 || aiText.length > ZOR_TEXT_MAX_LENGTH) {
+          throw new Error(`AI text pro téma „${title}“ nemá povolenou délku.`);
+        }
+        return { title, text: aiText };
+      }));
+      results.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          horizontalPrinciplesTexts[result.value.title] = result.value.text;
+          aiTextCount += 1;
+        } else {
+          console.warn('ZOR horizontal principle AI fallback:', result.reason);
+        }
+      });
     } catch (error) {
       console.warn('ZOR horizontal principles AI fallback:', error);
     } finally {
@@ -6380,13 +6396,18 @@ ${rawPlanOutput}` }] }],
         generatedAt: new Date().toISOString(),
         texts: {
           ...kaTexts,
-          'Horizontální principy – rovné příležitosti žen a mužů a nediskriminace': horizontalPrinciplesText
+          ...Object.fromEntries(Object.entries(horizontalPrinciplesTexts).map(([title, text]) => [
+            `Horizontální principy – ${title}`,
+            text
+          ]))
         }
       });
       setFlash(
-        usedAi
-          ? `Texty pro ZOR včetně AI textu horizontálních principů byly připraveny za období ${selectedReportingPeriod.label}.`
-          : `Texty pro ZOR byly připraveny za období ${selectedReportingPeriod.label}. Pro horizontální principy byl použit bezpečný pracovní text bez AI.`
+        aiTextCount === Object.keys(horizontalPrinciplesTexts).length
+          ? `Texty pro ZOR včetně dvou AI textů horizontálních témat byly připraveny za období ${selectedReportingPeriod.label}.`
+          : aiTextCount > 0
+            ? `Texty pro ZOR byly připraveny za období ${selectedReportingPeriod.label}. Jedno horizontální téma upravila AI, druhé používá bezpečný pracovní text.`
+            : `Texty pro ZOR byly připraveny za období ${selectedReportingPeriod.label}. Horizontální témata používají bezpečné pracovní texty bez AI.`
       );
       setIsGeneratingZor(false);
     }
