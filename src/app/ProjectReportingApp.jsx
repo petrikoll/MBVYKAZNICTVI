@@ -38,7 +38,8 @@ import {
   Users,
   Workflow,
   Brain,
-  Printer
+  Printer,
+  X
 } from 'lucide-react';
 import { onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, updateDoc } from 'firebase/firestore';
@@ -103,6 +104,12 @@ import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normaliz
 import { buildIsEsfPersonExport, serializeIsEsfPersonCsv } from '../lib/isEsfExport.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { isBackupStatusActive } from '../lib/backupStatus.js';
+import {
+  buildGoalAlertSignature,
+  readDismissedGoalAlertSignatures,
+  rememberDismissedGoalAlertSignature,
+  storeDismissedGoalAlertSignatures
+} from '../lib/goalAlertDismissal.js';
 import { buildHorizontalPrincipleAiPrompt, buildHorizontalPrinciplesTexts, buildZorTexts, ZOR_TEXT_MAX_LENGTH } from '../lib/zorSummary.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
 import sfLogoImage from '../assets/eu-spolufinancovano-logo.png';
@@ -2179,6 +2186,9 @@ function App() {
   const [copied, setCopied] = useState(false);
   const [clientCaseSummary, setClientCaseSummary] = useState('');
   const [goalAlertsExpanded, setGoalAlertsExpanded] = useState(false);
+  const [dismissedGoalAlertSignatures, setDismissedGoalAlertSignatures] = useState(() =>
+    readDismissedGoalAlertSignatures(window.localStorage)
+  );
   const [dashboardFilters, setDashboardFilters] = useState({ period: 'all', ka: 'all', worker: 'all' });
   const [isEsfExportStatus, setIsEsfExportStatus] = useState({
     state: 'idle',
@@ -2629,6 +2639,24 @@ function App() {
     () => [...goalDeadlineAlerts.overdue, ...goalDeadlineAlerts.approaching].slice(0, 3),
     [goalDeadlineAlerts]
   );
+
+  const goalAlertSignature = useMemo(
+    () => buildGoalAlertSignature(goalDeadlineAlerts),
+    [goalDeadlineAlerts]
+  );
+
+  const goalAlertsVisible = goalDeadlineAlerts.total > 0 && !dismissedGoalAlertSignatures.includes(goalAlertSignature);
+
+  useEffect(() => {
+    setGoalAlertsExpanded(false);
+  }, [goalAlertSignature]);
+
+  const dismissGoalAlerts = () => {
+    const nextSignatures = rememberDismissedGoalAlertSignature(dismissedGoalAlertSignatures, goalAlertSignature);
+    setDismissedGoalAlertSignatures(nextSignatures);
+    storeDismissedGoalAlertSignatures(window.localStorage, nextSignatures);
+    setGoalAlertsExpanded(false);
+  };
 
   const hasUnsavedFormContent = () =>
     (showClientForm && hasContentInFields(clientDraft, CLIENT_DRAFT_CONTENT_FIELDS)) ||
@@ -6446,20 +6474,31 @@ ${rawPlanOutput}` }] }],
             <div>
               <p className={`text-xs font-semibold uppercase tracking-[0.22em] ${viewTheme.label}`}>Projektové výkaznictví</p>
               <h1 className="mt-1 text-2xl font-bold text-slate-900">PODPORA SOCIÁLNÍ PRÁCE V MORAVSKÉM BEROUNĚ II</h1>
-              {goalDeadlineAlerts.total > 0 && (
+              {goalAlertsVisible && (
                 <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900 shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => setGoalAlertsExpanded((value) => !value)}
-                    className="flex w-full items-start justify-between gap-3 text-left font-semibold"
-                    title="Zobrazit detail cílů k vyhodnocení"
-                  >
-                    <span>
-                      Ke kontrole: {goalDeadlineAlerts.approaching.length} {goalDeadlineAlerts.approaching.length === 1 ? 'cíl se blíží' : goalDeadlineAlerts.approaching.length >= 2 && goalDeadlineAlerts.approaching.length <= 4 ? 'cíle se blíží' : 'cílů se blíží'} k termínu
-                      {goalDeadlineAlerts.overdue.length > 0 ? `, ${goalDeadlineAlerts.overdue.length} ${goalDeadlineAlerts.overdue.length === 1 ? 'cíl je' : goalDeadlineAlerts.overdue.length >= 2 && goalDeadlineAlerts.overdue.length <= 4 ? 'cíle jsou' : 'cílů je'} po termínu bez vyhodnocení` : ''}.
-                    </span>
-                    <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 transition-transform ${goalAlertsExpanded ? 'rotate-90' : ''}`} />
-                  </button>
+                  <div className="flex items-start gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setGoalAlertsExpanded((value) => !value)}
+                      className="flex min-w-0 flex-1 items-start justify-between gap-3 text-left font-semibold"
+                      title="Zobrazit detail cílů k vyhodnocení"
+                    >
+                      <span>
+                        Ke kontrole: {goalDeadlineAlerts.approaching.length} {goalDeadlineAlerts.approaching.length === 1 ? 'cíl se blíží' : goalDeadlineAlerts.approaching.length >= 2 && goalDeadlineAlerts.approaching.length <= 4 ? 'cíle se blíží' : 'cílů se blíží'} k termínu
+                        {goalDeadlineAlerts.overdue.length > 0 ? `, ${goalDeadlineAlerts.overdue.length} ${goalDeadlineAlerts.overdue.length === 1 ? 'cíl je' : goalDeadlineAlerts.overdue.length >= 2 && goalDeadlineAlerts.overdue.length <= 4 ? 'cíle jsou' : 'cílů je'} po termínu bez vyhodnocení` : ''}.
+                      </span>
+                      <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 transition-transform ${goalAlertsExpanded ? 'rotate-90' : ''}`} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={dismissGoalAlerts}
+                      className="rounded p-0.5 text-amber-700 transition hover:bg-amber-100 hover:text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      title="Skrýt toto upozornění do změny informací"
+                      aria-label="Skrýt upozornění na termíny cílů"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
                   {!goalAlertsExpanded && goalAlertPreviewItems.length > 0 && (
                     <p className="mt-1 text-[11px] text-amber-800">
                       {goalAlertPreviewItems.map((item) => `${item.clientName} – ${formatDateLabel(item.deadline)}`).join('; ')}
