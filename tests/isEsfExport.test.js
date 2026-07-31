@@ -311,6 +311,34 @@ test('převede historické zkratky vzdělání na platné kódy IS ESF', async (
   }
 });
 
+test('rozpozná i volné a starší slovní popisy vzdělání', async () => {
+  const registry = createAddressRegistry(manifest, shards);
+  const aliases = [
+    ['nedokončené základní vzdělání', 'VZ0'],
+    ['ukončená základní škola', 'VZISCED1-2'],
+    ['střední odborné učiliště', 'VZISCED3-4'],
+    ['střední škola s maturitou', 'VZISCED3-4'],
+    ['vyšší odborná škola', 'VZISCED5-8'],
+    ['vysokoškolské magisterské', 'VZISCED5-8'],
+    ['ISCED 2', 'VZISCED1-2'],
+    ['ISCED 4', 'VZISCED3-4'],
+    ['ISCED 6', 'VZISCED5-8']
+  ];
+
+  for (const [education, expectedCode] of aliases) {
+    const result = await buildIsEsfPersonExport([{
+      ...baseClient,
+      vzdelani: education
+    }], { registry });
+    assert.equal(result.educationFallbacks.length, 0, education);
+    assert.equal(
+      result.rows[0].PodleNejvyssihoDosazenehoVzdelani_MonitorovaciList,
+      expectedCode,
+      education
+    );
+  }
+});
+
 test('chybějící vzdělání neblokuje CSV a je transparentně vykázáno jako VZJN', async () => {
   const registry = createAddressRegistry(manifest, shards);
   const result = await buildIsEsfPersonExport([{

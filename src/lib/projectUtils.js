@@ -32,6 +32,27 @@ function getKa02DurationMinutes(draft) {
   return durationMinutesFromTimes(draft.ka02StartTime, draft.ka02EndTime);
 }
 
+function normalizeSheetHeader(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function readSheetValue(row, aliases) {
+  for (const alias of aliases) {
+    if (row[alias] !== undefined && row[alias] !== null && row[alias] !== '') return row[alias];
+  }
+
+  const aliasKeys = new Set(aliases.map(normalizeSheetHeader));
+  const matched = Object.entries(row).find(([key, value]) => (
+    value !== undefined && value !== null && value !== '' && aliasKeys.has(normalizeSheetHeader(key))
+  ));
+  return matched?.[1] || '';
+}
+
 function mapSheetRowToClient(row, index) {
   let active = '';
   let columns = [];
@@ -59,7 +80,13 @@ function mapSheetRowToClient(row, index) {
       telefon: row.telefon || '',
       pohlavi: row.pohlavi || '',
       postaveniNaTrhu: row.postaveni_na_trhu_prace || '',
-      vzdelani: row.dosazene_vzdelani || row.nejvyssi_dosazene_vzdelani || '',
+      vzdelani: readSheetValue(row, [
+        'dosazene_vzdelani',
+        'nejvyssi_dosazene_vzdelani',
+        'vzdelani',
+        'dosažené vzdělání',
+        'nejvyšší dosažené vzdělání'
+      ]),
       znevyhodneni: row.znevyhodneni || row.typ_znevyhodneni || '',
       datumVstupu: normalizeDateIso(row.datum_vstupu_do_projektu),
       datumVystupu: normalizeDateIso(row.datum_vystupu_z_projektu),

@@ -20,6 +20,22 @@ test('import objektu správně mapuje neaktivní stavy klienta', () => {
   assert.equal(pending.projectStatus, 'waiting');
 });
 
+test('import objektu načte vzdělání i ze staršího nebo popisného záhlaví', () => {
+  const legacy = mapSheetRowToClient({
+    klient_id: '1',
+    jmeno: 'Jan',
+    vzdelani: 'SOU'
+  }, 0);
+  const descriptive = mapSheetRowToClient({
+    klient_id: '2',
+    jmeno: 'Eva',
+    'Nejvyšší dosažené vzdělání': 'VŠ'
+  }, 1);
+
+  assert.equal(legacy.vzdelani, 'SOU');
+  assert.equal(descriptive.vzdelani, 'VŠ');
+});
+
 test('statistika použije délku v minutách, když nejsou časy od-do', () => {
   const summary = getClientSupportBreakdown('client-1', [{
     id: 'record-1',

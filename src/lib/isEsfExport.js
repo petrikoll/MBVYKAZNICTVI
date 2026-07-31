@@ -240,7 +240,31 @@ function resolveCode(value, map) {
 
 function resolveEducationCode(value) {
   const code = resolveCode(value, EDUCATION_CODES);
-  return EDUCATION_CODE_PATTERN.test(code) ? code : '';
+  if (EDUCATION_CODE_PATTERN.test(code)) return code;
+
+  const normalized = normalizeKey(value)
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  if (!normalized) return '';
+
+  if (/\bisced\s*0\b/.test(normalized)) return 'VZ0';
+  if (/\bisced\s*(?:1\s*(?:az|-)?\s*2|1|2)\b/.test(normalized)) return 'VZISCED1-2';
+  if (/\bisced\s*(?:3\s*(?:az|-)?\s*4|3|4)\b/.test(normalized)) return 'VZISCED3-4';
+  if (/\bisced\s*(?:5\s*(?:az|-)?\s*8|5|6|7|8)\b/.test(normalized)) return 'VZISCED5-8';
+
+  if (/\b(?:bez\s+vzdelani|bez\s+ukonceneho\s+zakladniho|nedokoncene\s+zakladni)\b/.test(normalized)) {
+    return 'VZ0';
+  }
+  if (/\b(?:vyssi\s+odborn\w*|vos|vysokoskol\w*|vs|bakalar\w*|magistr\w*|doktor\w*|ph\s*d)\b/.test(normalized)) {
+    return 'VZISCED5-8';
+  }
+  if (/\b(?:stredoskol\w*|stredni|sou|ss|vyucen\w*|ucnov\w*|maturit\w*|pomaturit\w*)\b/.test(normalized)) {
+    return 'VZISCED3-4';
+  }
+  if (/\b(?:zakladni|zs)\b/.test(normalized)) return 'VZISCED1-2';
+  if (/\b(?:jinde\s+neuveden\w*|jine)\b/.test(normalized)) return 'VZJN';
+
+  return '';
 }
 
 function resolveMultipleCodes(value, map) {
