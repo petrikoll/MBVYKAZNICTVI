@@ -88,7 +88,9 @@ const ProfessionalDevelopmentCard = ({ item }) => {
 
 function ReportingView({
   dashboardOverview,
-  exportClientsCsv,
+  exportClientsIsEsfCsv,
+  isEsfExportStatus,
+  isEsfSupportedClientCount = 0,
   exportAllRecordsBackup,
   supportExportCount,
   dashboardFilters,
@@ -120,8 +122,18 @@ function ReportingView({
         icon={Activity}
         action={
           <div className="flex flex-wrap gap-2">
-            <button onClick={exportClientsCsv} className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100">
-              <FileSpreadsheet className="h-4 w-4" /> Klienti a podpora do IS ESF
+            <button
+              type="button"
+              onClick={exportClientsIsEsfCsv}
+              disabled={!isEsfSupportedClientCount || isEsfExportStatus?.state === 'loading'}
+              className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+            >
+              {isEsfExportStatus?.state === 'loading'
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <FileSpreadsheet className="h-4 w-4" />}
+              {isEsfExportStatus?.state === 'loading'
+                ? 'Kontroluji adresy…'
+                : `Podporované osoby do IS ESF (${isEsfSupportedClientCount})`}
             </button><HelpIcon help={HELP.dashboardExport} />
             <button onClick={exportAllRecordsBackup} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
               <Archive className="h-4 w-4" /> Stáhnout zápisy ({supportExportCount || 0})
@@ -141,6 +153,61 @@ function ReportingView({
           </div>
         </div>
         <div className="mt-3 text-xs text-slate-600">Aktivní filtr zahrnuje <strong>{filteredRecords.length}</strong> záznamů.</div>
+        <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+          isEsfExportStatus?.state === 'error'
+            ? 'border-red-200 bg-red-50 text-red-800'
+            : isEsfExportStatus?.state === 'warning'
+              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              : isEsfExportStatus?.state === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-slate-200 bg-slate-50 text-slate-600'
+        }`}>
+          <div className="font-semibold">
+            {!isEsfSupportedClientCount
+              ? 'Ve zvoleném období není evidována žádná osoba s podporou KA1.'
+              : (isEsfExportStatus?.message || 'Kontrola údajů a adres se spustí při stažení CSV.')}
+          </div>
+          {isEsfExportStatus?.addressFallbacks?.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer font-semibold">Osoby bez potvrzené úplné adresy ({isEsfExportStatus.addressFallbacks.length})</summary>
+              <ul className="mt-1 space-y-1 pl-4">
+                {isEsfExportStatus.addressFallbacks.map((item) => (
+                  <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.reason}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {isEsfExportStatus?.addressAdjustments?.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer font-semibold">Adresy upravené podle RÚIAN ({isEsfExportStatus.addressAdjustments.length})</summary>
+              <ul className="mt-1 space-y-1 pl-4">
+                {isEsfExportStatus.addressAdjustments.map((item) => (
+                  <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.reason}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {isEsfExportStatus?.educationFallbacks?.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer font-semibold">Nerozpoznané vzdělání ({isEsfExportStatus.educationFallbacks.length})</summary>
+              <ul className="mt-1 space-y-1 pl-4">
+                {isEsfExportStatus.educationFallbacks.map((item) => (
+                  <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.reason}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {isEsfExportStatus?.dataIssues?.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer font-semibold">Údaje vyžadující doplnění ({isEsfExportStatus.dataIssues.length})</summary>
+              <ul className="mt-1 space-y-1 pl-4">
+                {isEsfExportStatus.dataIssues.map((item) => (
+                  <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.issues.join(', ')}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
       </Panel>
 
       {canManageBackups && (

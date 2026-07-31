@@ -100,6 +100,7 @@ import {
 import { buildClientSelectionPool } from '../lib/clientSelection.js';
 import { buildClientCaseAiPrompt, buildClientCaseSummaryPrintHtml, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
 import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
+import { buildIsEsfPersonExport, serializeIsEsfPersonCsv } from '../lib/isEsfExport.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { isBackupStatusActive } from '../lib/backupStatus.js';
 import { buildHorizontalPrinciplesAiPrompt, buildHorizontalPrinciplesFallbackText, buildZorTexts } from '../lib/zorSummary.js';
@@ -459,6 +460,41 @@ const ZOR_ACTIVITY_ENTITY_TYPES = new Set([
   'education_records',
   'supervision_records'
 ]);
+
+const getRecordClientIds = (record) => (
+  Array.isArray(record?.clientIds)
+    ? record.clientIds.filter(Boolean)
+    : record?.clientId
+      ? [record.clientId]
+      : []
+);
+
+const getUniqueKa1ClientSupportRecords = (sourceRecords) => {
+  const seen = new Set();
+  return (sourceRecords || []).filter((record) => {
+    if (record.isSynthetic || record.entityType !== 'consultations') return false;
+    const normalizedKa = String(getEffectiveRecordKa(record) || record.ka || '').trim().toUpperCase();
+    if (!['KA1', 'KA01'].includes(normalizedKa) || record.payload?.caseManagementMode) return false;
+    const clientIds = getRecordClientIds(record);
+    if (!clientIds.length) return false;
+    const payload = record.payload || {};
+    const key = [
+      [...clientIds].sort().join(','),
+      record.activityDate || '',
+      payload.startTime || payload.ka02StartTime || '',
+      payload.endTime || payload.ka02EndTime || '',
+      Number(payload.durationMinutes || 0),
+      payload.consultationType || record.title || '',
+      record.documentText || payload.topics || '',
+      payload.outcome || '',
+      payload.nextSteps || ''
+    ].map((value) => String(value).trim()).join('|').toLocaleLowerCase('cs');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 const CLIENT_JOURNEY_ENTITY_TYPES = new Set([
   'plans',
   'consultations',
@@ -2130,6 +2166,7 @@ function App() {
   const pendingRecordSaveSignaturesRef = useRef(new Set());
   const pendingClientSaveSignaturesRef = useRef(new Set());
   const generatedOutputSaveLockRef = useRef(false);
+  const isEsfExportRequestRef = useRef(0);
   const [isProvisioningClientFolder, setIsProvisioningClientFolder] = useState(false);
   const [isSummarizingCase, setIsSummarizingCase] = useState(false);
   const [isExportingClientCaseDocx, setIsExportingClientCaseDocx] = useState(false);
@@ -2138,6 +2175,14 @@ function App() {
   const [clientCaseSummary, setClientCaseSummary] = useState('');
   const [goalAlertsExpanded, setGoalAlertsExpanded] = useState(false);
   const [dashboardFilters, setDashboardFilters] = useState({ period: 'all', ka: 'all', worker: 'all' });
+  const [isEsfExportStatus, setIsEsfExportStatus] = useState({
+    state: 'idle',
+    message: 'Kontrola údajů a adres se spustí při stažení CSV.',
+    addressFallbacks: [],
+    addressAdjustments: [],
+    educationFallbacks: [],
+    dataIssues: []
+  });
   const [statisticsRows, setStatisticsRows] = useState([]);
   const [statisticsFilters, setStatisticsFilters] = useState({ dateFrom: '', dateTo: '' });
   const [isExportingKuStatistics, setIsExportingKuStatistics] = useState(false);
@@ -2684,6 +2729,30 @@ function App() {
       return matchesPeriod && matchesKa && matchesWorker;
     });
   }, [dashboardFilters, selectedReportingPeriod, storedActivityRecords]);
+
+  const isEsfSupportRecords = useMemo(
+    () => getUniqueKa1ClientSupportRecords(
+      records.filter((record) => isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod))
+    ),
+    [records, selectedReportingPeriod]
+  );
+
+  const isEsfSupportedClients = useMemo(() => {
+    const supportedClientIds = new Set(isEsfSupportRecords.flatMap(getRecordClientIds));
+    return accessibleClients.filter((client) => supportedClientIds.has(client.id));
+  }, [accessibleClients, isEsfSupportRecords]);
+
+  useEffect(() => {
+    isEsfExportRequestRef.current += 1;
+    setIsEsfExportStatus({
+      state: 'idle',
+      message: 'Kontrola údajů a adres se spustí při stažení CSV.',
+      addressFallbacks: [],
+      addressAdjustments: [],
+      educationFallbacks: [],
+      dataIssues: []
+    });
+  }, [dashboardFilters.period]);
 
   const filteredClientList = useMemo(() => {
     const normalizeSearchValue = (value) =>
@@ -5470,15 +5539,6 @@ ${rawOutput}` }] }],
     setMainView(nextView);
   };
 
-  const formatHoursForExport = (hours) => {
-    const safeHours = Number(hours || 0);
-    const totalMinutes = Math.round(safeHours * 60);
-    const wholeHours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    const decimalHours = (totalMinutes / 60).toFixed(1).replace('.', ',');
-    return `${decimalHours} hod (${String(wholeHours).padStart(2, '0')}hod${String(minutes).padStart(2, '0')}min)`;
-  };
-
   const getUniqueClientSupportRecords = (sourceRecords) => {
     const seen = new Set();
     return (sourceRecords || []).filter((record) => {
@@ -5503,23 +5563,6 @@ ${rawOutput}` }] }],
     });
   };
 
-  const getClientDashboardExportStats = (clientId) => {
-    const supportRecords = getUniqueClientSupportRecords(records).filter((record) => {
-      const clientIds = Array.isArray(record.clientIds) ? record.clientIds : record.clientId ? [record.clientId] : [];
-      return clientIds.includes(clientId);
-    });
-    const minutesFor = (predicate) => supportRecords
-      .filter(predicate)
-      .reduce((sum, record) => sum + Number(record.payload?.durationMinutes || 0), 0);
-    const isKa2 = (record) => String(record.ka || '').toUpperCase() === 'KA2' || Boolean(record.payload?.caseManagementMode);
-    const totalMinutes = minutesFor(() => true);
-    return {
-      supportCount: supportRecords.length,
-      totalHours: totalMinutes / 60,
-      ka1Hours: minutesFor((record) => !isKa2(record)) / 60,
-      ka2Hours: minutesFor(isKa2) / 60
-    };
-  };
   const exportActivitiesCsv = () => {
     const rows = filteredRecords.map((record) => [
       record.activityDate || '',
@@ -5538,54 +5581,93 @@ ${rawOutput}` }] }],
     );
   };
 
-  const exportClientsCsv = () => {
-    const rows = accessibleClients.map((client) => {
-      const stats = getClientDashboardExportStats(client.id);
-      const supportCategory = stats.totalHours >= 40 ? '40 hodin a více' : stats.totalHours > 0 ? 'Méně než 40 hodin' : 'Bez podpory';
-      return [
-        client.id,
-        client.fullName,
-        client.datumNarozeni || '',
-        client.pohlavi || '',
-        client.mesto || '',
-        client.postaveniNaTrhu || '',
-        client.vzdelani || '',
-        client.znevyhodneni || '',
-        client.projectStatusLabel || '',
-        client.keyWorker || '',
-        client.datumVstupu || '',
-        client.datumVystupu || '',
-        stats.supportCount,
-        formatHoursForExport(stats.totalHours),
-        formatHoursForExport(stats.ka1Hours),
-        formatHoursForExport(stats.ka2Hours),
-        supportCategory
-      ];
+  const exportClientsIsEsfCsv = async () => {
+    const requestId = isEsfExportRequestRef.current + 1;
+    isEsfExportRequestRef.current = requestId;
+    const exportClients = [...isEsfSupportedClients];
+    if (!exportClients.length) {
+      setIsEsfExportStatus({
+        state: 'error',
+        message: 'Ve zvoleném období nejsou evidováni žádní klienti s podporou KA1.',
+        addressFallbacks: [],
+        addressAdjustments: [],
+        educationFallbacks: [],
+        dataIssues: []
+      });
+      return;
+    }
+
+    setIsEsfExportStatus({
+      state: 'loading',
+      message: 'Načítám aktuální registr RÚIAN…',
+      addressFallbacks: [],
+      addressAdjustments: [],
+      educationFallbacks: [],
+      dataIssues: []
     });
 
-    downloadCsv(
-      [
-        'Interní ID',
-        'Klient',
-        'Datum narození',
-        'Pohlaví',
-        'Obec',
-        'Postavení na trhu práce',
-        'Dosažené vzdělání',
-        'Typ znevýhodnění',
-        'Status klienta',
-        'Klíčový pracovník',
-        'Datum vstupu',
-        'Datum výstupu',
-        'Počet zápisů podpory',
-        'Celková podpora',
-        'Podpora KA1',
-        'Podpora KA2',
-        'Kategorie podpory'
-      ],
-      rows,
-      'klienti-a-podpora-is-esf.csv'
-    );
+    try {
+      const result = await buildIsEsfPersonExport(exportClients, {
+        baseUrl: '',
+        onProgress: ({ phase, current, total }) => {
+          if (isEsfExportRequestRef.current !== requestId) return;
+          const message = phase === 'municipalities'
+            ? `Ověřuji adresy podle RÚIAN (${current}/${Math.max(total, 1)})…`
+            : 'Načítám seznam obcí RÚIAN…';
+          setIsEsfExportStatus({
+            state: 'loading',
+            message,
+            addressFallbacks: [],
+            addressAdjustments: [],
+            educationFallbacks: [],
+            dataIssues: []
+          });
+        }
+      });
+      if (isEsfExportRequestRef.current !== requestId) return;
+
+      const csv = serializeIsEsfPersonCsv(result.rows);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = href;
+      const periodSlug = slugify(selectedReportingPeriod?.label || 'cele-obdobi');
+      link.download = `PodporeneOsoby-MBV-${periodSlug}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(href), 4000);
+
+      const fallbackText = result.addressFallbacks.length > 0
+        ? ` U ${result.addressFallbacks.length} osob se nepodařilo potvrdit úplné adresní místo; v CSV je uvedena pouze obec.`
+        : ' Všechny obce, čísla domů a PSČ byly potvrzeny.';
+      const adjustedText = result.addressAdjustments.length > 0
+        ? ` U ${result.addressAdjustments.length} osob byla adresa bezpečně upravena nebo doplněna podle RÚIAN.`
+        : '';
+      const educationText = result.educationFallbacks.length > 0
+        ? ` U ${result.educationFallbacks.length} osob nebylo vzdělání rozpoznáno; CSV používá obecný kód VZJN.`
+        : '';
+      setIsEsfExportStatus({
+        state: result.blockingIssues.length > 0 ? 'warning' : 'success',
+        message: result.blockingIssues.length > 0
+          ? `CSV pro IS ESF bylo vytvořeno (${result.rows.length} osob), ale obsahuje ${result.blockingIssues.length} upozornění k doplnění.${fallbackText}${adjustedText}${educationText}`
+          : `CSV pro IS ESF bylo vytvořeno (${result.rows.length} osob).${fallbackText}${adjustedText}${educationText}`,
+        addressFallbacks: result.addressFallbacks,
+        addressAdjustments: result.addressAdjustments,
+        educationFallbacks: result.educationFallbacks,
+        dataIssues: result.blockingIssues
+      });
+    } catch (error) {
+      if (isEsfExportRequestRef.current !== requestId) return;
+      setIsEsfExportStatus({
+        state: 'error',
+        message: error?.message || 'CSV pro IS ESF se nepodařilo vytvořit.',
+        addressFallbacks: [],
+        addressAdjustments: [],
+        educationFallbacks: [],
+        dataIssues: []
+      });
+    }
   };
 
   const exportAllRecordsBackup = () => {
@@ -7450,7 +7532,9 @@ ${rawPlanOutput}` }] }],
           <React.Suspense fallback={<LazyViewFallback />}>
             <ReportingView
               dashboardOverview={dashboardOverview}
-              exportClientsCsv={exportClientsCsv}
+              exportClientsIsEsfCsv={exportClientsIsEsfCsv}
+              isEsfExportStatus={isEsfExportStatus}
+              isEsfSupportedClientCount={isEsfSupportedClients.length}
               exportAllRecordsBackup={exportAllRecordsBackup}
               supportExportCount={getUniqueClientSupportRecords(filteredRecords).length}
               dashboardFilters={dashboardFilters}
