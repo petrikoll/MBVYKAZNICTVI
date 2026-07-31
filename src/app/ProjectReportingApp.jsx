@@ -46,6 +46,7 @@ import {
   APP_VIEWS,
   GOOGLE_DRIVE_UPLOAD_URL,
   GOOGLE_SHEET_MACRO_URL,
+  PROJECT_START_DATE,
   REPORTING_PERIODS,
   REPORT_PROMPTS,
   TARGETS,
@@ -2902,7 +2903,7 @@ function App() {
     const partnerStats = buildPartnerStats({
       records: filteredRecords,
       partners: records.filter((record) => record.entityType === 'actor_registry'),
-      projectStartDate: REPORTING_PERIODS[1]?.start || '2026-03-01',
+      projectStartDate: PROJECT_START_DATE,
       referenceDate: selectedReportingPeriod?.end || todayIso()
     });
     const activePartners = partnerStats.filter((partner) => partner.isActiveInProject);

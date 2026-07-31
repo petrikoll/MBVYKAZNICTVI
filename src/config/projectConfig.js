@@ -232,12 +232,15 @@ const APP_VIEWS = [
   { id: 'statistics', name: 'Statistiky KÚ', icon: BarChart3, tone: 'slate' }
 ];
 
+const PROJECT_START_DATE = '2026-07-01';
+const PROJECT_END_DATE = '2028-06-30';
+
 const REPORTING_PERIODS = [
   { value: 'all', label: 'V\u0161echna data', start: '', end: '' },
-  { value: '2026-03_2026-08', label: '03/2026 - 08/2026', start: '2026-03-01', end: '2026-08-31' },
-  { value: '2026-09_2027-02', label: '09/2026 - 02/2027', start: '2026-09-01', end: '2027-02-28' },
-  { value: '2027-03_2027-08', label: '03/2027 - 08/2027', start: '2027-03-01', end: '2027-08-31' },
-  { value: '2027-09_2028-02', label: '09/2027 - 02/2028', start: '2027-09-01', end: '2028-02-29' }
+  { value: '2026-07_2026-12', label: '07/2026 - 12/2026', start: PROJECT_START_DATE, end: '2026-12-31' },
+  { value: '2027-01_2027-06', label: '01/2027 - 06/2027', start: '2027-01-01', end: '2027-06-30' },
+  { value: '2027-07_2027-12', label: '07/2027 - 12/2027', start: '2027-07-01', end: '2027-12-31' },
+  { value: '2028-01_2028-06', label: '01/2028 - 06/2028', start: '2028-01-01', end: PROJECT_END_DATE }
 ];
 
 const emptyClientDraft = {
@@ -283,6 +286,8 @@ export {
   REPORT_PROMPTS,
   ACTIVE_AI_DOCUMENT_KEYS,
   APP_VIEWS,
+  PROJECT_START_DATE,
+  PROJECT_END_DATE,
   REPORTING_PERIODS,
   emptyClientDraft,
   emptyGeneratorDraft,
