@@ -2204,6 +2204,7 @@ function App() {
   const [statisticsRows, setStatisticsRows] = useState([]);
   const [statisticsFilters, setStatisticsFilters] = useState({ dateFrom: '', dateTo: '' });
   const [isExportingKuStatistics, setIsExportingKuStatistics] = useState(false);
+  const [isExportingDetailedOutputs, setIsExportingDetailedOutputs] = useState(false);
   const [zorTexts, setZorTexts] = useState(null);
   const [isGeneratingZor, setIsGeneratingZor] = useState(false);
   const [expandedJourneyRecordIds, setExpandedJourneyRecordIds] = useState([]);
@@ -5767,6 +5768,42 @@ ${rawOutput}` }] }],
     const content = buildAllRecordsBackupHtml(supportRecords, clients);
     downloadHtmlDocument(content, `zapisy-podpory-${todayIso()}.doc`);
   };
+  const exportDetailedOutputsXlsx = async () => {
+    if (isExportingDetailedOutputs) return;
+    const supportRecords = getUniqueClientSupportRecords(filteredRecords);
+    if (!supportRecords.length) {
+      setFlash('Pro zvolené filtry nejsou evidovány žádné výkony k exportu.');
+      return;
+    }
+
+    setIsExportingDetailedOutputs(true);
+    try {
+      const { buildDetailedOutputsXlsx } = await import('../lib/detailedOutputsXlsx.js');
+      const filterLabel = [
+        `Období: ${selectedReportingPeriod.label}`,
+        `KA: ${dashboardFilters.ka === 'all' ? 'všechny' : dashboardFilters.ka}`,
+        `Pracovník: ${dashboardFilters.worker === 'all' ? 'všichni' : dashboardFilters.worker}`
+      ].join(' | ');
+      const result = await buildDetailedOutputsXlsx({ records: supportRecords, clients, filterLabel });
+      const blob = new Blob([result.buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `podrobne-vystupy-${dashboardFilters.period || 'projekt'}-${todayIso()}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setFlash(`XLSX obsahuje ${result.performanceCount} výkonů a souhrn ${result.clientCount} klientů.`);
+    } catch (error) {
+      console.error('Detailed XLSX export error:', error);
+      setFlash(error.message || 'Podrobný XLSX export se nepodařilo vytvořit.');
+    } finally {
+      setIsExportingDetailedOutputs(false);
+    }
+  };
   const exportIndicatorsCsv = () => {
     const rows = computedIndicators.map((item) => [
       item.ka,
@@ -7677,6 +7714,8 @@ ${rawPlanOutput}` }] }],
               isEsfExportStatus={isEsfExportStatus}
               isEsfSupportedClientCount={isEsfSupportedClients.length}
               exportAllRecordsBackup={exportAllRecordsBackup}
+              exportDetailedOutputsXlsx={exportDetailedOutputsXlsx}
+              isExportingDetailedOutputs={isExportingDetailedOutputs}
               supportExportCount={getUniqueClientSupportRecords(filteredRecords).length}
               dashboardFilters={dashboardFilters}
               setDashboardFilters={setDashboardFilters}

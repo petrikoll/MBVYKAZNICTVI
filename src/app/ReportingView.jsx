@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, AlertTriangle, Archive, Brain, ClipboardCopy, Download, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target } from 'lucide-react';
+import { Activity, AlertTriangle, Archive, ArrowLeft, Brain, ClipboardCopy, Download, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target } from 'lucide-react';
 
 import { HelpIcon, Panel, SelectField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
@@ -92,6 +92,8 @@ function ReportingView({
   isEsfExportStatus,
   isEsfSupportedClientCount = 0,
   exportAllRecordsBackup,
+  exportDetailedOutputsXlsx,
+  isExportingDetailedOutputs = false,
   supportExportCount,
   dashboardFilters,
   setDashboardFilters,
@@ -108,7 +110,13 @@ function ReportingView({
   handleStartFullBackup,
   handleInstallWeeklyBackup
 }) {
+  const [showDetailedOutputs, setShowDetailedOutputs] = React.useState(false);
   const overview = dashboardOverview || { indicators: [], longGoals: [], shortGoals: [], activityGoals: [], professionalDevelopmentStats: [], partnerMetrics: [], risks: [] };
+  React.useEffect(() => {
+    if (!showDetailedOutputs && (dashboardFilters.ka !== 'all' || dashboardFilters.worker !== 'all')) {
+      setDashboardFilters((previous) => ({ ...previous, ka: 'all', worker: 'all' }));
+    }
+  }, [dashboardFilters.ka, dashboardFilters.worker, setDashboardFilters, showDetailedOutputs]);
   const backupBusy = isBackupActionRunning || isBackupStatusActive(backupStatus);
   const backupProgress = backupProgressText(backupStatus);
   const backupFinishedAt = backupStatus?.finishedAt
@@ -121,100 +129,116 @@ function ReportingView({
     : missingEducationCount > 0
       ? 'Nevyplněné nebo nerozpoznané vzdělání'
       : 'Nerozpoznané vzdělání';
+
+  const returnToDashboard = () => {
+    setDashboardFilters((previous) => ({ ...previous, ka: 'all', worker: 'all' }));
+    setShowDetailedOutputs(false);
+  };
+
+  if (showDetailedOutputs) {
+    return (
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <button type="button" onClick={returnToDashboard} className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-blue-700 hover:text-blue-900">
+              <ArrowLeft className="h-4 w-4" /> Zpět na dashboard
+            </button>
+            <h1 className="text-xl font-bold text-slate-900">Podrobné výstupy</h1>
+            <p className="mt-1 text-sm text-slate-600">Sestavy a podklady pro vykazování podle zvoleného období, aktivity a pracovníka.</p>
+          </div>
+        </div>
+
+        <Panel
+          title="Filtry a exporty"
+          description="Nastavené filtry se použijí pro XLSX a stažení zápisů. Export IS ESF a texty ZOR používají zvolené monitorovací období."
+          icon={FileSpreadsheet}
+          action={
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={exportDetailedOutputsXlsx} disabled={!supportExportCount || isExportingDetailedOutputs} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+                {isExportingDetailedOutputs ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+                {isExportingDetailedOutputs ? 'Připravuji XLSX…' : `Stáhnout sestavy XLSX (${supportExportCount || 0})`}
+              </button>
+              <button type="button" onClick={exportClientsIsEsfCsv} disabled={!isEsfSupportedClientCount || isEsfExportStatus?.state === 'loading'} className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">
+                {isEsfExportStatus?.state === 'loading' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+                {isEsfExportStatus?.state === 'loading' ? 'Kontroluji adresy…' : `Podporované osoby do IS ESF (${isEsfSupportedClientCount})`}
+              </button><HelpIcon help={HELP.dashboardExport} />
+              <button type="button" onClick={exportAllRecordsBackup} disabled={!supportExportCount} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
+                <Archive className="h-4 w-4" /> Stáhnout zápisy ({supportExportCount || 0})
+              </button>
+              <button type="button" onClick={handleGenerateZorTexts} disabled={dashboardFilters.period === 'all' || isGeneratingZor} className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">
+                {isGeneratingZor ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                {isGeneratingZor ? 'Připravuji texty…' : 'Vytvořit texty pro ZOR'}
+              </button><HelpIcon help={HELP.dashboardZor} />
+            </div>
+          }
+        >
+          <div className="grid gap-3 md:grid-cols-3">
+            <SelectField label="Vykazované období" help={HELP.dashboardPeriod} value={dashboardFilters.period} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, period: value }))} options={REPORTING_PERIODS.map((period) => ({ value: period.value, label: period.label }))} />
+            <SelectField label="Klíčová aktivita" value={dashboardFilters.ka} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, ka: value }))} options={[{ value: 'all', label: 'Všechny KA' }, { value: 'KA1', label: 'KA1' }, { value: 'KA2', label: 'KA2' }]} />
+            <SelectField label="Pracovník" value={dashboardFilters.worker} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, worker: value }))} options={[{ value: 'all', label: 'Všichni pracovníci' }].concat(WORKERS.map((worker) => ({ value: worker, label: worker })))} />
+          </div>
+          <div className="mt-3 text-xs text-slate-600">Aktivní filtr zahrnuje <strong>{filteredRecords.length}</strong> záznamů a <strong>{supportExportCount || 0}</strong> klientských výkonů.</div>
+
+          <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+            isEsfExportStatus?.state === 'error'
+              ? 'border-red-200 bg-red-50 text-red-800'
+              : isEsfExportStatus?.state === 'warning'
+                ? 'border-amber-200 bg-amber-50 text-amber-800'
+                : isEsfExportStatus?.state === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                  : 'border-slate-200 bg-slate-50 text-slate-600'
+          }`}>
+            <div className="font-semibold">
+              {!isEsfSupportedClientCount
+                ? 'Ve zvoleném období není evidována žádná osoba s podporou KA1.'
+                : (isEsfExportStatus?.message || 'Kontrola údajů a adres se spustí při stažení CSV.')}
+            </div>
+            {isEsfExportStatus?.addressFallbacks?.length > 0 && <details className="mt-2"><summary className="cursor-pointer font-semibold">Osoby bez potvrzené úplné adresy ({isEsfExportStatus.addressFallbacks.length})</summary><ul className="mt-1 space-y-1 pl-4">{isEsfExportStatus.addressFallbacks.map((item) => <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.reason}</li>)}</ul></details>}
+            {isEsfExportStatus?.addressAdjustments?.length > 0 && <details className="mt-2"><summary className="cursor-pointer font-semibold">Adresy upravené podle RÚIAN ({isEsfExportStatus.addressAdjustments.length})</summary><ul className="mt-1 space-y-1 pl-4">{isEsfExportStatus.addressAdjustments.map((item) => <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.reason}</li>)}</ul></details>}
+            {isEsfExportStatus?.educationFallbacks?.length > 0 && <details className="mt-2"><summary className="cursor-pointer font-semibold">{educationFallbackTitle} ({isEsfExportStatus.educationFallbacks.length})</summary><ul className="mt-1 space-y-1 pl-4">{isEsfExportStatus.educationFallbacks.map((item) => <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.reason}</li>)}</ul></details>}
+            {isEsfExportStatus?.dataIssues?.length > 0 && <details className="mt-2"><summary className="cursor-pointer font-semibold">Údaje vyžadující doplnění ({isEsfExportStatus.dataIssues.length})</summary><ul className="mt-1 space-y-1 pl-4">{isEsfExportStatus.dataIssues.map((item) => <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.issues.join(', ')}</li>)}</ul></details>}
+          </div>
+        </Panel>
+
+        <Panel title="Základní sestavy XLSX" description="Jeden sešit obsahuje dva samostatné listy a lze jej dále rozšiřovat o další sestavy." icon={FileSpreadsheet}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><strong className="text-sm text-blue-900">Podrobné výkony</strong><p className="mt-1 text-xs text-blue-800">Jednotlivé výkony včetně času, klienta, pracovníka, oblasti, výsledku, dalšího kroku, cíle IP a textu zápisu.</p></div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4"><strong className="text-sm text-emerald-900">Klienti a podpora</strong><p className="mt-1 text-xs text-emerald-800">Počet výkonů a hodin celkem, samostatně telefonická podpora a ostatní formy podpory.</p></div>
+          </div>
+        </Panel>
+
+        {zorTexts && (
+          <Panel title={'Texty pro ZOR (' + zorTexts.periodLabel + ')'} description="Pracovní návrhy popisu pokroku za sledované období." icon={FileText}>
+            <div className="space-y-3">
+              {Object.entries(zorTexts.texts).map(([ka, value]) => (
+                <div key={ka} className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3"><strong>{ka}</strong><button type="button" onClick={() => copyToClipboard(value, setCopied)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold"><ClipboardCopy className="h-4 w-4" />{copied ? 'Zkopírováno' : 'Kopírovat'}</button></div>
+                  <div className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{value}</div>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <Panel
-        title="Filtry reportingu"
-        description="Filtry ovlivňují hodiny, výkony a plnění zobrazené na dashboardu."
+        title="Vykazované období dashboardu"
+        description="Období ovlivňuje hodiny, výkony, cíle a indikátory zobrazené v přehledu."
         icon={Activity}
         action={
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={exportClientsIsEsfCsv}
-              disabled={!isEsfSupportedClientCount || isEsfExportStatus?.state === 'loading'}
-              className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-            >
-              {isEsfExportStatus?.state === 'loading'
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <FileSpreadsheet className="h-4 w-4" />}
-              {isEsfExportStatus?.state === 'loading'
-                ? 'Kontroluji adresy…'
-                : `Podporované osoby do IS ESF (${isEsfSupportedClientCount})`}
-            </button><HelpIcon help={HELP.dashboardExport} />
-            <button onClick={exportAllRecordsBackup} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-              <Archive className="h-4 w-4" /> Stáhnout zápisy ({supportExportCount || 0})
-            </button>
-          </div>
+          <button type="button" onClick={() => setShowDetailedOutputs(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+            <FileSpreadsheet className="h-4 w-4" /> Podrobné výstupy
+          </button>
         }
       >
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="max-w-md">
           <SelectField label="Vykazované období" help={HELP.dashboardPeriod} value={dashboardFilters.period} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, period: value }))} options={REPORTING_PERIODS.map((period) => ({ value: period.value, label: period.label }))} />
-          <SelectField label="Klíčová aktivita" value={dashboardFilters.ka} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, ka: value }))} options={[{ value: 'all', label: 'Všechny KA' }, { value: 'KA1', label: 'KA1' }, { value: 'KA2', label: 'KA2' }]} />
-          <SelectField label="Pracovník" value={dashboardFilters.worker} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, worker: value }))} options={[{ value: 'all', label: 'Všichni pracovníci' }].concat(WORKERS.map((worker) => ({ value: worker, label: worker })))} />
-          <div className="flex flex-col justify-end">
-            <button type="button" onClick={handleGenerateZorTexts} disabled={dashboardFilters.period === 'all' || isGeneratingZor} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">
-              {isGeneratingZor ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-              {isGeneratingZor ? 'Připravuji texty…' : 'Vytvořit texty pro ZOR'}
-            </button><HelpIcon help={HELP.dashboardZor} />
-          </div>
         </div>
-        <div className="mt-3 text-xs text-slate-600">Aktivní filtr zahrnuje <strong>{filteredRecords.length}</strong> záznamů.</div>
-        <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
-          isEsfExportStatus?.state === 'error'
-            ? 'border-red-200 bg-red-50 text-red-800'
-            : isEsfExportStatus?.state === 'warning'
-              ? 'border-amber-200 bg-amber-50 text-amber-800'
-              : isEsfExportStatus?.state === 'success'
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                : 'border-slate-200 bg-slate-50 text-slate-600'
-        }`}>
-          <div className="font-semibold">
-            {!isEsfSupportedClientCount
-              ? 'Ve zvoleném období není evidována žádná osoba s podporou KA1.'
-              : (isEsfExportStatus?.message || 'Kontrola údajů a adres se spustí při stažení CSV.')}
-          </div>
-          {isEsfExportStatus?.addressFallbacks?.length > 0 && (
-            <details className="mt-2">
-              <summary className="cursor-pointer font-semibold">Osoby bez potvrzené úplné adresy ({isEsfExportStatus.addressFallbacks.length})</summary>
-              <ul className="mt-1 space-y-1 pl-4">
-                {isEsfExportStatus.addressFallbacks.map((item) => (
-                  <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.reason}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-          {isEsfExportStatus?.addressAdjustments?.length > 0 && (
-            <details className="mt-2">
-              <summary className="cursor-pointer font-semibold">Adresy upravené podle RÚIAN ({isEsfExportStatus.addressAdjustments.length})</summary>
-              <ul className="mt-1 space-y-1 pl-4">
-                {isEsfExportStatus.addressAdjustments.map((item) => (
-                  <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.reason}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-          {isEsfExportStatus?.educationFallbacks?.length > 0 && (
-            <details className="mt-2">
-              <summary className="cursor-pointer font-semibold">{educationFallbackTitle} ({isEsfExportStatus.educationFallbacks.length})</summary>
-              <ul className="mt-1 space-y-1 pl-4">
-                {isEsfExportStatus.educationFallbacks.map((item) => (
-                  <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.reason}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-          {isEsfExportStatus?.dataIssues?.length > 0 && (
-            <details className="mt-2">
-              <summary className="cursor-pointer font-semibold">Údaje vyžadující doplnění ({isEsfExportStatus.dataIssues.length})</summary>
-              <ul className="mt-1 space-y-1 pl-4">
-                {isEsfExportStatus.dataIssues.map((item) => (
-                  <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.issues.join(', ')}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </div>
+        <div className="mt-3 text-xs text-slate-600">Dashboard zahrnuje <strong>{filteredRecords.length}</strong> záznamů.</div>
       </Panel>
 
       {canManageBackups && (
@@ -326,18 +350,6 @@ function ReportingView({
         </div>
       </section>
 
-      {zorTexts && (
-        <Panel title={'Texty pro ZOR (' + zorTexts.periodLabel + ')'} description="Pracovní návrhy popisu pokroku za sledované období." icon={FileText}>
-          <div className="space-y-3">
-            {Object.entries(zorTexts.texts).map(([ka, value]) => (
-              <div key={ka} className="rounded-lg border border-slate-200 bg-white p-4">
-                <div className="flex items-center justify-between gap-3"><strong>{ka}</strong><button type="button" onClick={() => copyToClipboard(value, setCopied)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold"><ClipboardCopy className="h-4 w-4" />{copied ? 'Zkopírováno' : 'Kopírovat'}</button></div>
-                <div className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{value}</div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
     </div>
   );
 }
