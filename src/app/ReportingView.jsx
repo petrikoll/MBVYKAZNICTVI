@@ -185,6 +185,17 @@ function ReportingView({
     setShowDetailedOutputs(false);
   };
 
+  const reportingScopeFilters = (
+    <>
+      <div className="grid gap-3 md:grid-cols-3">
+        <SelectField label="Vykazované období" help={HELP.dashboardPeriod} value={dashboardFilters.period} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, period: value }))} options={REPORTING_PERIODS.map((period) => ({ value: period.value, label: period.label }))} />
+        <SelectField label="Klíčová aktivita" value={dashboardFilters.ka} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, ka: value }))} options={[{ value: 'all', label: 'Všechny KA' }, { value: 'KA1', label: 'KA1' }, { value: 'KA2', label: 'KA2' }]} />
+        <SelectField label="Pracovník" value={dashboardFilters.worker} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, worker: value }))} options={[{ value: 'all', label: 'Všichni pracovníci' }].concat(WORKERS.map((worker) => ({ value: worker, label: worker })))} />
+      </div>
+      <div className="mt-3 text-xs text-slate-600">Aktivní filtr zahrnuje <strong>{filteredRecords.length}</strong> záznamů a <strong>{supportExportCount || 0}</strong> klientských výkonů.</div>
+    </>
+  );
+
   if (showDetailedOutputs) {
     return (
       <div className="space-y-5">
@@ -203,11 +214,20 @@ function ReportingView({
           <button type="button" role="tab" aria-selected={detailedSection === 'reports'} onClick={() => setDetailedSection('reports')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${detailedSection === 'reports' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Sestavy a exporty</button>
         </div>
 
-        <Panel
-          title="Filtry a exporty"
-          description="Nastavené filtry se použijí pro XLSX a stažení zápisů. Export IS ESF a texty ZOR používají zvolené monitorovací období."
-          icon={FileSpreadsheet}
-          action={
+        {detailedSection === 'analytics' ? (
+          <Panel
+            title="Rozsah analýzy"
+            description="Období, klíčová aktivita a pracovník omezují všechny grafy a analytické přehledy."
+            icon={Activity}
+          >
+            {reportingScopeFilters}
+          </Panel>
+        ) : (
+          <Panel
+            title="Filtry a exporty"
+            description="Nastavené filtry se použijí pro XLSX a stažení zápisů. Export IS ESF a texty ZOR používají zvolené monitorovací období."
+            icon={FileSpreadsheet}
+            action={
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={exportDetailedOutputsXlsx} disabled={!supportExportCount || isExportingDetailedOutputs} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
                 {isExportingDetailedOutputs ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
@@ -229,14 +249,9 @@ function ReportingView({
                 {isGeneratingZor ? 'Připravuji texty…' : 'Vytvořit texty pro ZOR'}
               </button><HelpIcon help={HELP.dashboardZor} />
             </div>
-          }
-        >
-          <div className="grid gap-3 md:grid-cols-3">
-            <SelectField label="Vykazované období" help={HELP.dashboardPeriod} value={dashboardFilters.period} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, period: value }))} options={REPORTING_PERIODS.map((period) => ({ value: period.value, label: period.label }))} />
-            <SelectField label="Klíčová aktivita" value={dashboardFilters.ka} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, ka: value }))} options={[{ value: 'all', label: 'Všechny KA' }, { value: 'KA1', label: 'KA1' }, { value: 'KA2', label: 'KA2' }]} />
-            <SelectField label="Pracovník" value={dashboardFilters.worker} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, worker: value }))} options={[{ value: 'all', label: 'Všichni pracovníci' }].concat(WORKERS.map((worker) => ({ value: worker, label: worker })))} />
-          </div>
-          <div className="mt-3 text-xs text-slate-600">Aktivní filtr zahrnuje <strong>{filteredRecords.length}</strong> záznamů a <strong>{supportExportCount || 0}</strong> klientských výkonů.</div>
+            }
+          >
+          {reportingScopeFilters}
 
           <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
             isEsfExportStatus?.state === 'error'
@@ -267,7 +282,8 @@ function ReportingView({
             <div className="font-semibold">{isEsfSupportExportStatus?.message || 'CSV podpor se připraví ze souhrnu výkonů KA1 za zvolené období.'}</div>
             {isEsfSupportExportStatus?.issues?.length > 0 && <details className="mt-2"><summary className="cursor-pointer font-semibold">Chyby bránící exportu ({isEsfSupportExportStatus.issues.length})</summary><ul className="mt-1 space-y-1 pl-4">{isEsfSupportExportStatus.issues.map((item, index) => <li key={`${item.recordId}-${index}`}>{item.clientName || 'Neurčená osoba'}: {item.message}</li>)}</ul></details>}
           </div>
-        </Panel>
+          </Panel>
+        )}
 
         {detailedSection === 'analytics' ? (
           <ReportingAnalyticsView records={analyticsRecords} clients={clients} onOpenClient={onOpenClient} />
