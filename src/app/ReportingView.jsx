@@ -400,23 +400,25 @@ function ReportingView({
       <Panel
         title="Vykazované období dashboardu"
         icon={Activity}
+        compact
         action={
-          <button type="button" onClick={() => setShowDetailedOutputs(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
-            <FileSpreadsheet className="h-4 w-4" /> Podrobné výstupy
-          </button>
+          <div className="flex w-full flex-wrap items-end gap-3 sm:w-auto">
+            <div className="w-full sm:w-72 lg:w-96">
+              <SelectField label="Vykazované období" help={HELP.dashboardPeriod} value={dashboardFilters.period} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, period: value }))} options={REPORTING_PERIODS.map((period) => ({ value: period.value, label: period.label }))} />
+            </div>
+            <div className="pb-2 text-xs whitespace-nowrap text-slate-600"><strong>{filteredRecords.length}</strong> záznamů</div>
+            <button type="button" onClick={() => setShowDetailedOutputs(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+              <FileSpreadsheet className="h-4 w-4" /> Podrobné výstupy
+            </button>
+          </div>
         }
-      >
-        <div className="max-w-md">
-          <SelectField label="Vykazované období" help={HELP.dashboardPeriod} value={dashboardFilters.period} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, period: value }))} options={REPORTING_PERIODS.map((period) => ({ value: period.value, label: period.label }))} />
-        </div>
-        <div className="mt-3 text-xs text-slate-600">Dashboard zahrnuje <strong>{filteredRecords.length}</strong> záznamů.</div>
-      </Panel>
+      />
 
       {canManageBackups && (
         <Panel
           title="Kompletní záloha Google Drive"
-          description="Vytvoří ZIP s hlavním Google Sheetem, klientskými složkami a kontrolním manifestem. Uchovává se posledních 12 záloh."
           icon={HardDriveDownload}
+          compact
           action={
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={handleStartFullBackup} disabled={backupBusy} className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60">
@@ -436,7 +438,7 @@ function ReportingView({
             </div>
           }
         >
-          <div className={`rounded-lg border px-3 py-2 text-sm ${
+          <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-sm ${
             backupStatus?.state === 'error'
               ? 'border-red-200 bg-red-50 text-red-800'
               : backupStatus?.state === 'success'
@@ -444,15 +446,14 @@ function ReportingView({
                 : 'border-slate-200 bg-slate-50 text-slate-700'
           }`}>
             <div className="font-semibold">{backupStatus?.message || 'Záloha zatím nebyla vytvořena.'}</div>
-            {backupProgress && <div className="mt-1 text-xs font-semibold">{backupProgress}</div>}
-            <div className="mt-1 text-xs">
+            {backupProgress && <div className="text-xs font-semibold">{backupProgress}</div>}
+            <div className="text-xs">
               Automaticky každou neděli ve 2:00: <strong>{backupStatus?.weeklyEnabled ? 'zapnuto' : 'vypnuto'}</strong>
               {backupFinishedAt ? ` · Poslední dokončení: ${backupFinishedAt}` : ''}
               {backupStatus?.fileCount ? ` · Souborů v záloze: ${backupStatus.fileCount}` : ''}
             </div>
-            {backupStatus?.statusError && <div className="mt-1 text-xs text-red-700">{backupStatus.statusError}</div>}
+            {backupStatus?.statusError && <div className="text-xs text-red-700">{backupStatus.statusError}</div>}
           </div>
-          <p className="mt-2 text-xs text-slate-500">ZIP je uložen v chráněné složce Zálohy na Google Disku. Pro ochranu při ztrátě účtu pravidelně stáhněte kopii také mimo tento Google účet.</p>
         </Panel>
       )}
 

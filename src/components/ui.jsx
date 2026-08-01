@@ -51,12 +51,12 @@ const FieldLabel = ({ label, help }) => (
 );
 
 
-const Panel = ({ title, description, icon: Icon, action, children, className = '', help }) => (
-  <section className={`rounded-2xl border border-slate-500 bg-slate-300 p-4 shadow-sm ${className}`}>
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-          <Icon className="h-5 w-5" />
+const Panel = ({ title, description, icon: Icon, action, children, className = '', help, compact = false }) => (
+  <section className={`rounded-2xl border border-slate-500 bg-slate-300 shadow-sm ${compact ? 'p-2' : 'p-4'} ${className}`}>
+    <div className={`${children ? (compact ? 'mb-1' : 'mb-4') : ''} flex flex-col gap-3 sm:flex-row ${compact ? 'sm:items-center' : 'sm:items-start'} sm:justify-between`}>
+      <div className={`flex items-start ${compact ? 'gap-2.5' : 'gap-3'}`}>
+        <div className={`flex shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 ${compact ? 'h-8 w-8' : 'h-9 w-9'}`}>
+          <Icon className={compact ? 'h-4 w-4' : 'h-5 w-5'} />
         </div>
         <div>
           <div className="flex items-center gap-1"><h2 className="text-base font-bold text-slate-900">{title}</h2><HelpIcon help={help} /></div>
