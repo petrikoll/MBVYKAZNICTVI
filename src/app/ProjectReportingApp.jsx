@@ -7941,6 +7941,7 @@ ${rawPlanOutput}` }] }],
               isExportingDetailedOutputs={isExportingDetailedOutputs}
               supportExportCount={filteredClientSupportRecords.length}
               analyticsRecords={filteredClientSupportRecords}
+              workReportRecords={records}
               clients={clients}
               onOpenClient={(clientId) => openClient(clientId, 'clients')}
               dashboardFilters={dashboardFilters}

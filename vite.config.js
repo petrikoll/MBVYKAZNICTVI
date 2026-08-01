@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { readFile } from 'node:fs/promises';
 import { handleDocxExportRequest } from './docxExport.js';
 import { handleGoogleAppsScriptProxy } from './googleAppsScriptProxy.js';
 import { handleGeminiProxy } from './geminiProxy.js';
@@ -33,6 +34,18 @@ const googleSheetsProxyPlugin = (proxyConfig) => ({
   }
 });
 
+const inlineBinaryAssetsPlugin = () => ({
+  name: 'inline-binary-assets',
+  enforce: 'pre',
+  async load(id) {
+    const suffix = '.xlsx?base64';
+    if (!id.endsWith(suffix)) return null;
+    const filePath = id.slice(0, -'?base64'.length);
+    const base64 = await readFile(filePath, 'base64');
+    return `export default ${JSON.stringify(base64)};`;
+  }
+});
+
 const geminiProxyPlugin = (proxyConfig) => ({
   name: 'gemini-proxy-api',
   configureServer(server) {
@@ -51,6 +64,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
     plugins: [
+      inlineBinaryAssetsPlugin(),
       react(),
       docxExportPlugin(),
       googleSheetsProxyPlugin({

@@ -1,11 +1,12 @@
 import React from 'react';
-import { Activity, AlertTriangle, Archive, ArrowLeft, ArrowRight, Brain, ClipboardCopy, Download, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target, Upload, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, Archive, ArrowLeft, ArrowRight, Brain, ClipboardCopy, Download, FileClock, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target, Upload, Users, X } from 'lucide-react';
 
 import { HelpIcon, Panel, SelectField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { REPORTING_PERIODS, WORKERS } from '../config/projectConfig.js';
 import { backupProgressText, isBackupStatusActive } from '../lib/backupStatus.js';
 import ReportingAnalyticsView from './ReportingAnalyticsView.jsx';
+import WorkReportsView from '../features/work-reports/WorkReportsView.jsx';
 
 const formatEvidenceDate = (value) => {
   const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -190,6 +191,7 @@ function ReportingView({
   isExportingDetailedOutputs = false,
   supportExportCount,
   analyticsRecords = [],
+  workReportRecords = [],
   clients = [],
   onOpenClient,
   dashboardFilters,
@@ -271,19 +273,24 @@ function ReportingView({
         <div className="inline-flex rounded-xl border border-slate-300 bg-slate-100 p-1" role="tablist" aria-label="Část podrobných výstupů">
           <button type="button" role="tab" aria-selected={detailedSection === 'analytics'} onClick={() => setDetailedSection('analytics')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${detailedSection === 'analytics' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Analýzy a grafy</button>
           <button type="button" role="tab" aria-selected={detailedSection === 'reports'} onClick={() => setDetailedSection('reports')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${detailedSection === 'reports' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Sestavy a exporty</button>
+          <button type="button" role="tab" aria-selected={detailedSection === 'workReports'} onClick={() => setDetailedSection('workReports')} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${detailedSection === 'workReports' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}><FileClock className="h-4 w-4" /> Výkazy práce</button>
         </div>
 
-        <Panel
-          title={detailedSection === 'analytics' ? 'Rozsah analýzy' : 'Rozsah sestav'}
-          description={detailedSection === 'analytics'
-            ? 'Období, klíčová aktivita a pracovník omezují všechny grafy a analytické přehledy.'
-            : 'Období, klíčová aktivita a pracovník se použijí pro interní XLSX a dokument se zápisy. Exporty IS ESF a texty ZOR používají zvolené monitorovací období.'}
-          icon={detailedSection === 'analytics' ? Activity : FileSpreadsheet}
-        >
-          {reportingScopeFilters}
-        </Panel>
+        {detailedSection !== 'workReports' && (
+          <Panel
+            title={detailedSection === 'analytics' ? 'Rozsah analýzy' : 'Rozsah sestav'}
+            description={detailedSection === 'analytics'
+              ? 'Období, klíčová aktivita a pracovník omezují všechny grafy a analytické přehledy.'
+              : 'Období, klíčová aktivita a pracovník se použijí pro interní XLSX a dokument se zápisy. Exporty IS ESF a texty ZOR používají zvolené monitorovací období.'}
+            icon={detailedSection === 'analytics' ? Activity : FileSpreadsheet}
+          >
+            {reportingScopeFilters}
+          </Panel>
+        )}
 
-        {detailedSection === 'analytics' ? (
+        {detailedSection === 'workReports' ? (
+          <WorkReportsView records={workReportRecords} />
+        ) : detailedSection === 'analytics' ? (
           <ReportingAnalyticsView records={analyticsRecords} clients={clients} onOpenClient={onOpenClient} />
         ) : (
           <>
