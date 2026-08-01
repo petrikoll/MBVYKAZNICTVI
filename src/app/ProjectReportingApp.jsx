@@ -102,6 +102,7 @@ import { buildClientSelectionPool } from '../lib/clientSelection.js';
 import { buildClientCaseAiPrompt, buildClientCaseSummaryPrintHtml, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
 import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
 import { buildIsEsfPersonExport, serializeIsEsfPersonCsv } from '../lib/isEsfExport.js';
+import { buildIsEsfSupportExport, serializeIsEsfSupportCsv } from '../lib/isEsfSupportExport.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { isBackupStatusActive } from '../lib/backupStatus.js';
 import {
@@ -2179,6 +2180,7 @@ function App() {
   const pendingClientSaveSignaturesRef = useRef(new Set());
   const generatedOutputSaveLockRef = useRef(false);
   const isEsfExportRequestRef = useRef(0);
+  const isEsfSupportExportRequestRef = useRef(0);
   const [isProvisioningClientFolder, setIsProvisioningClientFolder] = useState(false);
   const [isSummarizingCase, setIsSummarizingCase] = useState(false);
   const [isExportingClientCaseDocx, setIsExportingClientCaseDocx] = useState(false);
@@ -2200,6 +2202,11 @@ function App() {
     addressAdjustments: [],
     educationFallbacks: [],
     dataIssues: []
+  });
+  const [isEsfSupportExportStatus, setIsEsfSupportExportStatus] = useState({
+    state: 'idle',
+    message: 'CSV podpor se připraví ze souhrnu výkonů KA1 za zvolené období.',
+    issues: []
   });
   const [statisticsRows, setStatisticsRows] = useState([]);
   const [statisticsFilters, setStatisticsFilters] = useState({ dateFrom: '', dateTo: '' });
@@ -2812,6 +2819,7 @@ function App() {
 
   useEffect(() => {
     isEsfExportRequestRef.current += 1;
+    isEsfSupportExportRequestRef.current += 1;
     setIsEsfExportStatus({
       state: 'idle',
       message: 'Kontrola údajů a adres se spustí při stažení CSV.',
@@ -2819,6 +2827,11 @@ function App() {
       addressAdjustments: [],
       educationFallbacks: [],
       dataIssues: []
+    });
+    setIsEsfSupportExportStatus({
+      state: 'idle',
+      message: 'CSV podpor se připraví ze souhrnu výkonů KA1 za zvolené období.',
+      issues: []
     });
   }, [dashboardFilters.period]);
 
@@ -5825,6 +5838,93 @@ ${rawOutput}` }] }],
     }
   };
 
+  const exportSupportsIsEsfCsv = async () => {
+    const requestId = isEsfSupportExportRequestRef.current + 1;
+    isEsfSupportExportRequestRef.current = requestId;
+    const exportClients = [...isEsfSupportedClients];
+    const exportRecords = [...isEsfSupportRecords];
+    if (!exportClients.length || !exportRecords.length) {
+      setIsEsfSupportExportStatus({
+        state: 'error',
+        message: 'Ve zvoleném období nejsou evidovány žádné výkony KA1 k exportu.',
+        issues: []
+      });
+      return;
+    }
+
+    setIsEsfSupportExportStatus({
+      state: 'loading',
+      message: 'Ověřuji osoby a připravuji souhrn podpor…',
+      issues: []
+    });
+
+    try {
+      const personResult = await buildIsEsfPersonExport(exportClients, {
+        baseUrl: '',
+        onProgress: ({ phase, current, total }) => {
+          if (isEsfSupportExportRequestRef.current !== requestId) return;
+          setIsEsfSupportExportStatus({
+            state: 'loading',
+            message: phase === 'municipalities'
+              ? `Ověřuji osoby podle RÚIAN (${current}/${Math.max(total, 1)})…`
+              : 'Načítám adresní registr RÚIAN…',
+            issues: []
+          });
+        }
+      });
+      if (isEsfSupportExportRequestRef.current !== requestId) return;
+
+      const result = buildIsEsfSupportExport({
+        clients: exportClients,
+        personRows: personResult.rows,
+        records: exportRecords,
+        reportingPeriod: selectedReportingPeriod,
+        isFirstReportingPeriod: selectedReportingPeriod?.value === REPORTING_PERIODS[1]?.value
+      });
+      const issues = result.rows.flatMap((row) => row.issues.map((issue) => ({
+        recordId: row.recordId || row.sourceRow,
+        clientName: `${row.values.Jmeno_Osoby} ${row.values.Prijmeni_Osoby}`.trim(),
+        message: issue.message
+      })));
+
+      if (result.errorCount > 0 || !result.validRows.length) {
+        setIsEsfSupportExportStatus({
+          state: 'error',
+          message: result.errorCount > 0
+            ? `CSV nebylo vytvořeno: nalezeno ${result.errorCount} chyb v datech výkonů nebo osob.`
+            : 'CSV nebylo vytvořeno, protože neobsahuje žádný platný řádek podpory.',
+          issues
+        });
+        return;
+      }
+
+      const csv = serializeIsEsfSupportCsv(result.validRows.map((row) => row.values));
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const periodSlug = slugify(selectedReportingPeriod?.label || 'cele-obdobi');
+      link.href = href;
+      link.download = `Podpory-MBV-${periodSlug}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(href), 4000);
+
+      setIsEsfSupportExportStatus({
+        state: 'success',
+        message: `CSV bylo vytvořeno: ${result.validRows.length} souhrnných řádků, specifikace ${result.supportCode}, prezenčně ${result.inPersonHours.toLocaleString('cs-CZ')} h a elektronicky ${result.electronicHours.toLocaleString('cs-CZ')} h.`,
+        issues: []
+      });
+    } catch (error) {
+      if (isEsfSupportExportRequestRef.current !== requestId) return;
+      setIsEsfSupportExportStatus({
+        state: 'error',
+        message: error?.message || 'CSV podpor pro IS ESF se nepodařilo vytvořit.',
+        issues: []
+      });
+    }
+  };
+
   const exportAllRecordsBackup = () => {
     const supportRecords = filteredClientSupportRecords;
     const content = buildAllRecordsBackupHtml(supportRecords, clients);
@@ -7775,6 +7875,9 @@ ${rawPlanOutput}` }] }],
               exportClientsIsEsfCsv={exportClientsIsEsfCsv}
               isEsfExportStatus={isEsfExportStatus}
               isEsfSupportedClientCount={isEsfSupportedClients.length}
+              exportSupportsIsEsfCsv={exportSupportsIsEsfCsv}
+              isEsfSupportExportStatus={isEsfSupportExportStatus}
+              isEsfSupportExportCount={isEsfSupportedClients.length}
               exportAllRecordsBackup={exportAllRecordsBackup}
               exportDetailedOutputsXlsx={exportDetailedOutputsXlsx}
               isExportingDetailedOutputs={isExportingDetailedOutputs}

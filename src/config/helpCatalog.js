@@ -69,6 +69,7 @@ const HELP = {
   actorDate: { title: 'Datum zapojení', text: 'Vyplňuje se u nově zapojeného aktéra a pomáhá určit, zda byl partner zapojen v průběhu projektu.' },
   dashboardPeriod: { title: 'Vykazované období', text: 'Omezuje záznamy používané pro výpočty hodin, indikátorů, cílů, rizik a partnerské sítě.' },
   dashboardExport: { title: 'Podporované osoby do IS ESF', text: 'Vytvoří oficiální 32sloupcové CSV pouze pro klienty s evidovanou podporou KA1 ve zvoleném monitorovacím období. Adresy před stažením ověří proti RÚIAN pro celou ČR.' },
+  dashboardSupportExport: { title: 'Podpory do IS ESF', text: 'Vytvoří oficiální 17sloupcové CSV. Výkony KA1 za zvolené období se sečtou za každou osobu pod specifikací 7.1 a rozdělí se na prezenční a elektronickou podporu.' },
   dashboardZor: { title: 'Texty pro ZOR', text: 'Připraví anonymní pracovní texty podle právního aktu. KA01 využívá souhrny výkonů, času, oblastí, forem a míst podpory, vazeb na cíle, doložených výsledků a dalších kroků i stavů cílů individuálních plánů. KA02 je členěna na a) Case management a b) Koordinaci a síťování služeb, dále se vytváří KA03 a pomocí AI také text k rovným příležitostem žen a mužů a nediskriminaci. Filtry klíčové aktivity a pracovníka výstup ZOR neomezují.' },
   dashboard600: { title: 'Indikátor 600 000', text: 'Počítá klienty se 40 a více hodinami podpory, kteří mají kompletní monitorovací údaje.' },
   dashboard670: { title: 'Indikátor 670 102', text: 'Počítá klienty s podporou nad 0 a pod 40 hodin, kteří mají minimální registrační údaje.' },
