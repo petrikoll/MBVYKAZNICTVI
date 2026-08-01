@@ -3150,7 +3150,7 @@ function App() {
       professionalDevelopmentStats,
       partnerMetrics: [
         { key: 'partners-active', label: 'Spolupracující partneři', current: activePartners.length, detail: 'Alespoň jedna doložená aktivita' },
-        { key: 'partners-new', label: 'Nově zapojení partneři', current: activePartners.filter((partner) => partner.isNewInProject).length, detail: 'Nově zapojení od zahájení projektu' },
+        { key: 'partners-new', label: 'Nově zapojení partneři', current: partnerStats.filter((partner) => partner.isNewInProject).length, detail: 'Podle registru od zahájení projektu' },
         { key: 'partners-once', label: 'Jednorázově zapojení partneři', current: activePartners.filter((partner) => partner.totalActivityCount === 1).length, detail: 'Právě jedna doložená aktivita' },
         { key: 'partners-90-days', label: 'Aktivní partneři za 90 dní', current: activePartners.filter((partner) => partner.isActiveLast90Days).length, detail: 'Aktivita v posledních 90 dnech období' }
       ],

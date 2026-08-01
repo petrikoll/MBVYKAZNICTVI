@@ -78,7 +78,7 @@ const HELP = {
   dashboardShortServices: { title: 'Přístup ke službám', text: 'Započítá krátkodobě podpořeného klienta s doloženým výsledkem podpory v oblasti zdraví, bezpečí, vzdělání nebo služby. Depistáž se započítá pouze s vyplněným elektronickým komentářem.' },
   dashboardShortParenting: { title: 'Rodičovské kompetence', text: 'Započítá krátkodobě podpořeného klienta s doloženým výsledkem podpory v oblasti rodina. Depistáž se započítá pouze s vyplněným elektronickým komentářem.' },
   dashboardInclusion: { title: 'Sociální začlenění', text: 'Započítá krátkodobě podpořeného klienta s podporou nejméně ve třech různých oblastech KA1 nebo KA2. Oblast z depistáže se započítá pouze s vyplněným elektronickým komentářem.' },
-  dashboardPartners: { title: 'Partnerská síť', text: 'Počítají se jen partneři s doloženou aktivitou. Jednorázový partner má jednu aktivitu; aktivita za 90 dní vychází z posledního záznamu.' },
+  dashboardPartners: { title: 'Partnerská síť', text: 'Nově zapojení partneři se počítají podle údaje a data zapojení v registru. Ostatní ukazatele vycházejí z doložených aktivit; jednorázový partner má jednu aktivitu a aktivita za 90 dní vychází z posledního záznamu.' },
   dashboardRisks: { title: 'Kontrolní upozornění', text: 'Nejde o chyby aplikace, ale o údaje nebo situace, které mohou ohrozit správné vykazování projektu.' }
 };
 

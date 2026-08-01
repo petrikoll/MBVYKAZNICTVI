@@ -388,12 +388,18 @@ function buildPartnerStats({ records = [], partners = [], projectStartDate = '',
     .map((row) => {
       const isActiveInProject = row.totalActivityCount > 0;
       const origin = normalizeOrigin(row.registryOrigin);
+      const joinedDuringProject = Boolean(
+        normalizedStart
+        && row.joinedNetworkDate
+        && row.joinedNetworkDate >= normalizedStart
+        && row.joinedNetworkDate <= normalizedReference
+      );
       return {
         ...row,
         isActiveInProject,
-        isNewInProject: isActiveInProject && (
-          origin.includes('nove zapojen') ||
-          Boolean(normalizedStart && row.joinedNetworkDate && row.joinedNetworkDate >= normalizedStart)
+        isNewInProject: joinedDuringProject || (
+          origin.includes('nove zapojen')
+          && (!row.joinedNetworkDate || row.joinedNetworkDate <= normalizedReference)
         ),
         isActiveLast90Days: isActiveInProject && Boolean(row.lastActivityDate && row.lastActivityDate >= cutoffDate)
       };
