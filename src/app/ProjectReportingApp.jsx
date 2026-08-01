@@ -135,7 +135,6 @@ import {
   cleanGeneratedText,
   computedIndicatorsMap,
   copyToClipboard,
-  downloadCsv,
   downloadHtmlDocument,
   enrichClient,
   extractGeminiText,
@@ -5727,24 +5726,6 @@ ${rawOutput}` }] }],
     [filteredRecords]
   );
 
-  const exportActivitiesCsv = () => {
-    const rows = filteredRecords.map((record) => [
-      record.activityDate || '',
-      record.ka || '',
-      record.entityType || '',
-      record.title || '',
-      record.worker || '',
-      record.clientName || '',
-      truncate(record.documentText || '', 120)
-    ]);
-
-    downloadCsv(
-      ['Datum', 'KA', 'Entita', 'Název', 'Pracovník', 'Klient', 'Text'],
-      rows,
-      'aktivity-projektu.csv'
-    );
-  };
-
   const exportClientsIsEsfCsv = async () => {
     const requestId = isEsfExportRequestRef.current + 1;
     isEsfExportRequestRef.current = requestId;
@@ -5928,7 +5909,12 @@ ${rawOutput}` }] }],
   const exportAllRecordsBackup = () => {
     const supportRecords = filteredClientSupportRecords;
     const content = buildAllRecordsBackupHtml(supportRecords, clients);
-    downloadHtmlDocument(content, `zapisy-podpory-${todayIso()}.doc`);
+    const filterSlug = slugify([
+      dashboardFilters.period || 'projekt',
+      dashboardFilters.ka === 'all' ? 'vsechny-ka' : dashboardFilters.ka,
+      dashboardFilters.worker === 'all' ? 'vsichni-pracovnici' : dashboardFilters.worker
+    ].join('-'));
+    downloadHtmlDocument(content, `zapisy-podpory-${filterSlug}-${todayIso()}.doc`);
   };
   const exportDetailedOutputsXlsx = async () => {
     if (isExportingDetailedOutputs) return;
@@ -5953,11 +5939,16 @@ ${rawOutput}` }] }],
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `podrobne-vystupy-${dashboardFilters.period || 'projekt'}-${todayIso()}.xlsx`;
+      const filterSlug = slugify([
+        dashboardFilters.period || 'projekt',
+        dashboardFilters.ka === 'all' ? 'vsechny-ka' : dashboardFilters.ka,
+        dashboardFilters.worker === 'all' ? 'vsichni-pracovnici' : dashboardFilters.worker
+      ].join('-'));
+      link.download = `podrobne-vystupy-${filterSlug}-${todayIso()}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 4000);
       setFlash(`XLSX obsahuje ${result.performanceCount} výkonů a souhrn ${result.clientCount} klientů.`);
     } catch (error) {
       console.error('Detailed XLSX export error:', error);
@@ -5966,18 +5957,6 @@ ${rawOutput}` }] }],
       setIsExportingDetailedOutputs(false);
     }
   };
-  const exportIndicatorsCsv = () => {
-    const rows = computedIndicators.map((item) => [
-      item.ka,
-      item.label,
-      item.current,
-      item.target,
-      item.currentIds.join(', ')
-    ]);
-
-    downloadCsv(['KA', 'Indikátor', 'Hodnota', 'Cíl', 'Zdroje'], rows, 'indikatory-projektu.csv');
-  };
-
   const exportClientFolder = () => {
     if (!selectedClient) return;
     const content = buildClientFolderHtml(selectedClient, clientJourneyTimeline);
