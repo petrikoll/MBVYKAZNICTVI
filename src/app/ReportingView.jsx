@@ -269,10 +269,10 @@ function ReportingView({
           </div>
         </div>
 
-        <div className="inline-flex rounded-xl border border-slate-300 bg-slate-100 p-1" role="tablist" aria-label="Část podrobných výstupů">
-          <button type="button" role="tab" aria-selected={detailedSection === 'analytics'} onClick={() => setDetailedSection('analytics')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${detailedSection === 'analytics' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Analýzy a grafy</button>
-          <button type="button" role="tab" aria-selected={detailedSection === 'reports'} onClick={() => setDetailedSection('reports')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${detailedSection === 'reports' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Sestavy a exporty</button>
-          <button type="button" role="tab" aria-selected={detailedSection === 'workReports'} onClick={() => setDetailedSection('workReports')} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${detailedSection === 'workReports' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}><FileClock className="h-4 w-4" /> Výkazy práce</button>
+        <div className="grid w-full grid-cols-1 gap-1.5 rounded-2xl border border-blue-300 bg-blue-100 p-1.5 shadow-sm sm:grid-cols-3" role="tablist" aria-label="Část podrobných výstupů">
+          <button type="button" role="tab" aria-selected={detailedSection === 'analytics'} onClick={() => setDetailedSection('analytics')} className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${detailedSection === 'analytics' ? 'bg-blue-700 text-white shadow-md ring-1 ring-blue-800' : 'bg-white/70 text-slate-700 hover:bg-white hover:text-blue-800'}`}><Activity className="h-4 w-4" /> Analýzy a grafy</button>
+          <button type="button" role="tab" aria-selected={detailedSection === 'reports'} onClick={() => setDetailedSection('reports')} className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${detailedSection === 'reports' ? 'bg-blue-700 text-white shadow-md ring-1 ring-blue-800' : 'bg-white/70 text-slate-700 hover:bg-white hover:text-blue-800'}`}><FileSpreadsheet className="h-4 w-4" /> Sestavy a exporty</button>
+          <button type="button" role="tab" aria-selected={detailedSection === 'workReports'} onClick={() => setDetailedSection('workReports')} className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${detailedSection === 'workReports' ? 'bg-blue-700 text-white shadow-md ring-1 ring-blue-800' : 'bg-white/70 text-slate-700 hover:bg-white hover:text-blue-800'}`}><FileClock className="h-4 w-4" /> Výkazy práce</button>
         </div>
 
         {detailedSection !== 'workReports' && (
