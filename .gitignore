@@ -11,3 +11,4 @@ vite.err
 migration-backup-*/
 reference-old-*/
 *.xlsx
+!src/assets/SABLONA_Pracovni_vykaz_OPZ.xlsx
