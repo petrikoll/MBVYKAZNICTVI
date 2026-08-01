@@ -29,6 +29,106 @@ const normalizeKey = (value) => normalizeText(value)
   .replace(/\s+/g, ' ')
   .toLowerCase();
 
+function parseSemicolonCsv(source) {
+  const text = String(source || '').replace(/^\uFEFF/, '');
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (quoted) {
+      if (character === '"' && text[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else if (character === '"') {
+        quoted = false;
+      } else {
+        field += character;
+      }
+    } else if (character === '"') {
+      quoted = true;
+    } else if (character === ';') {
+      row.push(field);
+      field = '';
+    } else if (character === '\n' || character === '\r') {
+      if (character === '\r' && text[index + 1] === '\n') index += 1;
+      row.push(field);
+      if (row.some((value) => String(value).trim())) rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += character;
+    }
+  }
+  row.push(field);
+  if (row.some((value) => String(value).trim())) rows.push(row);
+  if (quoted) throw new Error('CSV obsahuje neukončenou uvozovku.');
+  return rows;
+}
+
+function parseIsEsfPersonTemplateCsv(source) {
+  const rows = parseSemicolonCsv(source);
+  if (!rows.length) throw new Error('CSV je prázdné.');
+  const headers = rows[0].map((header) => normalizeText(header).replace(/^\uFEFF/, ''));
+  const headerIndex = new Map(headers.map((header, index) => [normalizeKey(header), index]));
+  const missingHeaders = PERSON_IDENTITY_HEADERS.filter((header) => !headerIndex.has(normalizeKey(header)));
+  if (missingHeaders.length) {
+    throw new Error(`CSV z IS ESF neobsahuje povinné identifikační sloupce: ${missingHeaders.join(', ')}.`);
+  }
+
+  const personRows = rows.slice(1)
+    .map((values) => Object.fromEntries(PERSON_IDENTITY_HEADERS.map((header) => [
+      header,
+      normalizeText(values[headerIndex.get(normalizeKey(header))])
+    ])))
+    .filter((values) => PERSON_IDENTITY_HEADERS.some((header) => values[header]));
+  if (!personRows.length) throw new Error('CSV z IS ESF neobsahuje žádnou podpořenou osobu.');
+  return { headers, rows: personRows, rowCount: personRows.length };
+}
+
+function normalizeIdentityDate(value) {
+  const text = normalizeText(value);
+  const czech = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (czech) return `${czech[3]}-${String(Number(czech[2])).padStart(2, '0')}-${String(Number(czech[1])).padStart(2, '0')}`;
+  const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return `${iso[1]}-${String(Number(iso[2])).padStart(2, '0')}-${String(Number(iso[3])).padStart(2, '0')}`;
+  return normalizeKey(text);
+}
+
+function personIdentityKey(firstName, lastName, birthDate) {
+  return [normalizeKey(firstName), normalizeKey(lastName), normalizeIdentityDate(birthDate)].join('|');
+}
+
+function matchClientsToIsEsfPersonRows(clients = [], personRows = []) {
+  const rowsByIdentity = new Map();
+  personRows.forEach((row) => {
+    const key = personIdentityKey(row.Jmeno_Osoby, row.Prijmeni_Osoby, row.DatumNarozeni_Osoby);
+    if (!rowsByIdentity.has(key)) rowsByIdentity.set(key, []);
+    rowsByIdentity.get(key).push(row);
+  });
+
+  const matchedClients = [];
+  const matchedPersonRows = [];
+  const unmatchedClients = [];
+  const ambiguousClients = [];
+  clients.forEach((client) => {
+    const key = personIdentityKey(client?.jmeno, client?.prijmeni, client?.datumNarozeni);
+    const matches = rowsByIdentity.get(key) || [];
+    if (matches.length === 1) {
+      matchedClients.push(client);
+      matchedPersonRows.push(matches[0]);
+    } else if (matches.length > 1) {
+      ambiguousClients.push(client);
+    } else {
+      unmatchedClients.push(client);
+    }
+  });
+
+  return { matchedClients, matchedPersonRows, unmatchedClients, ambiguousClients };
+}
+
 const getRecordClientIds = (record) => (
   Array.isArray(record?.clientIds)
     ? record.clientIds.filter(Boolean)
@@ -257,5 +357,7 @@ export {
   buildIsEsfSupportExport,
   extractSupportMinutes,
   isElectronicSupport,
+  matchClientsToIsEsfPersonRows,
+  parseIsEsfPersonTemplateCsv,
   serializeIsEsfSupportCsv
 };

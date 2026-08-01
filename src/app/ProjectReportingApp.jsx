@@ -102,7 +102,12 @@ import { buildClientSelectionPool } from '../lib/clientSelection.js';
 import { buildClientCaseAiPrompt, buildClientCaseSummaryPrintHtml, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
 import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
 import { buildIsEsfPersonExport, serializeIsEsfPersonCsv } from '../lib/isEsfExport.js';
-import { buildIsEsfSupportExport, serializeIsEsfSupportCsv } from '../lib/isEsfSupportExport.js';
+import {
+  buildIsEsfSupportExport,
+  matchClientsToIsEsfPersonRows,
+  parseIsEsfPersonTemplateCsv,
+  serializeIsEsfSupportCsv
+} from '../lib/isEsfSupportExport.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { isBackupStatusActive } from '../lib/backupStatus.js';
 import {
@@ -2204,8 +2209,13 @@ function App() {
   });
   const [isEsfSupportExportStatus, setIsEsfSupportExportStatus] = useState({
     state: 'idle',
-    message: 'CSV podpor se připraví ze souhrnu výkonů KA1 za zvolené období.',
+    message: 'Nejprve nahrajte CSV podpořených osob vyexportované z IS ESF.',
     issues: []
+  });
+  const [isEsfPersonImport, setIsEsfPersonImport] = useState({
+    fileName: '',
+    rows: [],
+    error: ''
   });
   const [statisticsRows, setStatisticsRows] = useState([]);
   const [statisticsFilters, setStatisticsFilters] = useState({ dateFrom: '', dateTo: '' });
@@ -2816,6 +2826,11 @@ function App() {
     return accessibleClients.filter((client) => supportedClientIds.has(client.id));
   }, [accessibleClients, isEsfSupportRecords]);
 
+  const isEsfPersonImportMatch = useMemo(
+    () => matchClientsToIsEsfPersonRows(isEsfSupportedClients, isEsfPersonImport.rows),
+    [isEsfPersonImport.rows, isEsfSupportedClients]
+  );
+
   useEffect(() => {
     isEsfExportRequestRef.current += 1;
     isEsfSupportExportRequestRef.current += 1;
@@ -2829,10 +2844,12 @@ function App() {
     });
     setIsEsfSupportExportStatus({
       state: 'idle',
-      message: 'CSV podpor se připraví ze souhrnu výkonů KA1 za zvolené období.',
+      message: isEsfPersonImport.rows.length
+        ? 'Nahrané CSV z IS ESF je připravené pro vytvoření podpor ve zvoleném období.'
+        : 'Nejprve nahrajte CSV podpořených osob vyexportované z IS ESF.',
       issues: []
     });
-  }, [dashboardFilters.period]);
+  }, [dashboardFilters.period, isEsfPersonImport.rows.length]);
 
   const filteredClientList = useMemo(() => {
     const normalizeSearchValue = (value) =>
@@ -5819,6 +5836,38 @@ ${rawOutput}` }] }],
     }
   };
 
+  const importIsEsfPersonCsv = async (file) => {
+    if (!file) return;
+    try {
+      const buffer = await file.arrayBuffer();
+      let content = new TextDecoder('utf-8').decode(buffer);
+      if (content.includes('\uFFFD')) content = new TextDecoder('windows-1250').decode(buffer);
+      const parsed = parseIsEsfPersonTemplateCsv(content);
+      setIsEsfPersonImport({ fileName: file.name, rows: parsed.rows, error: '' });
+      setIsEsfSupportExportStatus({
+        state: 'idle',
+        message: `CSV z IS ESF bylo načteno (${parsed.rowCount} osob). Nyní lze vytvořit navazující CSV podpor.`,
+        issues: []
+      });
+    } catch (error) {
+      setIsEsfPersonImport({ fileName: file.name, rows: [], error: error?.message || 'CSV z IS ESF se nepodařilo načíst.' });
+      setIsEsfSupportExportStatus({
+        state: 'error',
+        message: error?.message || 'CSV z IS ESF se nepodařilo načíst.',
+        issues: []
+      });
+    }
+  };
+
+  const clearIsEsfPersonCsv = () => {
+    setIsEsfPersonImport({ fileName: '', rows: [], error: '' });
+    setIsEsfSupportExportStatus({
+      state: 'idle',
+      message: 'Nejprve nahrajte CSV podpořených osob vyexportované z IS ESF.',
+      issues: []
+    });
+  };
+
   const exportSupportsIsEsfCsv = async () => {
     const requestId = isEsfSupportExportRequestRef.current + 1;
     isEsfSupportExportRequestRef.current = requestId;
@@ -5833,31 +5882,44 @@ ${rawOutput}` }] }],
       return;
     }
 
+    if (!isEsfPersonImport.rows.length) {
+      setIsEsfSupportExportStatus({
+        state: 'error',
+        message: 'Nejprve nahrajte CSV podpořených osob vyexportované z IS ESF.',
+        issues: []
+      });
+      return;
+    }
+
+    const unmatchedIssues = isEsfPersonImportMatch.unmatchedClients.map((client) => ({
+      recordId: client.id,
+      clientName: client.fullName || `${client.jmeno || ''} ${client.prijmeni || ''}`.trim(),
+      message: 'Osoba nebyla v nahraném CSV z IS ESF nalezena podle jména, příjmení a data narození.'
+    }));
+    const ambiguousIssues = isEsfPersonImportMatch.ambiguousClients.map((client) => ({
+      recordId: client.id,
+      clientName: client.fullName || `${client.jmeno || ''} ${client.prijmeni || ''}`.trim(),
+      message: 'Osoba je v nahraném CSV z IS ESF uvedena vícekrát a nelze ji jednoznačně přiřadit.'
+    }));
+    if (unmatchedIssues.length || ambiguousIssues.length) {
+      setIsEsfSupportExportStatus({
+        state: 'error',
+        message: `CSV podpor nebylo vytvořeno: ${unmatchedIssues.length + ambiguousIssues.length} osob nelze bezpečně přiřadit k importu z IS ESF.`,
+        issues: [...unmatchedIssues, ...ambiguousIssues]
+      });
+      return;
+    }
+
     setIsEsfSupportExportStatus({
       state: 'loading',
-      message: 'Ověřuji osoby a připravuji souhrn podpor…',
+      message: 'Přiřazuji osoby z IS ESF a připravuji souhrn podpor…',
       issues: []
     });
 
     try {
-      const personResult = await buildIsEsfPersonExport(exportClients, {
-        baseUrl: '',
-        onProgress: ({ phase, current, total }) => {
-          if (isEsfSupportExportRequestRef.current !== requestId) return;
-          setIsEsfSupportExportStatus({
-            state: 'loading',
-            message: phase === 'municipalities'
-              ? `Ověřuji osoby podle RÚIAN (${current}/${Math.max(total, 1)})…`
-              : 'Načítám adresní registr RÚIAN…',
-            issues: []
-          });
-        }
-      });
-      if (isEsfSupportExportRequestRef.current !== requestId) return;
-
       const result = buildIsEsfSupportExport({
-        clients: exportClients,
-        personRows: personResult.rows,
+        clients: isEsfPersonImportMatch.matchedClients,
+        personRows: isEsfPersonImportMatch.matchedPersonRows,
         records: exportRecords,
         reportingPeriod: selectedReportingPeriod,
         isFirstReportingPeriod: selectedReportingPeriod?.value === REPORTING_PERIODS[1]?.value
@@ -7856,7 +7918,16 @@ ${rawPlanOutput}` }] }],
               isEsfSupportedClientCount={isEsfSupportedClients.length}
               exportSupportsIsEsfCsv={exportSupportsIsEsfCsv}
               isEsfSupportExportStatus={isEsfSupportExportStatus}
-              isEsfSupportExportCount={isEsfSupportedClients.length}
+              isEsfSupportExportCount={isEsfPersonImportMatch.matchedClients.length}
+              isEsfPersonImport={{
+                ...isEsfPersonImport,
+                expectedCount: isEsfSupportedClients.length,
+                matchedCount: isEsfPersonImportMatch.matchedClients.length,
+                unmatchedClients: isEsfPersonImportMatch.unmatchedClients,
+                ambiguousClients: isEsfPersonImportMatch.ambiguousClients
+              }}
+              importIsEsfPersonCsv={importIsEsfPersonCsv}
+              clearIsEsfPersonCsv={clearIsEsfPersonCsv}
               exportAllRecordsBackup={exportAllRecordsBackup}
               exportDetailedOutputsXlsx={exportDetailedOutputsXlsx}
               isExportingDetailedOutputs={isExportingDetailedOutputs}

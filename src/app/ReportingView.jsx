@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, AlertTriangle, Archive, ArrowLeft, Brain, ClipboardCopy, Download, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target, Users } from 'lucide-react';
+import { Activity, AlertTriangle, Archive, ArrowLeft, ArrowRight, Brain, ClipboardCopy, Download, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target, Upload, Users, X } from 'lucide-react';
 
 import { HelpIcon, Panel, SelectField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
@@ -151,6 +151,29 @@ const ExportCard = ({ icon: Icon, title, format, description, children, tone = '
   );
 };
 
+const WorkflowStep = ({ number, title, format, description, children, state = 'idle' }) => {
+  const stateClass = state === 'success'
+    ? 'border-emerald-300 bg-emerald-50/60'
+    : state === 'warning'
+      ? 'border-amber-300 bg-amber-50/60'
+      : state === 'error'
+        ? 'border-red-300 bg-red-50/60'
+        : 'border-slate-300 bg-white';
+  return (
+    <div className={`flex h-full min-w-0 flex-col rounded-xl border-2 p-4 ${stateClass}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-700 text-sm font-bold text-white">{number}</span>
+          <strong className="text-sm text-slate-900">{title}</strong>
+        </div>
+        <span className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-600">{format}</span>
+      </div>
+      <p className="mt-3 flex-1 text-xs leading-5 text-slate-600">{description}</p>
+      <div className="mt-4">{children}</div>
+    </div>
+  );
+};
+
 function ReportingView({
   dashboardOverview,
   exportClientsIsEsfCsv,
@@ -159,6 +182,9 @@ function ReportingView({
   exportSupportsIsEsfCsv,
   isEsfSupportExportStatus,
   isEsfSupportExportCount = 0,
+  isEsfPersonImport = null,
+  importIsEsfPersonCsv,
+  clearIsEsfPersonCsv,
   exportAllRecordsBackup,
   exportDetailedOutputsXlsx,
   isExportingDetailedOutputs = false,
@@ -201,6 +227,16 @@ function ReportingView({
     : missingEducationCount > 0
       ? 'Nevyplněné nebo nerozpoznané vzdělání'
       : 'Nerozpoznané vzdělání';
+  const personImportRows = isEsfPersonImport?.rows?.length || 0;
+  const personImportProblems = (isEsfPersonImport?.unmatchedClients?.length || 0) + (isEsfPersonImport?.ambiguousClients?.length || 0);
+  const personImportReady = personImportRows > 0
+    && personImportProblems === 0
+    && isEsfPersonImport?.matchedCount === isEsfPersonImport?.expectedCount;
+  const personImportState = isEsfPersonImport?.error
+    ? 'error'
+    : personImportRows > 0
+      ? personImportReady ? 'success' : 'warning'
+      : 'idle';
 
   const returnToDashboard = () => {
     setDashboardFilters((previous) => ({ ...previous, ka: 'all', worker: 'all' }));
@@ -266,26 +302,58 @@ function ReportingView({
               </div>
             </Panel>
 
-            <Panel title="Exporty pro IS ESF" description="Jde o dva navazující, ale obsahově odlišné soubory požadované IS ESF: osoby a jejich souhrnné podpory." icon={Download}>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <ExportCard icon={Users} title="Podporované osoby" format="CSV · 32 sloupců" tone="emerald" description="Identifikační a monitorovací údaje osob s podporou KA1. Adresy se před stažením ověří proti RÚIAN.">
+            <Panel title="Postup exportu do IS ESF" description="Postupujte zleva doprava. CSV podpor vznikne až z osob potvrzených nahraným seznamem z IS ESF." icon={Download}>
+              <div className="grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
+                <WorkflowStep number="1" title="Vyexportovat osoby" format="CSV · 32 sloupců" description="Vytvořte CSV osob z evidence aplikace a nahrajte je do IS ESF. Adresy se při exportu ověří proti RÚIAN." state={isEsfExportStatus?.state === 'success' ? 'success' : isEsfExportStatus?.state === 'error' ? 'error' : 'idle'}>
                   <div className="flex items-center gap-1">
-                    <button type="button" onClick={exportClientsIsEsfCsv} disabled={!isEsfSupportedClientCount || isEsfExportStatus?.state === 'loading'} className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300">
+                    <button type="button" onClick={exportClientsIsEsfCsv} disabled={!isEsfSupportedClientCount || isEsfExportStatus?.state === 'loading'} className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:bg-slate-300">
                       {isEsfExportStatus?.state === 'loading' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                       {isEsfExportStatus?.state === 'loading' ? 'Kontroluji adresy…' : `Stáhnout osoby (${isEsfSupportedClientCount})`}
                     </button>
                     <HelpIcon help={HELP.dashboardExport} />
                   </div>
-                </ExportCard>
-                <ExportCard icon={Activity} title="Souhrnné podpory osob" format="CSV · 17 sloupců" tone="violet" description="Součet výkonů KA1 za osobu a období ve specifikaci 7.1, rozdělený na prezenční a elektronickou podporu.">
+                </WorkflowStep>
+
+                <div className="flex items-center justify-center text-indigo-400"><ArrowRight className="h-6 w-6 rotate-90 lg:rotate-0" /></div>
+
+                <WorkflowStep number="2" title="Nahrát seznam z IS ESF" format="CSV z IS ESF" description="Po zpracování osob v IS ESF nahrajte jejich CSV export. Přijímá se úplný export osob i volba „Export pro záznamy do CSV“." state={personImportState}>
+                  <input id="is-esf-person-csv" type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => { importIsEsfPersonCsv?.(event.target.files?.[0]); event.target.value = ''; }} />
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="is-esf-person-csv" className="inline-flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800">
+                      <Upload className="h-4 w-4" /> {personImportRows ? 'Nahrát jiné CSV' : 'Nahrát CSV z IS ESF'}
+                    </label>
+                    {personImportRows > 0 && <button type="button" onClick={clearIsEsfPersonCsv} title="Odebrat nahrané CSV" aria-label="Odebrat nahrané CSV" className="rounded-lg border border-slate-300 bg-white p-2 text-slate-600 hover:bg-slate-100"><X className="h-4 w-4" /></button>}
+                    <HelpIcon help={HELP.dashboardSupportImport} />
+                  </div>
+                  <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${personImportState === 'success' ? 'bg-emerald-100 text-emerald-800' : personImportState === 'warning' ? 'bg-amber-100 text-amber-800' : personImportState === 'error' ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-600'}`}>
+                    {isEsfPersonImport?.error
+                      || (personImportRows > 0
+                        ? `${isEsfPersonImport.fileName}: přiřazeno ${isEsfPersonImport.matchedCount} z ${isEsfPersonImport.expectedCount} osob.`
+                        : 'Soubor se zpracuje pouze v tomto prohlížeči a nikam se neodesílá.')}
+                  </div>
+                  {personImportProblems > 0 && (
+                    <details className="mt-2 text-xs text-amber-800">
+                      <summary className="cursor-pointer font-semibold">Osoby vyžadující kontrolu ({personImportProblems})</summary>
+                      <ul className="mt-1 space-y-1 pl-4">
+                        {(isEsfPersonImport.unmatchedClients || []).map((client) => <li key={`missing-${client.id}`}>{client.fullName || `${client.jmeno || ''} ${client.prijmeni || ''}`.trim()}: nenalezena v CSV</li>)}
+                        {(isEsfPersonImport.ambiguousClients || []).map((client) => <li key={`duplicate-${client.id}`}>{client.fullName || `${client.jmeno || ''} ${client.prijmeni || ''}`.trim()}: v CSV je vícekrát</li>)}
+                      </ul>
+                    </details>
+                  )}
+                </WorkflowStep>
+
+                <div className="flex items-center justify-center text-indigo-400"><ArrowRight className="h-6 w-6 rotate-90 lg:rotate-0" /></div>
+
+                <WorkflowStep number="3" title="Vytvořit podpory" format="CSV · 17 sloupců" description="Aplikace doplní k osobám z nahraného CSV souhrn výkonů KA1 ve specifikaci 7.1, zvlášť prezenčně a elektronicky." state={isEsfSupportExportStatus?.state === 'success' ? 'success' : isEsfSupportExportStatus?.state === 'error' ? 'error' : personImportReady ? 'idle' : 'warning'}>
                   <div className="flex items-center gap-1">
-                    <button type="button" onClick={exportSupportsIsEsfCsv} disabled={!isEsfSupportExportCount || isEsfSupportExportStatus?.state === 'loading'} className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-violet-700 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:bg-slate-300">
+                    <button type="button" onClick={exportSupportsIsEsfCsv} disabled={!personImportReady || !isEsfSupportExportCount || isEsfSupportExportStatus?.state === 'loading'} className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:bg-slate-300">
                       {isEsfSupportExportStatus?.state === 'loading' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                       {isEsfSupportExportStatus?.state === 'loading' ? 'Připravuji podpory…' : `Stáhnout podpory (${isEsfSupportExportCount})`}
                     </button>
                     <HelpIcon help={HELP.dashboardSupportExport} />
                   </div>
-                </ExportCard>
+                  {!personImportReady && <p className="mt-3 text-xs font-semibold text-amber-700">Zpřístupní se po úspěšném nahrání a přiřazení osob v kroku 2.</p>}
+                </WorkflowStep>
               </div>
 
               <div className={`mt-4 rounded-lg border px-3 py-2 text-xs ${isEsfExportStatus?.state === 'error' ? 'border-red-200 bg-red-50 text-red-800' : isEsfExportStatus?.state === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800' : isEsfExportStatus?.state === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
@@ -296,7 +364,7 @@ function ReportingView({
                 {isEsfExportStatus?.dataIssues?.length > 0 && <details className="mt-2"><summary className="cursor-pointer font-semibold">Údaje vyžadující doplnění ({isEsfExportStatus.dataIssues.length})</summary><ul className="mt-1 space-y-1 pl-4">{isEsfExportStatus.dataIssues.map((item) => <li key={`${item.clientId}-${item.clientName}`}>{item.clientName}: {item.issues.join(', ')}</li>)}</ul></details>}
               </div>
               <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${isEsfSupportExportStatus?.state === 'error' ? 'border-red-200 bg-red-50 text-red-800' : isEsfSupportExportStatus?.state === 'success' ? 'border-violet-200 bg-violet-50 text-violet-800' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
-                <div className="font-semibold">{isEsfSupportExportStatus?.message || 'CSV podpor se připraví ze souhrnu výkonů KA1 za zvolené období.'}</div>
+                <div className="font-semibold">{isEsfSupportExportStatus?.message || 'Nejprve nahrajte CSV podpořených osob vyexportované z IS ESF.'}</div>
                 {isEsfSupportExportStatus?.issues?.length > 0 && <details className="mt-2"><summary className="cursor-pointer font-semibold">Chyby bránící exportu ({isEsfSupportExportStatus.issues.length})</summary><ul className="mt-1 space-y-1 pl-4">{isEsfSupportExportStatus.issues.map((item, index) => <li key={`${item.recordId}-${index}`}>{item.clientName || 'Neurčená osoba'}: {item.message}</li>)}</ul></details>}
               </div>
             </Panel>

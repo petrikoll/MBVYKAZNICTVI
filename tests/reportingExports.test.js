@@ -10,6 +10,7 @@ test('sekce sestav nabízí každý dokončený výstup právě jednou', () => {
     'Stáhnout XLSX',
     'Stáhnout DOC',
     'Stáhnout osoby',
+    'Nahrát CSV z IS ESF',
     'Stáhnout podpory',
     'Vytvořit texty ZOR'
   ];
@@ -23,6 +24,6 @@ test('starý duplicitní panel a souhrnné tlačítko XLSX už nejsou v rozhran�
   assert.doesNotMatch(source, /Základní sestavy XLSX/);
   assert.doesNotMatch(source, /Stáhnout sestavy XLSX/);
   assert.match(source, /Interní sestavy/);
-  assert.match(source, /Exporty pro IS ESF/);
+  assert.match(source, /Postup exportu do IS ESF/);
   assert.match(source, /Podklady pro ZOR/);
 });
