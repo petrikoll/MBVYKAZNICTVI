@@ -1,7 +1,11 @@
 export const MAX_ACTIVITY_ROWS = 10;
 export const HOURS_TOLERANCE = 0.001;
+export const ACTIVITY_HOURS_INCREMENT = 0.5;
 
 export const roundHours = (value) => Math.round((Number(value) || 0) * 100) / 100;
+
+export const roundActivityHours = (value) =>
+  roundHours(Math.round(Math.max(0, Number(value) || 0) / ACTIVITY_HOURS_INCREMENT) * ACTIVITY_HOURS_INCREMENT);
 
 export const sumHours = (activities) =>
   roundHours(
@@ -39,7 +43,7 @@ export const distributeHours = (activities, targetHours) => {
   return rows.map((activity, index) => {
     const hours = index === rows.length - 1
       ? roundHours(target - allocated)
-      : roundHours((target * weights[index]) / weightTotal);
+      : roundActivityHours((target * weights[index]) / weightTotal);
     allocated = roundHours(allocated + hours);
     return { ...activity, hours: Math.max(0, hours) };
   });
@@ -48,7 +52,7 @@ export const distributeHours = (activities, targetHours) => {
 export const balanceHours = (activities, targetHours) => {
   const rows = (Array.isArray(activities) ? activities : [])
     .slice(0, MAX_ACTIVITY_ROWS)
-    .map((activity) => ({ ...activity, hours: Math.max(0, roundHours(activity?.hours)) }));
+    .map((activity) => ({ ...activity, hours: roundActivityHours(activity?.hours) }));
   if (!rows.length) return rows;
 
   const target = Math.max(0, roundHours(targetHours));

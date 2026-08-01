@@ -3,7 +3,7 @@ import { CalendarDays, CheckCircle2, Download, FileSpreadsheet, RotateCcw, Setti
 
 import templateBase64 from '../../assets/SABLONA_Pracovni_vykaz_OPZ.xlsx?base64';
 import { DEFAULT_ACTIVITIES, DEFAULT_SETTINGS, getAvailableMonths, getContractTerms } from './projectDefaults.js';
-import { balanceHours, distributeHours, getHoursStatus, getWorkingDays, roundHours, safeFilenamePart } from './reportUtils.mjs';
+import { balanceHours, distributeHours, getHoursStatus, getWorkingDays, roundActivityHours, roundHours, safeFilenamePart } from './reportUtils.mjs';
 import { getVacationOverview } from './vacationUtils.mjs';
 import { buildWorkReportWorkbook } from './workbookExport.mjs';
 import { getAutomaticWorkReportActivity } from './autoActivity.mjs';
@@ -206,7 +206,7 @@ function WorkReportsView({ records = [] }) {
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-base font-bold text-slate-900">Činnosti Garanta projektu</h3>
-              <p className="text-xs text-slate-500">Pracovní fond po odečtení dovolené: {formatHours(workTargetHours)}{automaticActivity ? ` · automaticky načteno ${formatHours(automaticActivity.hours)}` : ''}</p>
+              <p className="text-xs text-slate-500">Pracovní fond po odečtení dovolené: {formatHours(workTargetHours)} · hodiny po 0,5 h{automaticActivity ? ` · automaticky načteno ${formatHours(automaticActivity.hours)}` : ''}</p>
             </div>
             <div className="flex gap-2">
               <button type="button" onClick={resetActivities} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"><RotateCcw className="h-3.5 w-3.5" /> Obnovit</button>
@@ -220,7 +220,7 @@ function WorkReportsView({ records = [] }) {
                 <textarea rows="2" readOnly={activity.automatic} aria-label={`Popis činnosti ${index + 1}`} className="min-h-[58px] w-full resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 read-only:bg-amber-50/50" value={activity.desc} onChange={(event) => setActivities((previous) => previous.map((item, row) => row === index ? { ...item, desc: event.target.value } : item))} />
                 <div>
                   <label className={labelClass}>{activity.automatic ? 'Načtené hodiny' : 'Hodiny'}</label>
-                  <input type="number" readOnly={activity.automatic} min="0" step="0.25" className={`${fieldClass} read-only:bg-amber-50`} value={activity.hours} onChange={(event) => setActivities((previous) => previous.map((item, row) => row === index ? { ...item, hours: Math.max(0, Number(event.target.value) || 0) } : item))} />
+                  <input type="number" readOnly={activity.automatic} min="0" step="0.5" className={`${fieldClass} read-only:bg-amber-50`} value={activity.hours} onChange={(event) => setActivities((previous) => previous.map((item, row) => row === index ? { ...item, hours: Math.max(0, Number(event.target.value) || 0) } : item))} onBlur={() => setActivities((previous) => previous.map((item, row) => row === index ? { ...item, hours: roundActivityHours(item.hours) } : item))} />
                 </div>
               </div>
             ))}

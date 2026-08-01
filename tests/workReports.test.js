@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { DEFAULT_ACTIVITIES, DEFAULT_SETTINGS, getContractTerms } from '../src/features/work-reports/projectDefaults.js';
-import { distributeHours, getHoursStatus } from '../src/features/work-reports/reportUtils.mjs';
+import { distributeHours, getHoursStatus, roundActivityHours } from '../src/features/work-reports/reportUtils.mjs';
 import { getVacationOverview } from '../src/features/work-reports/vacationUtils.mjs';
 import { buildWorkReportWorkbook } from '../src/features/work-reports/workbookExport.mjs';
 import { getAutomaticWorkReportActivity } from '../src/features/work-reports/autoActivity.mjs';
@@ -21,6 +21,12 @@ test('dovolená snižuje pracovní fond a činnosti se přesně dorovnají', () 
   const activities = distributeHours(DEFAULT_ACTIVITIES, 24);
   assert.equal(vacation.currentMonthVacation, 8);
   assert.equal(getHoursStatus(activities, 24).isBalanced, true);
+});
+
+test('hodiny činností se rozdělují po praktických půlhodinách', () => {
+  assert.equal(roundActivityHours(2.66), 2.5);
+  assert.deepEqual(distributeHours(DEFAULT_ACTIVITIES, 24).map((activity) => activity.hours), [14, 10]);
+  assert.deepEqual(distributeHours(DEFAULT_ACTIVITIES, 32).map((activity) => activity.hours), [18.5, 13.5]);
 });
 
 test('integrovaný export vytvoří XLSX z projektové šablony', async () => {

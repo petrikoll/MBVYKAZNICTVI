@@ -1,4 +1,4 @@
-import { roundHours } from './reportUtils.mjs';
+import { roundActivityHours, roundHours } from './reportUtils.mjs';
 
 const normalize = (value) => String(value || '')
   .normalize('NFD')
@@ -94,7 +94,7 @@ export const getAutomaticWorkReportActivity = ({ records = [], period, employeeN
       hours = meetingHours(payload);
     }
     if (!label || hours <= 0) return;
-    entries.push({ date, label, hours: roundHours(hours) });
+    entries.push({ date, label, hours: Math.max(0.5, roundActivityHours(hours)) });
   });
 
   entries.sort((left, right) => left.date.day - right.date.day || left.label.localeCompare(right.label, 'cs'));
