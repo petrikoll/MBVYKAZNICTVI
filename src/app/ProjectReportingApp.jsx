@@ -7402,7 +7402,7 @@ ${rawPlanOutput}` }] }],
                     </Panel>
 
                     {false && (
-                    <Panel title="Projektové aktivity klienta" description="Chronologická auditní stopa všech evidovaných kroků." icon={History}>
+                    <Panel title="Projektové aktivity klienta" icon={History}>
                       <div className="space-y-3">
                         {clientTimeline.length === 0 ?(
                           <EmptyState icon={FileText} title="Klient zatím nemá žádné uložené aktivity." />
@@ -7690,7 +7690,7 @@ ${rawPlanOutput}` }] }],
         {mainView === 'education' && (
           <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
             <div className="space-y-4">
-              <Panel title="Vzdělávání" description="Evidence vzdělávacích akcí pracovníků projektu." icon={GraduationCap}>
+              <Panel title="Vzdělávání" icon={GraduationCap}>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                   <InputField label="Datum" type="date" value={educationDraft.date} onChange={(value) => setEducationDraft((prev) => ({ ...prev, date: value }))} />
                   <InputField label="Počet hodin" help={{ title: 'Počet hodin', text: 'Hodinou se myslí 60 minut.' }} value={educationDraft.hours} onChange={(value) => setEducationDraft((prev) => ({ ...prev, hours: value }))} placeholder="např. 8" />
@@ -7711,7 +7711,7 @@ ${rawPlanOutput}` }] }],
                 </div>
               </Panel>
 
-              <Panel title="Uložená vzdělávání" description="Přehled vzdělávacích akcí uložených do evidence." icon={FileSpreadsheet}>
+              <Panel title="Uložená vzdělávání" icon={FileSpreadsheet}>
                 {educationRecords.length === 0 ? (
                   <EmptyState icon={GraduationCap} title="Zatím není uložena žádná vzdělávací akce." />
                 ) : (
@@ -7758,7 +7758,7 @@ ${rawPlanOutput}` }] }],
             </div>
 
             <div className="space-y-4">
-              <Panel title="Supervize" description="Evidence individuálních a skupinových supervizí." icon={Brain}>
+              <Panel title="Supervize" icon={Brain}>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                   <InputField label="Datum" type="date" value={supervisionDraft.date} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, date: value }))} />
                   <InputField label="Počet hodin" help={{ title: 'Počet hodin', text: 'Hodinou se myslí 60 minut.' }} value={supervisionDraft.hours} onChange={(value) => setSupervisionDraft((prev) => ({ ...prev, hours: value }))} placeholder="např. 2" />
@@ -7782,7 +7782,7 @@ ${rawPlanOutput}` }] }],
                 </div>
               </Panel>
 
-              <Panel title="Uložené supervize" description="Přehled supervizí uložených do evidence." icon={FileSpreadsheet}>
+              <Panel title="Uložené supervize" icon={FileSpreadsheet}>
                 {supervisionRecords.length === 0 ? (
                   <EmptyState icon={Brain} title="Zatím není uložena žádná supervize." />
                 ) : (
@@ -7858,9 +7858,7 @@ ${rawPlanOutput}` }] }],
                     {isExportingKuStatistics ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                     Statistika pro KÚ
                   </button>
-                  {!statisticsFilters.dateFrom || !statisticsFilters.dateTo ? (
-                    <p className="text-xs text-slate-500">Tlačítko se aktivuje po vyplnění obou datumů.</p>
-                  ) : !hasValidKuStatisticsDateRange ? (
+                  {statisticsFilters.dateFrom && statisticsFilters.dateTo && !hasValidKuStatisticsDateRange ? (
                     <p className="text-xs text-rose-600">Datum od nesmí být později než datum do.</p>
                   ) : null}
                 </div>

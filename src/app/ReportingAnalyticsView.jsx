@@ -268,7 +268,7 @@ function ReportingAnalyticsView({ records = [], clients = [], onOpenClient }) {
     <div className="space-y-5">
       <section className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div><h2 className="flex items-center gap-2 text-base font-bold text-slate-900"><ListFilter className="h-5 w-5 text-blue-700" />Analytické filtry</h2><p className="mt-1 text-xs text-slate-500">Navazují na období, KA a pracovníka zvolené výše.</p></div>
+          <h2 className="flex items-center gap-2 text-base font-bold text-slate-900"><ListFilter className="h-5 w-5 text-blue-700" />Analytické filtry</h2>
           <button type="button" onClick={resetFilters} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"><FilterX className="h-4 w-4" />Zrušit analytické filtry</button>
         </div>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -297,7 +297,7 @@ function ReportingAnalyticsView({ records = [], clients = [], onOpenClient }) {
 
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div><h2 className="text-base font-bold text-slate-900">{selectedClient ? selectedClient.fullName : 'Souhrn za všechny klienty'}</h2><p className="text-xs text-slate-500">Údaje odpovídají všem aktivním filtrům včetně vybraného měsíce.</p></div>
+          <h2 className="text-base font-bold text-slate-900">{selectedClient ? selectedClient.fullName : 'Souhrn za všechny klienty'}</h2>
           {selectedClient && onOpenClient && <button type="button" onClick={() => onOpenClient(selectedClient.id)} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100">Otevřít list klienta</button>}
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -311,8 +311,7 @@ function ReportingAnalyticsView({ records = [], clients = [], onOpenClient }) {
 
       <section className="grid gap-4 xl:grid-cols-2">
         <div className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm">
-          <h3 className="mb-1 text-sm font-bold text-slate-900">Vývoj podpory po měsících</h3>
-          <p className="mb-3 text-xs text-slate-500">Barvy rozlišují nejčastější typy podpory.</p>
+          <h3 className="mb-3 text-sm font-bold text-slate-900">Vývoj podpory po měsících</h3>
           <MonthlyChart data={monthlyData} metric={metric} selectedMonth={filters.month} onSelectMonth={(month) => setFilters((prev) => ({ ...prev, month }))} />
         </div>
         <div className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm">
@@ -330,14 +329,12 @@ function ReportingAnalyticsView({ records = [], clients = [], onOpenClient }) {
 
       <section className="grid gap-4 xl:grid-cols-2">
         <div className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm">
-          <h3 className="mb-1 text-sm font-bold text-slate-900">Typy podpory</h3>
-          <p className="mb-3 text-xs text-slate-500">Rozložení aktuálně vyfiltrovaných výkonů.</p>
+          <h3 className="mb-3 text-sm font-bold text-slate-900">Typy podpory</h3>
           <HorizontalBars rows={typeData} metric={metric} selectedLabel={filters.performanceType} onSelect={(performanceType) => setFilters((prev) => ({ ...prev, performanceType }))} />
         </div>
         {filters.clientId === 'all' ? (
           <div className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm">
-            <h3 className="mb-1 text-sm font-bold text-slate-900">Klienti podle rozsahu podpory</h3>
-            <p className="mb-3 text-xs text-slate-500">Počet klientů v hodinových pásmech při současných filtrech.</p>
+            <h3 className="mb-3 text-sm font-bold text-slate-900">Klienti podle rozsahu podpory</h3>
             <HorizontalBars rows={distribution} metric="count" />
           </div>
         ) : (

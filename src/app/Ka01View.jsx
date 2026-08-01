@@ -281,7 +281,7 @@ function Ka01View({
         </div>
       </Panel>
 
-      <Panel title="KA02 - Evidence subjektů partnerské sítě" description="Registr stávajících a nově zapojených aktérů." icon={Users} className="w-full min-w-0 overflow-hidden">
+      <Panel title="KA02 - Evidence subjektů partnerské sítě" icon={Users} className="w-full min-w-0 overflow-hidden">
         <div className="grid gap-3">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <InputField label="Název subjektu" help={HELP.actorName} value={ka01ActorDraft.name} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, name: value }))} />

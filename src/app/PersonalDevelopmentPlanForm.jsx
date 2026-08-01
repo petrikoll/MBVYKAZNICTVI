@@ -281,7 +281,7 @@ function PersonalDevelopmentPlanForm({ clientId, clientName = '', records = [], 
   };
 
   return (
-    <Panel title="Individuální plán rozvoje" description="Cíle klienta a jejich vyhodnocení." icon={Target} className={compact ? 'p-3' : ''}>
+    <Panel title="Individuální plán rozvoje" icon={Target} className={compact ? 'p-3' : ''}>
       <form onSubmit={handleSave} className="space-y-3">
         {loading ? (
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">Načítám plán...</div>

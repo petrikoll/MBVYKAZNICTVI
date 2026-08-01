@@ -266,7 +266,6 @@ function ReportingView({
               <ArrowLeft className="h-4 w-4" /> Zpět na dashboard
             </button>
             <h1 className="text-xl font-bold text-slate-900">Podrobné výstupy</h1>
-            <p className="mt-1 text-sm text-slate-600">Sestavy a podklady pro vykazování podle zvoleného období, aktivity a pracovníka.</p>
           </div>
         </div>
 
@@ -279,9 +278,6 @@ function ReportingView({
         {detailedSection !== 'workReports' && (
           <Panel
             title={detailedSection === 'analytics' ? 'Rozsah analýzy' : 'Rozsah sestav'}
-            description={detailedSection === 'analytics'
-              ? 'Období, klíčová aktivita a pracovník omezují všechny grafy a analytické přehledy.'
-              : 'Období, klíčová aktivita a pracovník se použijí pro interní XLSX a dokument se zápisy. Exporty IS ESF a texty ZOR používají zvolené monitorovací období.'}
             icon={detailedSection === 'analytics' ? Activity : FileSpreadsheet}
           >
             {reportingScopeFilters}
@@ -294,7 +290,7 @@ function ReportingView({
           <ReportingAnalyticsView records={analyticsRecords} clients={clients} onOpenClient={onOpenClient} />
         ) : (
           <>
-            <Panel title="Interní sestavy" description="Dva rozdílné výstupy pro kontrolu a další práci s evidencí." icon={FileSpreadsheet}>
+            <Panel title="Interní sestavy" icon={FileSpreadsheet}>
               <div className="grid gap-4 lg:grid-cols-2">
                 <ExportCard icon={FileSpreadsheet} title="Podrobné sestavy výkonů" format="XLSX" description="Jeden sešit se dvěma listy: jednotlivé výkony a souhrn klientů s hodinami celkem, telefonicky a ostatními formami podpory.">
                   <button type="button" onClick={exportDetailedOutputsXlsx} disabled={!supportExportCount || isExportingDetailedOutputs} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
@@ -302,7 +298,7 @@ function ReportingView({
                     {isExportingDetailedOutputs ? 'Připravuji XLSX…' : `Stáhnout XLSX (${supportExportCount || 0} výkonů)`}
                   </button>
                 </ExportCard>
-                <ExportCard icon={Archive} title="Úplné texty zápisů" format="DOC" tone="slate" description="Dokument se všemi klientskými zápisy odpovídajícími zvoleným filtrům. Slouží pro čtení, tisk a archivní kontrolu textů.">
+                <ExportCard icon={Archive} title="Úplné texty zápisů" format="DOC" tone="slate" description="Všechny klientské zápisy odpovídající zvoleným filtrům.">
                   <button type="button" onClick={exportAllRecordsBackup} disabled={!supportExportCount} className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">
                     <Download className="h-4 w-4" /> Stáhnout DOC ({supportExportCount || 0} zápisů)
                   </button>
@@ -379,7 +375,7 @@ function ReportingView({
               </div>
             </Panel>
 
-            <Panel title="Podklady pro ZOR" description="Generování textů není duplicitní datový export; vytváří pracovní slovní podklady z evidovaných dat za monitorovací období." icon={FileText} action={<div className="flex items-center gap-1"><button type="button" onClick={handleGenerateZorTexts} disabled={dashboardFilters.period === 'all' || isGeneratingZor} className="inline-flex items-center gap-2 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:bg-slate-300">{isGeneratingZor ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}{isGeneratingZor ? 'Připravuji texty…' : 'Vytvořit texty ZOR'}</button><HelpIcon help={HELP.dashboardZor} /></div>}>
+            <Panel title="Podklady pro ZOR" icon={FileText} action={<div className="flex items-center gap-1"><button type="button" onClick={handleGenerateZorTexts} disabled={dashboardFilters.period === 'all' || isGeneratingZor} className="inline-flex items-center gap-2 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:bg-slate-300">{isGeneratingZor ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}{isGeneratingZor ? 'Připravuji texty…' : 'Vytvořit texty ZOR'}</button><HelpIcon help={HELP.dashboardZor} /></div>}>
               {!zorTexts && <p className="text-sm text-slate-600">Vyberte konkrétní monitorovací období a vytvořte texty. Výsledek se zobrazí zde ke kontrole a kopírování.</p>}
               {zorTexts && (
                 <div className="space-y-3">
@@ -403,7 +399,6 @@ function ReportingView({
     <div className="space-y-5">
       <Panel
         title="Vykazované období dashboardu"
-        description="Období ovlivňuje hodiny, výkony, cíle a indikátory zobrazené v přehledu."
         icon={Activity}
         action={
           <button type="button" onClick={() => setShowDetailedOutputs(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">

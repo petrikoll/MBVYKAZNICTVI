@@ -243,7 +243,7 @@ function WorkReportsView({ records = [] }) {
           </section>
 
           <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-            <div className="flex items-start gap-3"><FileSpreadsheet className="mt-0.5 h-6 w-6 text-emerald-700" /><div><h3 className="font-bold text-slate-900">Hotový pracovní výkaz</h3><p className="mt-1 text-xs text-slate-600">Výstup používá zavedenou šablonu OPZ+ a zůstává upravitelný v Excelu.</p></div></div>
+            <div className="flex items-center gap-3"><FileSpreadsheet className="h-6 w-6 text-emerald-700" /><h3 className="font-bold text-slate-900">Hotový pracovní výkaz</h3></div>
             <button type="button" onClick={exportWorkbook} disabled={exporting || !status.isBalanced} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
               {exporting ? <CalendarDays className="h-4 w-4 animate-pulse" /> : <Download className="h-4 w-4" />} {exporting ? 'Generuji…' : 'Stáhnout XLSX'}
             </button>
