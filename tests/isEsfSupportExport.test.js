@@ -70,6 +70,17 @@ test('první monitorovací období začíná vstupem klienta a končí koncem ob
   assert.equal(result.rows[0].values.DatumDo, '31.12.2026');
 });
 
+test('další monitorovací období používá vždy přesný začátek a konec období', () => {
+  const result = buildIsEsfSupportExport({
+    clients,
+    personRows,
+    reportingPeriod: { start: '2027-01-01', end: '2027-06-30' },
+    records: [{ id: 'r1', clientId: 'c1', activityDate: '2027-03-15', payload: { durationMinutes: 60 } }]
+  });
+  assert.equal(result.rows[0].values.DatumOd, '1.1.2027');
+  assert.equal(result.rows[0].values.DatumDo, '30.6.2027');
+});
+
 test('chybné datum nebo nulová délka zablokují řádek podpory', () => {
   const result = buildIsEsfSupportExport({
     clients,

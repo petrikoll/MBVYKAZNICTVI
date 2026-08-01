@@ -26,4 +26,6 @@ test('starý duplicitní panel a souhrnné tlačítko XLSX už nejsou v rozhran�
   assert.match(source, /Interní sestavy/);
   assert.match(source, /Postup exportu do IS ESF/);
   assert.match(source, /Podklady pro ZOR/);
+  assert.match(source, /Nejprve vyberte konkrétní monitorovací období/);
+  assert.match(source, /V MO1 je DatumOd dnem vstupu osoby do projektu/);
 });

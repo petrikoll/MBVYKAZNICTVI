@@ -232,6 +232,7 @@ function ReportingView({
   const personImportReady = personImportRows > 0
     && personImportProblems === 0
     && isEsfPersonImport?.matchedCount === isEsfPersonImport?.expectedCount;
+  const hasSelectedMonitoringPeriod = dashboardFilters.period !== 'all';
   const personImportState = isEsfPersonImport?.error
     ? 'error'
     : personImportRows > 0
@@ -344,15 +345,17 @@ function ReportingView({
 
                 <div className="flex items-center justify-center text-indigo-400"><ArrowRight className="h-6 w-6 rotate-90 lg:rotate-0" /></div>
 
-                <WorkflowStep number="3" title="Vytvořit podpory" format="CSV · 17 sloupců" description="Aplikace doplní k osobám z nahraného CSV souhrn výkonů KA1 ve specifikaci 7.1, zvlášť prezenčně a elektronicky." state={isEsfSupportExportStatus?.state === 'success' ? 'success' : isEsfSupportExportStatus?.state === 'error' ? 'error' : personImportReady ? 'idle' : 'warning'}>
+                <WorkflowStep number="3" title="Vytvořit podpory" format="CSV · 17 sloupců" description="Aplikace doplní k osobám z nahraného CSV souhrn výkonů KA1 ve specifikaci 7.1, zvlášť prezenčně a elektronicky. V MO1 je DatumOd dnem vstupu osoby do projektu a DatumDo 31. 12. 2026; v dalších MO odpovídají obě data začátku a konci období." state={isEsfSupportExportStatus?.state === 'success' ? 'success' : isEsfSupportExportStatus?.state === 'error' ? 'error' : personImportReady && hasSelectedMonitoringPeriod ? 'idle' : 'warning'}>
                   <div className="flex items-center gap-1">
-                    <button type="button" onClick={exportSupportsIsEsfCsv} disabled={!personImportReady || !isEsfSupportExportCount || isEsfSupportExportStatus?.state === 'loading'} className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:bg-slate-300">
+                    <button type="button" onClick={exportSupportsIsEsfCsv} disabled={!hasSelectedMonitoringPeriod || !personImportReady || !isEsfSupportExportCount || isEsfSupportExportStatus?.state === 'loading'} className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:bg-slate-300">
                       {isEsfSupportExportStatus?.state === 'loading' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                       {isEsfSupportExportStatus?.state === 'loading' ? 'Připravuji podpory…' : `Stáhnout podpory (${isEsfSupportExportCount})`}
                     </button>
                     <HelpIcon help={HELP.dashboardSupportExport} />
                   </div>
-                  {!personImportReady && <p className="mt-3 text-xs font-semibold text-amber-700">Zpřístupní se po úspěšném nahrání a přiřazení osob v kroku 2.</p>}
+                  {!hasSelectedMonitoringPeriod
+                    ? <p className="mt-3 text-xs font-semibold text-amber-700">Nejprve vyberte konkrétní monitorovací období.</p>
+                    : !personImportReady && <p className="mt-3 text-xs font-semibold text-amber-700">Zpřístupní se po úspěšném nahrání a přiřazení osob v kroku 2.</p>}
                 </WorkflowStep>
               </div>
 

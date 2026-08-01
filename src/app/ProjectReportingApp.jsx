@@ -5871,6 +5871,14 @@ ${rawOutput}` }] }],
   const exportSupportsIsEsfCsv = async () => {
     const requestId = isEsfSupportExportRequestRef.current + 1;
     isEsfSupportExportRequestRef.current = requestId;
+    if (!selectedReportingPeriod?.start || !selectedReportingPeriod?.end) {
+      setIsEsfSupportExportStatus({
+        state: 'error',
+        message: 'Pro export podpor vyberte konkrétní monitorovací období.',
+        issues: []
+      });
+      return;
+    }
     const exportClients = [...isEsfSupportedClients];
     const exportRecords = [...isEsfSupportRecords];
     if (!exportClients.length || !exportRecords.length) {
