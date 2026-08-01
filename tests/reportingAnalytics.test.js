@@ -6,6 +6,7 @@ import {
   buildAnalyticsSummary,
   buildClientSupportDistribution,
   filterAnalyticsRows,
+  getAnalyticsContactKind,
   groupAnalyticsByDimension,
   groupAnalyticsByMonth
 } from '../src/lib/reportingAnalytics.js';
@@ -33,7 +34,7 @@ const records = [
 test('analytické řádky rozpoznají klienta, telefonický výkon a vazbu na cíl', () => {
   const rows = buildAnalyticsRows(records, clients);
   assert.equal(rows[0].clientLabel, 'Anna Nováková');
-  assert.equal(rows[0].contactKind, 'personal');
+  assert.equal(rows[0].contactKind, 'field');
   assert.equal(rows[0].goalLinkKind, 'linked');
   assert.equal(rows[1].contactKind, 'telephone');
   assert.equal(rows[1].goalLinkKind, 'one-time');
@@ -42,11 +43,18 @@ test('analytické řádky rozpoznají klienta, telefonický výkon a vazbu na c�
 
 test('kombinované analytické filtry vracejí pouze odpovídající výkony', () => {
   const rows = buildAnalyticsRows(records, clients);
-  const filtered = filterAnalyticsRows(rows, { clientId: 'c1', supportArea: 'Bydlení', contactKind: 'personal' });
+  const filtered = filterAnalyticsRows(rows, { clientId: 'c1', supportArea: 'Bydlení', contactKind: 'field' });
   assert.deepEqual(filtered.map((row) => row.key), ['r1']);
   assert.deepEqual(filterAnalyticsRows(rows, { supportArea: 'Neuvedeno' }).map((row) => row.key), ['r3']);
   assert.deepEqual(filterAnalyticsRows(rows, { smartFilter: 'missing-area' }).map((row) => row.key), ['r3']);
   assert.deepEqual(filterAnalyticsRows(rows, { smartFilter: 'outreach-comment' }).map((row) => row.key), ['r3']);
+});
+
+test('forma kontaktu používá pouze terénní, ambulantní nebo telefonickou hodnotu', () => {
+  assert.equal(getAnalyticsContactKind({ payload: { place: 'terénní' } }), 'field');
+  assert.equal(getAnalyticsContactKind({ payload: { place: 'ambulantní' } }), 'ambulatory');
+  assert.equal(getAnalyticsContactKind({ payload: { place: 'Telefonní' } }), 'telephone');
+  assert.equal(getAnalyticsContactKind({ payload: {} }), 'ambulatory');
 });
 
 test('souhrn rozlišuje počet výkonů, čas a telefonickou podporu', () => {

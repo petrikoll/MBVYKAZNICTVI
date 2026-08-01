@@ -18,11 +18,20 @@ const getAnalyticsContactKind = (record) => {
     payload.place,
     payload.contactMethod,
     payload.supportSpecific?.contactMethod,
-    payload.supportSpecific?.fieldWorkPlace
+    payload.supportSpecific?.fieldWorkPlace,
+    payload.supportSpecific?.contactPlace
   ].filter(Boolean).join(' '));
   if (value.includes('telefon')) return 'telephone';
-  if (['osob', 'teren', 'kancelar', 'doprovod', 'navstev'].some((term) => value.includes(term))) return 'personal';
-  return 'other';
+  if (['teren', 'domacnost', 'ubytovna', 'verejny prostor', 'doprovod', 'navstev'].some((term) => value.includes(term))) return 'field';
+  if (['ambul', 'kancelar'].some((term) => value.includes(term))) return 'ambulatory';
+
+  const performanceType = normalizeText(payload.consultationType || record?.title);
+  if (performanceType.includes('terenni socialni prace') || performanceType.includes('depist')) return 'field';
+
+  // Nové záznamy mají formu povinnou. U starších záznamů bez uložené formy
+  // používáme ambulantní výchozí hodnotu, aby analytika obsahovala jen tři
+  // projektově povolené formy poskytování.
+  return 'ambulatory';
 };
 
 const getAnalyticsGoalLinkKind = (record) => {
@@ -134,6 +143,8 @@ function buildAnalyticsSummary(rows = []) {
   const clientIds = new Set(rows.flatMap((row) => row.clientIds));
   const totalMinutes = rows.reduce((sum, row) => sum + Number(row.durationMinutes || 0), 0);
   const telephoneRows = rows.filter((row) => row.contactKind === 'telephone');
+  const fieldRows = rows.filter((row) => row.contactKind === 'field');
+  const ambulatoryRows = rows.filter((row) => row.contactKind === 'ambulatory');
   const latestDate = rows.map((row) => row.date).filter(Boolean).sort().at(-1) || '';
   return {
     performanceCount: rows.length,
@@ -141,6 +152,10 @@ function buildAnalyticsSummary(rows = []) {
     totalHours: Math.round((totalMinutes / 60) * 100) / 100,
     telephoneCount: telephoneRows.length,
     telephoneMinutes: telephoneRows.reduce((sum, row) => sum + Number(row.durationMinutes || 0), 0),
+    fieldCount: fieldRows.length,
+    fieldMinutes: fieldRows.reduce((sum, row) => sum + Number(row.durationMinutes || 0), 0),
+    ambulatoryCount: ambulatoryRows.length,
+    ambulatoryMinutes: ambulatoryRows.reduce((sum, row) => sum + Number(row.durationMinutes || 0), 0),
     otherCount: rows.length - telephoneRows.length,
     uniqueClientCount: clientIds.size,
     latestDate

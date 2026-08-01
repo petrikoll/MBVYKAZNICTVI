@@ -34,7 +34,7 @@ const formatMonth = (value) => {
   const match = String(value || '').match(/^(\d{4})-(\d{2})$/);
   return match ? `${Number(match[2])}/${match[1].slice(2)}` : value;
 };
-const contactLabel = { telephone: 'Telefonická', personal: 'Osobní / terénní', other: 'Ostatní / neuvedeno' };
+const contactLabel = { field: 'Terénní', ambulatory: 'Ambulantní', telephone: 'Telefonická' };
 const goalLinkLabel = { linked: 'Cíl individuálního plánu', 'one-time': 'Jednorázová zakázka', none: 'Bez vazby na cíl' };
 
 const MetricCard = ({ icon: Icon, label, value, detail, tone = 'blue' }) => {
@@ -198,7 +198,7 @@ const RecordDetail = ({ row }) => {
     ['Klient', row.clientLabel],
     ['Výkon', row.performanceType],
     ['Oblast', row.supportArea || 'Neuvedeno'],
-    ['Forma', contactLabel[row.contactKind]],
+    ['Forma poskytování', contactLabel[row.contactKind]],
     ['Délka', formatHours(row.durationMinutes)],
     ['Pracovník', row.worker || 'Neuvedeno'],
     ['Vazba na cíl', row.goalLabel || goalLinkLabel[row.goalLinkKind]],
@@ -257,6 +257,8 @@ function ReportingAnalyticsView({ records = [], clients = [], onOpenClient }) {
 
   const selectedClient = clients.find((client) => client.id === filters.clientId) || null;
   const telephoneHours = Math.round((summary.telephoneMinutes / 60) * 100) / 100;
+  const fieldHours = Math.round((summary.fieldMinutes / 60) * 100) / 100;
+  const ambulatoryHours = Math.round((summary.ambulatoryMinutes / 60) * 100) / 100;
   const resetFilters = () => {
     setFilters({ clientId: 'all', performanceType: 'all', supportArea: 'all', contactKind: 'all', goalLinkKind: 'all', smartFilter: 'all', month: 'all' });
     setSelectedRecordKey('');
@@ -273,7 +275,7 @@ function ReportingAnalyticsView({ records = [], clients = [], onOpenClient }) {
           <SelectField label="Klient" value={filters.clientId} onChange={(value) => setFilters((prev) => ({ ...prev, clientId: value, month: 'all' }))} options={[{ value: 'all', label: 'Všichni klienti' }, ...clientOptions]} />
           <SelectField label="Typ podpory" value={filters.performanceType} onChange={(value) => setFilters((prev) => ({ ...prev, performanceType: value }))} options={[{ value: 'all', label: 'Všechny typy podpory' }, ...performanceOptions.map((value) => ({ value, label: value }))]} />
           <SelectField label="Oblast podpory" value={filters.supportArea} onChange={(value) => setFilters((prev) => ({ ...prev, supportArea: value }))} options={[{ value: 'all', label: 'Všechny oblasti' }, ...areaOptions.map((value) => ({ value, label: value }))]} />
-          <SelectField label="Forma kontaktu" value={filters.contactKind} onChange={(value) => setFilters((prev) => ({ ...prev, contactKind: value }))} options={[{ value: 'all', label: 'Všechny formy' }, ...Object.entries(contactLabel).map(([value, label]) => ({ value, label }))]} />
+          <SelectField label="Forma poskytování" value={filters.contactKind} onChange={(value) => setFilters((prev) => ({ ...prev, contactKind: value }))} options={[{ value: 'all', label: 'Všechny formy' }, ...Object.entries(contactLabel).map(([value, label]) => ({ value, label }))]} />
           <SelectField label="Vazba na cíl" value={filters.goalLinkKind} onChange={(value) => setFilters((prev) => ({ ...prev, goalLinkKind: value }))} options={[{ value: 'all', label: 'Všechny vazby' }, ...Object.entries(goalLinkLabel).map(([value, label]) => ({ value, label }))]} />
           <SelectField label="Chytrý kontrolní filtr" value={filters.smartFilter} onChange={(value) => setFilters((prev) => ({ ...prev, smartFilter: value }))} options={[
             { value: 'all', label: 'Bez kontrolního filtru' },
@@ -343,7 +345,8 @@ function ReportingAnalyticsView({ records = [], clients = [], onOpenClient }) {
             <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-900"><Target className="h-4 w-4 text-indigo-600" />Kontrola klientského výběru</h3>
             <div className="space-y-2 text-xs text-slate-700">
               <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2"><span>Telefonická podpora</span><strong>{summary.telephoneCount} výkonů / {telephoneHours.toLocaleString('cs-CZ')} h</strong></div>
-              <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2"><span>Ostatní podpora</span><strong>{summary.otherCount} výkonů</strong></div>
+              <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2"><span>Terénní podpora</span><strong>{summary.fieldCount} výkonů / {fieldHours.toLocaleString('cs-CZ')} h</strong></div>
+              <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2"><span>Ambulantní podpora</span><strong>{summary.ambulatoryCount} výkonů / {ambulatoryHours.toLocaleString('cs-CZ')} h</strong></div>
               <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2"><span>Výkony bez výsledku</span><strong>{filteredRows.filter((row) => !row.hasOutcome).length}</strong></div>
               <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2"><span>Výkony bez vazby na cíl</span><strong>{filteredRows.filter((row) => row.goalLinkKind === 'none').length}</strong></div>
             </div>
