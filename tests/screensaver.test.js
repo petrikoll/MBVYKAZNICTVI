@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('spořič při spuštění pět sekund celoobrazovkově oznamuje načítání dat', async () => {
+test('spořič při spuštění devět sekund celoobrazovkově oznamuje načítání dat', async () => {
   const source = await readFile(new URL('../src/components/IdleFlyScreensaver.jsx', import.meta.url), 'utf8');
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
   const server = await readFile(new URL('../server.js', import.meta.url), 'utf8');
 
-  assert.match(source, /const STARTUP_DISPLAY_MS = 5 \* 1000;/);
+  assert.match(source, /const STARTUP_DISPLAY_MS = 9 \* 1000;/);
   assert.match(source, /const \[active, setActive\] = React\.useState\(true\);/);
   assert.match(source, /Načítám data…/);
   assert.match(source, /setStartup\(false\)/);

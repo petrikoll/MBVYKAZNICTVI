@@ -3,7 +3,7 @@ import screensaverPoster from '../assets/screensaver-moravsky-beroun-poster.webp
 import screensaverVideo from '../assets/screensaver-moravsky-beroun-loop.mp4';
 
 const IDLE_DELAY_MS = 60 * 1000;
-const STARTUP_DISPLAY_MS = 5 * 1000;
+const STARTUP_DISPLAY_MS = 9 * 1000;
 const EXIT_DURATION_MS = 520;
 
 const formatClock = (date) => date.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
