@@ -153,8 +153,11 @@ import {
   CASE_MEETING_DASHBOARD_NOTE,
   isCaseMeetingDashboardRecord,
   groupRecordsByType,
+  clearLocalReportingCache,
+  loadLocalClients,
   loadLocalRecords,
   mapSheetRowToClient,
+  saveLocalClients,
   saveLocalRecords,
   slugify,
   todayIso,
@@ -2192,13 +2195,32 @@ async function fetchGoogleSheetAction(action) {
   throw lastError || new Error('Google Sheet akce ' + action + ' selhala.');
 }
 
+function haveSameClientSnapshot(currentClients, nextClients) {
+  if (currentClients === nextClients) return true;
+  if (!Array.isArray(currentClients) || !Array.isArray(nextClients) || currentClients.length !== nextClients.length) return false;
+  return currentClients.every((client, index) => {
+    const nextClient = nextClients[index];
+    if (client?.id !== nextClient?.id) return false;
+    if (client?.updatedAt || nextClient?.updatedAt) return client.updatedAt === nextClient.updatedAt;
+    return JSON.stringify(client) === JSON.stringify(nextClient);
+  });
+}
+
 function App() {
+  const cachedClientsAtStartup = useMemo(() => loadLocalClients(), []);
+  const cachedRecordsAtStartup = useMemo(
+    () => (!hasFirebaseConfig || !db ? loadLocalRecords() : []),
+    []
+  );
   const [mainView, setMainView] = useState('clients');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAllClients, setShowAllClients] = useState(true);
   const [user, setUser] = useState(null);
-  const [records, setRecords] = useState([]);
-  const [clients, setClients] = useState([]);
+  const [records, setRecords] = useState(cachedRecordsAtStartup);
+  const [clients, setClients] = useState(cachedClientsAtStartup);
+  const [hasLocalDataCache, setHasLocalDataCache] = useState(
+    cachedClientsAtStartup.length > 0 || cachedRecordsAtStartup.length > 0
+  );
   const [isLoadingClients, setIsLoadingClients] = useState(false);
   const [isClientRegistryAvailable, setIsClientRegistryAvailable] = useState(false);
   const [sheetError, setSheetError] = useState('');
@@ -2542,10 +2564,9 @@ function App() {
         const parsed = rows
           .map((row, index) => mapSheetRowToClient(row, index))
           .filter(Boolean);
-
         if (parsed.length > 0) {
           setIsClientRegistryAvailable(true);
-          setClients(parsed);
+          setClients((current) => (haveSameClientSnapshot(current, parsed) ? current : parsed));
           setSelectedClientId(parsed[0].id);
           setGeneratorDraft((prev) => ({ ...prev, clientId: parsed[0].id }));
           setKa01Draft((prev) => ({ ...prev, assessmentClientId: parsed[0].id }));
@@ -2566,20 +2587,24 @@ function App() {
       } catch (error) {
         console.error('Google Sheets load error:', error);
         setIsClientRegistryAvailable(false);
-        setClients([]);
-        setSelectedClientId('');
-        setGeneratorDraft((prev) => ({ ...prev, clientId: '' }));
-        setKa01Draft((prev) => ({ ...prev, assessmentClientId: '' }));
-        setKa02Draft((prev) => ({ ...prev, selectedClientId: '' }));
-        setKa03Draft((prev) => ({
-          ...prev,
-          selectedClientId: '',
-          tpmClientId: '',
-          employmentClientId: '',
-          tpmDate: prev.tpmDate || todayIso(),
-          employmentDate: prev.employmentDate || todayIso()
-        }));
-        setSheetError('Načtení klientského registru selhalo. Ukládání klientských dat je zablokováno, aby nevznikly chybně přiřazené záznamy.');
+        if (cachedClientsAtStartup.length > 0) {
+          setSheetError('Aktuální data ze Sheetu se nepodařilo ověřit. Zobrazuje se poslední lokální kopie; ukládání je do obnovení spojení zablokováno.');
+        } else {
+          setClients([]);
+          setSelectedClientId('');
+          setGeneratorDraft((prev) => ({ ...prev, clientId: '' }));
+          setKa01Draft((prev) => ({ ...prev, assessmentClientId: '' }));
+          setKa02Draft((prev) => ({ ...prev, selectedClientId: '' }));
+          setKa03Draft((prev) => ({
+            ...prev,
+            selectedClientId: '',
+            tpmClientId: '',
+            employmentClientId: '',
+            tpmDate: prev.tpmDate || todayIso(),
+            employmentDate: prev.employmentDate || todayIso()
+          }));
+          setSheetError('Načtení klientského registru selhalo. Ukládání klientských dat je zablokováno, aby nevznikly chybně přiřazené záznamy.');
+        }
       } finally {
         setIsLoadingClients(false);
       }
@@ -2587,6 +2612,12 @@ function App() {
 
     fetchClients();
   }, []);
+
+  useEffect(() => {
+    if (!isClientRegistryAvailable) return;
+    saveLocalClients(clients);
+    setHasLocalDataCache(clients.length > 0 || records.length > 0);
+  }, [clients, isClientRegistryAvailable, records.length]);
 
   const clientIndex = useMemo(() => {
     const map = {};
@@ -2656,7 +2687,10 @@ function App() {
           );
           const localOnly = prev.filter((record) => !record.remoteSource && !remoteIds.has(record.id));
           const merged = [...remoteRecords, ...preservedFailedRemote, ...localOnly].sort(compareTimelineRecordsDesc);
-          if (!hasFirebaseConfig || !db) saveLocalRecords(merged);
+          if (!hasFirebaseConfig || !db) {
+            saveLocalRecords(merged);
+            if (merged.length > 0) setHasLocalDataCache(true);
+          }
           return merged;
         });
       };
@@ -3651,6 +3685,13 @@ function App() {
   const setFlash = (message) => {
     setStatusMessage(message);
     window.setTimeout(() => setStatusMessage(''), 3000);
+  };
+
+  const clearDeviceDataCache = () => {
+    const confirmed = window.confirm('Vymazat lokální kopii klientů a výkonů z tohoto zařízení? Data v Google Sheetu zůstanou beze změny.');
+    if (!confirmed) return;
+    clearLocalReportingCache();
+    window.location.reload();
   };
 
   const installApplication = async () => {
@@ -7067,8 +7108,17 @@ ${rawPlanOutput}` }] }],
           </div>
         )}
         {sheetError && (
-          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {sheetError}
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <span>{sheetError}</span>
+            {hasLocalDataCache && (
+              <button
+                type="button"
+                onClick={clearDeviceDataCache}
+                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100"
+              >
+                Vymazat lokální kopii
+              </button>
+            )}
           </div>
         )}
 
@@ -7120,6 +7170,13 @@ ${rawPlanOutput}` }] }],
                   </div>
                 </div>
 
+                {isLoadingClients && clients.length > 0 && (
+                  <div className="mb-3 inline-flex items-center gap-2 text-xs font-medium text-slate-500" role="status">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Ověřuji změny v Sheetu…
+                  </div>
+                )}
+
                 {showClientForm && (
                   <div className="mb-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3">
                     <ClientRegistrationFields draft={clientDraft} setDraft={setClientDraft} compact />
@@ -7138,7 +7195,7 @@ ${rawPlanOutput}` }] }],
                 )}
 
                 <div className="space-y-2">
-                  {isLoadingClients ?(
+                  {isLoadingClients && clients.length === 0 ?(
                     <LoadingCard text="Načítám klienty z registru..." />
                   ) : (
                     filteredClientList.length === 0 ? (
