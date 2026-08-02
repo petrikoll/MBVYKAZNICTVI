@@ -1,5 +1,6 @@
 import React from 'react';
-import screensaverImage from '../assets/screensaver-moravsky-beroun.webp';
+import screensaverPoster from '../assets/screensaver-moravsky-beroun-poster.webp';
+import screensaverVideo from '../assets/screensaver-moravsky-beroun-loop.mp4';
 
 const IDLE_DELAY_MS = 60 * 1000;
 const STARTUP_DISPLAY_MS = 4 * 1000;
@@ -11,6 +12,7 @@ function IdleFlyScreensaver() {
   const [active, setActive] = React.useState(true);
   const [startup, setStartup] = React.useState(true);
   const [closing, setClosing] = React.useState(false);
+  const [videoFailed, setVideoFailed] = React.useState(false);
   const [clock, setClock] = React.useState(() => new Date());
   const idleTimerRef = React.useRef(null);
   const startupTimerRef = React.useRef(null);
@@ -104,7 +106,23 @@ function IdleFlyScreensaver() {
     <div className={`idle-saver fixed inset-0 z-[250] overflow-hidden text-white${closing ? ' idle-saver--closing' : ''}`} role="dialog" aria-modal="true" aria-label="Spořič obrazovky">
       <div className="idle-saver-shade absolute inset-0" aria-hidden="true" />
       <div className="idle-saver-stage absolute inset-0 flex items-center justify-center p-4 sm:p-8" aria-hidden="true">
-        <img className="idle-saver-image h-auto object-contain" src={screensaverImage} alt="" onLoad={beginStartupCountdown} onError={beginStartupCountdown} />
+        {videoFailed ? (
+          <img className="idle-saver-image h-auto object-contain" src={screensaverPoster} alt="" onLoad={beginStartupCountdown} />
+        ) : (
+          <video
+            className="idle-saver-image h-auto object-contain"
+            src={screensaverVideo}
+            poster={screensaverPoster}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            disablePictureInPicture
+            onCanPlay={beginStartupCountdown}
+            onError={() => setVideoFailed(true)}
+          />
+        )}
       </div>
       <div className="idle-saver-clock absolute right-5 top-5 z-10 rounded-2xl border border-white/20 bg-slate-950/25 px-5 py-3 text-right shadow-xl backdrop-blur-md sm:right-8 sm:top-8">
         <div className="text-3xl font-semibold tabular-nums tracking-tight text-white sm:text-4xl">{formatClock(clock)}</div>

@@ -125,6 +125,10 @@ textarea {
   max-height: 84vh;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 1.25rem;
+  background: #071426;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform, opacity;
   box-shadow: 0 32px 90px rgba(0, 0, 0, 0.58), 0 8px 24px rgba(0, 0, 0, 0.32);
   animation: idle-saver-arrive 1100ms ease-out both;
 }
