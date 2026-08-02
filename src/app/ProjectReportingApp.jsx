@@ -86,6 +86,7 @@ import {
   TextAreaField,
   TopMetric
 } from '../components/ui.jsx';
+import IdleFlyScreensaver from '../components/IdleFlyScreensaver.jsx';
 import { appId, auth, db, hasFirebaseConfig } from '../lib/firebase.js';
 import { buildSensitiveTerms, parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
 import {
@@ -6715,6 +6716,7 @@ ${rawPlanOutput}` }] }],
 
   return (
     <div className={`relative min-h-screen overflow-hidden text-slate-800 transition-colors duration-500 ${viewTheme.page}`}>
+      <IdleFlyScreensaver />
       <div className={`pointer-events-none absolute -left-24 top-32 h-72 w-72 rounded-full blur-3xl ${viewTheme.accent}`} />
       <div className="pointer-events-none absolute right-[-8rem] top-[22rem] h-96 w-96 rounded-full bg-white/35 blur-3xl" />
       <header className={`sticky top-0 z-10 border-b shadow-sm shadow-black/5 backdrop-blur-xl transition-colors duration-500 ${viewTheme.header}`}>
