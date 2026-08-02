@@ -6,6 +6,7 @@ import { HELP } from '../config/helpCatalog.js';
 import { REPORTING_PERIODS, WORKERS } from '../config/projectConfig.js';
 import { backupProgressText, isBackupStatusActive } from '../lib/backupStatus.js';
 import ReportingAnalyticsView from './ReportingAnalyticsView.jsx';
+import MonitoringPanel from '../features/monitoring/MonitoringPanel.jsx';
 import WorkReportsView from '../features/work-reports/WorkReportsView.jsx';
 
 const formatEvidenceDate = (value) => {
@@ -192,8 +193,11 @@ function ReportingView({
   supportExportCount,
   analyticsRecords = [],
   workReportRecords = [],
+  monitoringRecords = [],
   clients = [],
   onOpenClient,
+  saveMandatoryMonitoring,
+  isSavingMonitoring = false,
   dashboardFilters,
   setDashboardFilters,
   filteredRecords,
@@ -240,6 +244,7 @@ function ReportingView({
     : personImportRows > 0
       ? personImportReady ? 'success' : 'warning'
       : 'idle';
+  const monitoringPeriod = REPORTING_PERIODS.find((period) => period.value === dashboardFilters.period) || REPORTING_PERIODS[0];
 
   const returnToDashboard = () => {
     setDashboardFilters((previous) => ({ ...previous, ka: 'all', worker: 'all' }));
@@ -305,6 +310,18 @@ function ReportingView({
                 </ExportCard>
               </div>
             </Panel>
+
+            {canManageBackups && (
+              <MonitoringPanel
+                clients={clients}
+                monitoringRecords={monitoringRecords}
+                workRecords={workReportRecords}
+                period={monitoringPeriod}
+                onSave={saveMandatoryMonitoring}
+                isSaving={isSavingMonitoring}
+                onOpenClient={onOpenClient}
+              />
+            )}
 
             <Panel title="Postup exportu do IS ESF" description="Postupujte zleva doprava. CSV podpor vznikne až z osob potvrzených nahraným seznamem z IS ESF." icon={Download}>
               <div className="grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)]">

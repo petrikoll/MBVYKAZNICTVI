@@ -166,7 +166,7 @@ function WorkReportsView({ records = [] }) {
         </div>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="rounded-2xl border border-slate-500 bg-slate-300 p-4 shadow-sm">
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[220px] flex-1">
             <label className={labelClass} htmlFor="work-report-period">Vykazované období</label>
@@ -202,7 +202,7 @@ function WorkReportsView({ records = [] }) {
       </section>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(310px,0.75fr)]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <section className="rounded-2xl border border-slate-500 bg-slate-300 p-4 shadow-sm">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-base font-bold text-slate-900">Činnosti Garanta projektu</h3>
@@ -231,7 +231,7 @@ function WorkReportsView({ records = [] }) {
         </section>
 
         <div className="space-y-4">
-          <section className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+          <section className="rounded-2xl border border-slate-500 bg-slate-300 p-4 shadow-sm">
             <div className="mb-3 flex items-center gap-2"><Umbrella className="h-5 w-5 text-sky-700" /><h3 className="font-bold text-slate-900">Dovolená</h3></div>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="rounded-lg bg-white p-3"><span className="text-slate-500">Roční nárok</span><strong className="mt-1 block text-lg text-slate-900">{formatHours(vacation.projectedEntitlement)}</strong></div>
@@ -242,7 +242,7 @@ function WorkReportsView({ records = [] }) {
             <p className="mt-2 text-xs leading-relaxed text-slate-600">Nárok podle fondu do tohoto měsíce: {formatHours(vacation.accruedEntitlement)}. Podmínka 80 hodin je {vacation.eligibilityReached ? 'splněna' : 'zatím nesplněna'}.</p>
           </section>
 
-          <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+          <section className="rounded-2xl border border-slate-500 bg-slate-300 p-4 shadow-sm">
             <div className="flex items-center gap-3"><FileSpreadsheet className="h-6 w-6 text-emerald-700" /><h3 className="font-bold text-slate-900">Hotový pracovní výkaz</h3></div>
             <button type="button" onClick={exportWorkbook} disabled={exporting || !status.isBalanced} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
               {exporting ? <CalendarDays className="h-4 w-4 animate-pulse" /> : <Download className="h-4 w-4" />} {exporting ? 'Generuji…' : 'Stáhnout XLSX'}
