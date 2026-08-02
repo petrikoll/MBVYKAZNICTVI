@@ -2527,22 +2527,12 @@ function App() {
     const fetchClients = async () => {
       setIsLoadingClients(true);
       setSheetError('');
-      const bootstrapPrefetch = fetchGoogleSheetAction('bootstrap')
+      const performancePrefetch = fetchGoogleSheetAction('listPerformances')
         .then((result) => ({ result }))
         .catch((error) => ({ error }));
-      prefetchedSheetActionsRef.current.set('bootstrap', bootstrapPrefetch);
+      prefetchedSheetActionsRef.current.set('listPerformances', performancePrefetch);
       try {
-        const bootstrapOutcome = await bootstrapPrefetch;
-        let json = bootstrapOutcome.result;
-        const bootstrapClientError = json?.errors?.find((item) => item?.action === 'listClients');
-        if (bootstrapOutcome.error || bootstrapClientError) {
-          prefetchedSheetActionsRef.current.delete('bootstrap');
-          const performancePrefetch = fetchGoogleSheetAction('listPerformances')
-            .then((result) => ({ result }))
-            .catch((error) => ({ error }));
-          prefetchedSheetActionsRef.current.set('listPerformances', performancePrefetch);
-          json = await fetchGoogleSheetAction('listClients');
-        }
+        const json = await fetchGoogleSheetAction('listClients');
         let rows = [];
         if (Array.isArray(json)) rows = json;
         else if (json && Array.isArray(json.clients)) rows = json.clients;
@@ -2673,15 +2663,22 @@ function App() {
 
       // Výkony se načítají už souběžně s klienty. Case management a plány běží
       // zároveň, ale další skupiny se dávkují, aby nebyl Apps Script zahlcen.
-      const bootstrapPrefetch = prefetchedSheetActionsRef.current.get('bootstrap');
-      if (bootstrapPrefetch) {
-        prefetchedSheetActionsRef.current.delete('bootstrap');
-        const bootstrapOutcome = await bootstrapPrefetch;
-        if (!bootstrapOutcome?.error && bootstrapOutcome?.result) {
-          const bootstrap = bootstrapOutcome.result;
-          const bootstrapErrors = Array.isArray(bootstrap.errors) ? bootstrap.errors : [];
-          const failedBootstrapActions = new Set(bootstrapErrors.map((item) => item?.action).filter(Boolean));
-          const bootstrapActions = [
+      const bootstrapPrefetch = fetchGoogleSheetAction('bootstrap')
+        .then((result) => ({ result }))
+        .catch((error) => ({ error }));
+      const performancesPromise = loadAction('listPerformances', { performances: [] });
+      const performances = await performancesPromise;
+      applyLoadedResults(
+        { performances },
+        new Set(loadedActions.has('listPerformances') ? ['listPerformances'] : [])
+      );
+
+      const bootstrapOutcome = await bootstrapPrefetch;
+      if (!bootstrapOutcome?.error && bootstrapOutcome?.result) {
+        const bootstrap = bootstrapOutcome.result;
+        const bootstrapErrors = Array.isArray(bootstrap.errors) ? bootstrap.errors : [];
+        const failedBootstrapActions = new Set(bootstrapErrors.map((item) => item?.action).filter(Boolean));
+        const bootstrapActions = [
             'listPerformances',
             'listMeetings',
             'listIndividualPlans',
@@ -2690,10 +2687,10 @@ function App() {
             'listEducation',
             'listSupervision',
             'listStatistics'
-          ];
-          const loadedBootstrapActions = new Set(
-            bootstrapActions.filter((action) => !failedBootstrapActions.has(action))
-          );
+        ];
+        const loadedBootstrapActions = new Set(
+          bootstrapActions.filter((action) => !failedBootstrapActions.has(action))
+        );
 
           if (loadedBootstrapActions.has('listStatistics')) {
             setStatisticsRows(Array.isArray(bootstrap.statistics) ? bootstrap.statistics : []);
@@ -2721,19 +2718,11 @@ function App() {
           setSheetError(bootstrapErrors.length
             ? 'Nepoda\u0159ilo se na\u010d\u00edst: ' + bootstrapErrors.map((item) => bootstrapActionLabels[item.action] || item.action).join(', ') + '. Ostatn\u00ed data jsou dostupn\u00e1.'
             : '');
-          return;
-        }
+        return;
       }
 
-      const performancesPromise = loadAction('listPerformances', { performances: [] });
       const meetingsPromise = loadAction('listMeetings', { meetings: [] });
       const plansPromise = loadAction('listIndividualPlans', { individualPlans: [] });
-
-      const performances = await performancesPromise;
-      applyLoadedResults(
-        { performances },
-        new Set(loadedActions.has('listPerformances') ? ['listPerformances'] : [])
-      );
 
       const [meetings, plans] = await Promise.all([meetingsPromise, plansPromise]);
       const coreActions = new Set(
