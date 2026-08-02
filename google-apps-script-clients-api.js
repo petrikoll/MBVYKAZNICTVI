@@ -851,6 +851,22 @@ function onEdit(e) {
   }
 }
 
+// Spustte jednou rucne po vlozeni kodu do samostatneho Apps Script projektu.
+// U projektu navazaneho primo na tabulku je jednoduchy onEdit aktivni automaticky.
+function installSpreadsheetEditTrigger() {
+  const existing = ScriptApp.getProjectTriggers().find((trigger) => (
+    trigger.getHandlerFunction() === 'onEdit'
+    && trigger.getEventType() === ScriptApp.EventType.ON_EDIT
+  ));
+  if (existing) return 'Trigger onEdit uz je nainstalovany.';
+
+  ScriptApp.newTrigger('onEdit')
+    .forSpreadsheet(CONFIG.spreadsheetId)
+    .onEdit()
+    .create();
+  return 'Trigger onEdit byl nainstalovany.';
+}
+
 function saveMeeting_(meeting) {
   const sheet = getOrCreateSheet_(CONFIG.meetingSheetName, MEETING_HEADERS_);
   const headers = getHeaders_(sheet);
