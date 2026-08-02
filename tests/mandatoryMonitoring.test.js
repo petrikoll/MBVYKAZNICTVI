@@ -2,66 +2,79 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  automaticClientMonitoring,
   buildMandatoryMonitoringOverview,
-  buildMandatoryMonitoringXlsx,
-  effectiveClientMonitoring
+  buildMandatoryMonitoringXlsx
 } from '../src/lib/mandatoryMonitoring.js';
 
 const clients = [
-  { id: 'client-1', fullName: 'Anna Nováková' },
-  { id: 'client-2', fullName: 'Boris Svoboda' }
-];
-
-const monitoringRecords = [
-  {
-    id: 'monitoring-1',
-    clientId: 'client-1',
-    payload: {
-      entries: {
-        lifestyleChange: { achieved: true, date: '2026-08-10', evidence: 'Vyhodnocení podpory', qualifiedRomaEstimate: true },
-        informationReceived: { achieved: true, date: '2026-08-12', evidence: 'Předány kontakty' },
-        independentSolution: { achieved: false, date: '', evidence: '' }
-      }
-    }
-  },
-  {
-    id: 'monitoring-2',
-    clientId: 'client-2',
-    payload: {
-      entries: {
-        lifestyleChange: { achieved: true, date: '2027-02-03', evidence: 'Změna návyků' },
-        informationReceived: { achieved: true, date: '', evidence: '' },
-        independentSolution: { achieved: false, date: '', evidence: '' }
-      }
-    }
-  }
+  { id: 'client-1', fullName: 'Anna Nováková', znevyhodneni: 'národnostní menšiny' },
+  { id: 'client-2', fullName: 'Boris Svoboda', znevyhodneni: 'osoby se zdravotním postižením' }
 ];
 
 const workRecords = [
-  { id: 'plan-1', entityType: 'plans', clientId: 'client-1', activityDate: '2026-08-05', title: 'Individuální plán podpory' }
+  {
+    id: 'plan-1',
+    entityType: 'plans',
+    clientId: 'client-1',
+    activityDate: '2026-08-05',
+    goals: [
+      { goalStatus: 'partially_completed', goalEvaluation: 'Dílčí posun' },
+      { goalStatus: 'open' }
+    ],
+    finalEvaluation: ''
+  },
+  {
+    id: 'counselling-1',
+    entityType: 'consultations',
+    clientId: 'client-1',
+    activityDate: '2026-08-10',
+    payload: { consultationType: 'Základní sociální poradenství' }
+  },
+  {
+    id: 'plan-2',
+    entityType: 'plans',
+    clientId: 'client-2',
+    activityDate: '2027-02-03',
+    goals: [
+      { goalStatus: 'completed', goalEvaluation: 'Splněno' },
+      { goalStatus: 'completed', goalEvaluation: 'Splněno' }
+    ],
+    finalEvaluation: 'Individuální plán byl splněn.'
+  },
+  {
+    id: 'other-support',
+    entityType: 'consultations',
+    clientId: 'client-2',
+    activityDate: '2027-02-04',
+    payload: { consultationType: 'Doprovázení' }
+  }
 ];
 
-test('monitoring počítá osobu jednou v každé splněné položce a dovolí ji v několika položkách', () => {
-  const overview = buildMandatoryMonitoringOverview({ clients, monitoringRecords, workRecords });
-  const counts = Object.fromEntries(overview.summary.map((item) => [item.key, item.count]));
-
-  assert.equal(counts.lifestyleChange, 2);
-  assert.equal(counts.informationReceived, 1);
-  assert.equal(counts.individualPlan, 1);
-  assert.equal(counts.romEstimate, 1);
-  assert.equal(overview.details.filter((row) => row.clientId === 'client-1').length, 3);
+test('pozitivní změna se načte ze splněného nebo částečně splněného cíle', () => {
+  const monitoring = automaticClientMonitoring({ client: clients[0], workRecords });
+  assert.equal(monitoring.entries.lifestyleChange.achieved, true);
+  assert.equal(monitoring.entries.lifestyleChange.date, '2026-08-05');
+  assert.equal(monitoring.entries.independentSolution.achieved, false);
 });
 
-test('individuální plán se přebírá automaticky z existujícího záznamu', () => {
-  const effective = effectiveClientMonitoring({ client: clients[0], monitoringRecords, workRecords });
-  assert.equal(effective.entries.individualPlan.achieved, true);
-  assert.equal(effective.entries.individualPlan.date, '2026-08-05');
+test('získání informací se načte jen ze základního sociálního poradenství', () => {
+  const first = automaticClientMonitoring({ client: clients[0], workRecords });
+  const second = automaticClientMonitoring({ client: clients[1], workRecords });
+  assert.equal(first.entries.informationReceived.achieved, true);
+  assert.equal(second.entries.informationReceived.achieved, false);
 });
 
-test('neúplný ruční záznam se nezapočítá a období omezuje započtené osoby', () => {
+test('zvýšení samostatnosti vyžaduje splnění celého IP a závěrečné vyhodnocení', () => {
+  const monitoring = automaticClientMonitoring({ client: clients[1], workRecords });
+  assert.equal(monitoring.entries.individualPlan.achieved, true);
+  assert.equal(monitoring.entries.independentSolution.achieved, true);
+  assert.equal(monitoring.entries.independentSolution.date, '2027-02-03');
+});
+
+test('souhrn respektuje období a počítá kvalifikovaný odhad z národnostních menšin', () => {
   const overview = buildMandatoryMonitoringOverview({
     clients,
-    monitoringRecords,
     workRecords,
     period: { start: '2026-07-01', end: '2026-12-31' }
   });
@@ -69,15 +82,13 @@ test('neúplný ruční záznam se nezapočítá a období omezuje započtené o
 
   assert.equal(counts.lifestyleChange, 1);
   assert.equal(counts.informationReceived, 1);
-  assert.equal(overview.incompleteCount, 1);
+  assert.equal(counts.individualPlan, 1);
+  assert.equal(counts.independentSolution, 0);
+  assert.equal(counts.romEstimate, 1);
 });
 
-test('souhrnný kvalifikovaný odhad Romů se počítá automaticky ze započtených osob', async () => {
-  const overview = buildMandatoryMonitoringOverview({ clients, monitoringRecords, workRecords });
-  assert.equal(overview.details.some((row) => row.itemKey === 'romEstimate'), false);
-  assert.equal(overview.summary.find((item) => item.key === 'romEstimate')?.count, 1);
-
-  const result = await buildMandatoryMonitoringXlsx({ clients, monitoringRecords, workRecords });
-  assert.deepEqual(result.summary.find((item) => item.key === 'romEstimate')?.count, 1);
+test('automatický monitoring lze exportovat do XLSX', async () => {
+  const result = await buildMandatoryMonitoringXlsx({ clients, workRecords });
+  assert.equal(result.summary.find((item) => item.key === 'independentSolution')?.count, 1);
   assert.ok(result.buffer.byteLength > 0);
 });

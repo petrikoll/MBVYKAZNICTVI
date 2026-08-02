@@ -193,11 +193,8 @@ function ReportingView({
   supportExportCount,
   analyticsRecords = [],
   workReportRecords = [],
-  monitoringRecords = [],
   clients = [],
   onOpenClient,
-  saveMandatoryMonitoring,
-  isSavingMonitoring = false,
   dashboardFilters,
   setDashboardFilters,
   filteredRecords,
@@ -314,12 +311,8 @@ function ReportingView({
             {canManageBackups && (
               <MonitoringPanel
                 clients={clients}
-                monitoringRecords={monitoringRecords}
                 workRecords={workReportRecords}
                 period={monitoringPeriod}
-                onSave={saveMandatoryMonitoring}
-                isSaving={isSavingMonitoring}
-                onOpenClient={onOpenClient}
               />
             )}
 

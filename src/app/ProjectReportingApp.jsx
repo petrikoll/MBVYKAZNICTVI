@@ -2130,7 +2130,6 @@ const hasUnsavedGeneratorDraftContent = (draft) =>
   (hasContentValue(draft?.ka02Place) && !(draft?.caseManagementMode && draft.ka02Place === 'ambulantní'));
 
 const GLOBAL_WORKER_STORAGE_KEY = 'mbVykaznictvi.globalWorker';
-const MANDATORY_MONITORING_STORAGE_KEY = 'mbVykaznictvi.mandatoryMonitoring';
 
 function readStoredGlobalWorker() {
   if (typeof window === 'undefined') return WORKERS[0];
@@ -2153,31 +2152,12 @@ function storeGlobalWorker(worker) {
   }
 }
 
-function loadLocalMandatoryMonitoring() {
-  try {
-    const value = JSON.parse(window.localStorage.getItem(MANDATORY_MONITORING_STORAGE_KEY) || '[]');
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
-  }
-}
-
-function storeLocalMandatoryMonitoring(records) {
-  try {
-    window.localStorage.setItem(MANDATORY_MONITORING_STORAGE_KEY, JSON.stringify(records));
-  } catch {
-    // V lokálním režimu může být úložiště prohlížeče zablokované.
-  }
-}
-
 function App() {
   const [mainView, setMainView] = useState('clients');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAllClients, setShowAllClients] = useState(true);
   const [user, setUser] = useState(null);
   const [records, setRecords] = useState([]);
-  const [monitoringRecords, setMonitoringRecords] = useState([]);
-  const [isSavingMonitoring, setIsSavingMonitoring] = useState(false);
   const [clients, setClients] = useState([]);
   const [isLoadingClients, setIsLoadingClients] = useState(false);
   const [isClientRegistryAvailable, setIsClientRegistryAvailable] = useState(false);
@@ -2497,27 +2477,6 @@ function App() {
       (error) => {
         console.error('Firestore snapshot error:', error);
       }
-    );
-
-    return () => unsubscribe();
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return undefined;
-    if (!hasFirebaseConfig || !db) {
-      setMonitoringRecords(loadLocalMandatoryMonitoring());
-      return undefined;
-    }
-
-    const monitoringRef = collection(db, 'artifacts', appId, 'public', 'data', 'mandatoryMonitoring');
-    const unsubscribe = onSnapshot(
-      monitoringRef,
-      (snapshot) => {
-        const loaded = snapshot.docs.map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }));
-        loaded.sort((left, right) => Number(right.updatedAt || right.createdAt || 0) - Number(left.updatedAt || left.createdAt || 0));
-        setMonitoringRecords(loaded);
-      },
-      (error) => console.error('Monitoring snapshot error:', error)
     );
 
     return () => unsubscribe();
@@ -3893,56 +3852,6 @@ function App() {
       setFlash(error.message || 'Týdenní zálohu se nepodařilo zapnout.');
     } finally {
       setIsBackupActionRunning(false);
-    }
-  };
-
-  const saveMandatoryMonitoring = async ({ id = '', clientId = '', clientName = '', payload = {} } = {}) => {
-    if (!clientId || isSavingMonitoring) return false;
-    if (!clients.some((client) => client.id === clientId)) {
-      setFlash('Klienta pro monitoring se nepodařilo najít.');
-      return false;
-    }
-
-    setIsSavingMonitoring(true);
-    try {
-      const existing = monitoringRecords.find((record) => record.id === id)
-        || monitoringRecords.find((record) => record.clientId === clientId)
-        || null;
-      const now = Date.now();
-      const nextRecord = {
-        entityType: 'mandatory_monitoring',
-        clientId,
-        clientName,
-        payload,
-        createdAt: existing?.createdAt || now,
-        createdBy: existing?.createdBy || currentWorker,
-        updatedAt: now,
-        updatedBy: currentWorker
-      };
-
-      if (!hasFirebaseConfig || !db) {
-        const localRecord = { ...nextRecord, id: existing?.id || `local-monitoring-${now}` };
-        const nextRecords = existing
-          ? monitoringRecords.map((record) => (record.id === existing.id ? localRecord : record))
-          : [localRecord, ...monitoringRecords];
-        setMonitoringRecords(nextRecords);
-        storeLocalMandatoryMonitoring(nextRecords);
-        return true;
-      }
-
-      if (!user) throw new Error('Monitoring nelze uložit bez přihlášení.');
-      if (existing?.id) {
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'mandatoryMonitoring', existing.id), nextRecord);
-      } else {
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'mandatoryMonitoring'), nextRecord);
-      }
-      return true;
-    } catch (error) {
-      console.error('Mandatory monitoring save failed:', error);
-      setFlash(error.message || 'Monitoring se nepodařilo uložit.');
-      return false;
-    } finally {
-      setIsSavingMonitoring(false);
     }
   };
 
@@ -8031,11 +7940,8 @@ ${rawPlanOutput}` }] }],
               supportExportCount={filteredClientSupportRecords.length}
               analyticsRecords={filteredClientSupportRecords}
               workReportRecords={records}
-              monitoringRecords={monitoringRecords}
               clients={clients}
               onOpenClient={(clientId) => openClient(clientId, 'clients')}
-              saveMandatoryMonitoring={saveMandatoryMonitoring}
-              isSavingMonitoring={isSavingMonitoring}
               dashboardFilters={dashboardFilters}
               setDashboardFilters={setDashboardFilters}
               filteredRecords={filteredRecords}

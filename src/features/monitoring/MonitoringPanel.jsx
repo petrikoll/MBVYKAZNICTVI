@@ -1,82 +1,22 @@
 import React from 'react';
-import { ClipboardCheck, Download, Loader2, Save, Users } from 'lucide-react';
+import { ClipboardCheck, Download, Loader2, Users } from 'lucide-react';
 
-import { CheckboxField, Panel, SelectField } from '../../components/ui.jsx';
-import {
-  MANDATORY_MONITORING_ITEMS,
-  buildMandatoryMonitoringOverview,
-  buildMandatoryMonitoringXlsx,
-  effectiveClientMonitoring,
-  normalizeMandatoryMonitoring
-} from '../../lib/mandatoryMonitoring.js';
+import { Panel } from '../../components/ui.jsx';
+import { buildMandatoryMonitoringOverview, buildMandatoryMonitoringXlsx } from '../../lib/mandatoryMonitoring.js';
 
-const clientLabel = (client = {}) => client.fullName || `${client.jmeno || ''} ${client.prijmeni || ''}`.trim() || client.id;
-
-function MonitoringPanel({ clients = [], monitoringRecords = [], workRecords = [], period = null, onSave, isSaving = false, onOpenClient }) {
-  const sortedClients = React.useMemo(
-    () => [...clients].sort((left, right) => clientLabel(left).localeCompare(clientLabel(right), 'cs')),
-    [clients]
-  );
-  const [selectedClientId, setSelectedClientId] = React.useState(() => sortedClients[0]?.id || '');
-  const [draft, setDraft] = React.useState(() => normalizeMandatoryMonitoring());
+function MonitoringPanel({ clients = [], workRecords = [], period = null }) {
   const [notice, setNotice] = React.useState(null);
   const [isExporting, setIsExporting] = React.useState(false);
-  const selectedClient = sortedClients.find((client) => client.id === selectedClientId) || null;
-  const effective = React.useMemo(
-    () => effectiveClientMonitoring({ client: selectedClient, monitoringRecords, workRecords }),
-    [monitoringRecords, selectedClient, workRecords]
-  );
   const overview = React.useMemo(
-    () => buildMandatoryMonitoringOverview({ clients, monitoringRecords, workRecords, period }),
-    [clients, monitoringRecords, period, workRecords]
+    () => buildMandatoryMonitoringOverview({ clients, workRecords, period }),
+    [clients, period, workRecords]
   );
-
-  React.useEffect(() => {
-    if (!selectedClientId && sortedClients[0]?.id) setSelectedClientId(sortedClients[0].id);
-  }, [selectedClientId, sortedClients]);
-
-  React.useEffect(() => {
-    setDraft(normalizeMandatoryMonitoring(effective));
-    setNotice(null);
-  }, [effective.record?.id, effective.record?.updatedAt, selectedClientId]);
-
-  const updateEntry = (key, patch) => {
-    setDraft((previous) => ({
-      ...previous,
-      entries: { ...previous.entries, [key]: { ...previous.entries[key], ...patch } }
-    }));
-    setNotice(null);
-  };
-
-  const handleSave = async () => {
-    if (!selectedClient || !onSave) return;
-    const incomplete = MANDATORY_MONITORING_ITEMS
-      .filter((item) => !item.automatic)
-      .filter((item) => {
-        const entry = draft.entries[item.key];
-        return entry?.achieved && (!entry.date || !String(entry.evidence || '').trim());
-      });
-    if (incomplete.length) {
-      setNotice({ tone: 'error', text: 'U splněné položky doplňte datum i stručné doložení.' });
-      return;
-    }
-
-    const saved = await onSave({
-      id: effective.record?.id || '',
-      clientId: selectedClient.id,
-      clientName: clientLabel(selectedClient),
-      payload: normalizeMandatoryMonitoring(draft)
-    });
-    setNotice(saved
-      ? { tone: 'success', text: 'Monitoring byl uložen.' }
-      : { tone: 'error', text: 'Monitoring se nepodařilo uložit.' });
-  };
 
   const handleExport = async () => {
     setIsExporting(true);
     setNotice(null);
     try {
-      const result = await buildMandatoryMonitoringXlsx({ clients, monitoringRecords, workRecords, period });
+      const result = await buildMandatoryMonitoringXlsx({ clients, workRecords, period });
       const blob = new Blob([result.buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -86,15 +26,13 @@ function MonitoringPanel({ clients = [], monitoringRecords = [], workRecords = [
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 4000);
-      setNotice({ tone: 'success', text: `Export obsahuje ${result.personRows} započtených řádků.` });
+      setNotice({ tone: 'success', text: `Export obsahuje ${result.personRows} automaticky započtených řádků.` });
     } catch (error) {
       setNotice({ tone: 'error', text: error.message || 'Export monitoringu se nepodařilo vytvořit.' });
     } finally {
       setIsExporting(false);
     }
   };
-
-  const automaticPlan = effective.entries.individualPlan;
 
   return (
     <Panel
@@ -116,70 +54,7 @@ function MonitoringPanel({ clients = [], monitoringRecords = [], workRecords = [
           </div>
         ))}
       </div>
-
-      <details className="mt-3 rounded-xl border border-slate-300 bg-white p-3" open>
-        <summary className="cursor-pointer text-sm font-bold text-slate-900">Evidence za osobu</summary>
-        <div className="mt-3">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-64 flex-1">
-              <SelectField label="Klient" value={selectedClientId} onChange={setSelectedClientId} options={sortedClients.map((client) => ({ value: client.id, label: clientLabel(client) }))} />
-            </div>
-            {selectedClient && onOpenClient && (
-              <button type="button" onClick={() => onOpenClient(selectedClient.id)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Otevřít klienta</button>
-            )}
-          </div>
-
-          {selectedClient ? (
-            <div className="mt-3 space-y-2">
-              {MANDATORY_MONITORING_ITEMS.map((item) => {
-                if (item.automatic) {
-                  return (
-                    <div key={item.key} className={`rounded-lg border px-3 py-2 ${automaticPlan.achieved ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{item.group} · automaticky</div>
-                          <div className="text-sm font-semibold text-slate-800">{item.label}</div>
-                        </div>
-                        <strong className={automaticPlan.achieved ? 'text-emerald-700' : 'text-slate-500'}>{automaticPlan.achieved ? `Splněno ${automaticPlan.date}` : 'Bez uloženého plánu'}</strong>
-                      </div>
-                    </div>
-                  );
-                }
-                const entry = draft.entries[item.key];
-                return (
-                  <div key={item.key} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 md:grid-cols-[minmax(250px,1fr)_160px_minmax(280px,1.4fr)] md:items-end">
-                    <div>
-                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{item.group}</div>
-                      <CheckboxField label={item.label} checked={entry.achieved} onChange={(checked) => updateEntry(item.key, { achieved: checked, ...(!checked && item.key === 'lifestyleChange' ? { qualifiedRomaEstimate: false } : {}) })} compact />
-                      {item.key === 'lifestyleChange' && entry.achieved && (
-                        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5">
-                          <CheckboxField label="Zahrnout do kvalifikovaného odhadu počtu Romů" checked={entry.qualifiedRomaEstimate} onChange={(checked) => updateEntry(item.key, { qualifiedRomaEstimate: checked })} compact />
-                        </div>
-                      )}
-                    </div>
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Datum dosažení
-                      <input aria-label={`${item.label} – datum dosažení`} type="date" value={entry.date} onChange={(event) => updateEntry(item.key, { date: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
-                    </label>
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Stručné doložení
-                      <input aria-label={`${item.label} – stručné doložení`} type="text" value={entry.evidence} onChange={(event) => updateEntry(item.key, { evidence: event.target.value })} placeholder="Např. vyhodnocený cíl nebo výsledek podpory" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm normal-case tracking-normal" />
-                    </label>
-                  </div>
-                );
-              })}
-
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                {notice && <div className={`mr-auto text-sm font-semibold ${notice.tone === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{notice.text}</div>}
-                <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:opacity-50">
-                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  {isSaving ? 'Ukládám…' : 'Uložit monitoring'}
-                </button>
-              </div>
-            </div>
-          ) : <p className="mt-3 text-sm text-slate-500">V evidenci není žádný klient.</p>}
-        </div>
-      </details>
+      {notice && <div className={`mt-3 text-sm font-semibold ${notice.tone === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{notice.text}</div>}
     </Panel>
   );
 }
