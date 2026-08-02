@@ -18,7 +18,7 @@ const monitoringRecords = [
     clientId: 'client-1',
     payload: {
       entries: {
-        lifestyleChange: { achieved: true, date: '2026-08-10', evidence: 'Vyhodnocení podpory' },
+        lifestyleChange: { achieved: true, date: '2026-08-10', evidence: 'Vyhodnocení podpory', qualifiedRomaEstimate: true },
         informationReceived: { achieved: true, date: '2026-08-12', evidence: 'Předány kontakty' },
         independentSolution: { achieved: false, date: '', evidence: '' }
       }
@@ -42,7 +42,7 @@ const workRecords = [
 ];
 
 test('monitoring počítá osobu jednou v každé splněné položce a dovolí ji v několika položkách', () => {
-  const overview = buildMandatoryMonitoringOverview({ clients, monitoringRecords, workRecords, romEstimate: 1 });
+  const overview = buildMandatoryMonitoringOverview({ clients, monitoringRecords, workRecords });
   const counts = Object.fromEntries(overview.summary.map((item) => [item.key, item.count]));
 
   assert.equal(counts.lifestyleChange, 2);
@@ -72,11 +72,12 @@ test('neúplný ruční záznam se nezapočítá a období omezuje započtené o
   assert.equal(overview.incompleteCount, 1);
 });
 
-test('kvalifikovaný odhad Romů zůstává jen v souhrnu a není připsán konkrétním osobám', async () => {
-  const overview = buildMandatoryMonitoringOverview({ clients, monitoringRecords, workRecords, romEstimate: 1 });
+test('souhrnný kvalifikovaný odhad Romů se počítá automaticky ze započtených osob', async () => {
+  const overview = buildMandatoryMonitoringOverview({ clients, monitoringRecords, workRecords });
   assert.equal(overview.details.some((row) => row.itemKey === 'romEstimate'), false);
+  assert.equal(overview.summary.find((item) => item.key === 'romEstimate')?.count, 1);
 
-  const result = await buildMandatoryMonitoringXlsx({ clients, monitoringRecords, workRecords, romEstimate: 1 });
+  const result = await buildMandatoryMonitoringXlsx({ clients, monitoringRecords, workRecords });
   assert.deepEqual(result.summary.find((item) => item.key === 'romEstimate')?.count, 1);
   assert.ok(result.buffer.byteLength > 0);
 });

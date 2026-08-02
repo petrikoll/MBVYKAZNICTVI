@@ -25,13 +25,14 @@ const MANDATORY_MONITORING_ITEMS = [
   }
 ];
 
-const emptyEntry = () => ({ achieved: false, date: '', evidence: '' });
+const emptyEntry = () => ({ achieved: false, date: '', evidence: '', qualifiedRomaEstimate: false });
 
 function normalizeEntry(value = {}) {
   return {
     achieved: value?.achieved === true,
     date: String(value?.date || '').slice(0, 10),
-    evidence: String(value?.evidence || '').trim()
+    evidence: String(value?.evidence || '').trim(),
+    qualifiedRomaEstimate: value?.qualifiedRomaEstimate === true
   };
 }
 
@@ -98,7 +99,7 @@ function dateInPeriod(date, period = null) {
   return true;
 }
 
-function buildMandatoryMonitoringOverview({ clients = [], monitoringRecords = [], workRecords = [], period = null, romEstimate = 0 } = {}) {
+function buildMandatoryMonitoringOverview({ clients = [], monitoringRecords = [], workRecords = [], period = null } = {}) {
   const details = [];
   let incompleteCount = 0;
 
@@ -117,6 +118,7 @@ function buildMandatoryMonitoringOverview({ clients = [], monitoringRecords = []
         label: item.label,
         date: entry.date,
         evidence: entry.evidence,
+        qualifiedRomaEstimate: item.key === 'lifestyleChange' && entry.qualifiedRomaEstimate === true,
         source: item.automatic ? 'Automaticky z individuálního plánu' : 'Potvrzeno v monitoringu'
       });
     });
@@ -130,7 +132,7 @@ function buildMandatoryMonitoringOverview({ clients = [], monitoringRecords = []
   const summary = summaryDefinitions.map((item) => ({
     ...item,
     count: item.key === 'romEstimate'
-      ? Math.max(0, Math.floor(Number(romEstimate) || 0))
+      ? new Set(details.filter((row) => row.itemKey === 'lifestyleChange' && row.qualifiedRomaEstimate).map((row) => row.clientId)).size
       : new Set(details.filter((row) => row.itemKey === item.key).map((row) => row.clientId)).size
   }));
 

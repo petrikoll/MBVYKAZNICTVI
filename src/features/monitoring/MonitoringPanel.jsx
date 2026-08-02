@@ -19,20 +19,16 @@ function MonitoringPanel({ clients = [], monitoringRecords = [], workRecords = [
   );
   const [selectedClientId, setSelectedClientId] = React.useState(() => sortedClients[0]?.id || '');
   const [draft, setDraft] = React.useState(() => normalizeMandatoryMonitoring());
-  const [romEstimateDraft, setRomEstimateDraft] = React.useState('0');
   const [notice, setNotice] = React.useState(null);
   const [isExporting, setIsExporting] = React.useState(false);
   const selectedClient = sortedClients.find((client) => client.id === selectedClientId) || null;
-  const aggregateRecord = monitoringRecords.find((record) => record.clientId === '__aggregate__') || null;
-  const periodKey = period?.value || 'all';
-  const romEstimate = Math.max(0, Math.floor(Number(aggregateRecord?.payload?.romEstimateByPeriod?.[periodKey]) || 0));
   const effective = React.useMemo(
     () => effectiveClientMonitoring({ client: selectedClient, monitoringRecords, workRecords }),
     [monitoringRecords, selectedClient, workRecords]
   );
   const overview = React.useMemo(
-    () => buildMandatoryMonitoringOverview({ clients, monitoringRecords, workRecords, period, romEstimate }),
-    [clients, monitoringRecords, period, romEstimate, workRecords]
+    () => buildMandatoryMonitoringOverview({ clients, monitoringRecords, workRecords, period }),
+    [clients, monitoringRecords, period, workRecords]
   );
 
   React.useEffect(() => {
@@ -43,10 +39,6 @@ function MonitoringPanel({ clients = [], monitoringRecords = [], workRecords = [
     setDraft(normalizeMandatoryMonitoring(effective));
     setNotice(null);
   }, [effective.record?.id, effective.record?.updatedAt, selectedClientId]);
-
-  React.useEffect(() => {
-    setRomEstimateDraft(String(romEstimate));
-  }, [periodKey, romEstimate]);
 
   const updateEntry = (key, patch) => {
     setDraft((previous) => ({
@@ -84,7 +76,7 @@ function MonitoringPanel({ clients = [], monitoringRecords = [], workRecords = [
     setIsExporting(true);
     setNotice(null);
     try {
-      const result = await buildMandatoryMonitoringXlsx({ clients, monitoringRecords, workRecords, period, romEstimate });
+      const result = await buildMandatoryMonitoringXlsx({ clients, monitoringRecords, workRecords, period });
       const blob = new Blob([result.buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -103,29 +95,6 @@ function MonitoringPanel({ clients = [], monitoringRecords = [], workRecords = [
   };
 
   const automaticPlan = effective.entries.individualPlan;
-  const handleSaveRomEstimate = async () => {
-    if (!onSave) return;
-    const generalCount = overview.summary.find((item) => item.key === 'lifestyleChange')?.count || 0;
-    const nextValue = Math.max(0, Math.floor(Number(romEstimateDraft) || 0));
-    if (nextValue > generalCount) {
-      setNotice({ tone: 'error', text: 'Kvalifikovaný odhad nemůže být vyšší než počet osob s pozitivní změnou.' });
-      return;
-    }
-    const saved = await onSave({
-      id: aggregateRecord?.id || '',
-      clientId: '__aggregate__',
-      clientName: 'Souhrn monitoringu',
-      payload: {
-        romEstimateByPeriod: {
-          ...(aggregateRecord?.payload?.romEstimateByPeriod || {}),
-          [periodKey]: nextValue
-        }
-      }
-    });
-    setNotice(saved
-      ? { tone: 'success', text: 'Kvalifikovaný odhad byl uložen pouze jako souhrnný počet.' }
-      : { tone: 'error', text: 'Kvalifikovaný odhad se nepodařilo uložit.' });
-  };
 
   return (
     <Panel
@@ -146,15 +115,6 @@ function MonitoringPanel({ clients = [], monitoringRecords = [], workRecords = [
             <div className="mt-1 flex items-center gap-1.5 text-xl font-bold text-slate-900"><Users className="h-4 w-4 text-blue-600" />{item.count}</div>
           </div>
         ))}
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
-        <label className="min-w-60 flex-1 text-[11px] font-semibold uppercase tracking-wide text-amber-800">
-          Kvalifikovaný odhad počtu Romů · souhrn za období
-          <input aria-label="Kvalifikovaný odhad počtu Romů" type="number" min="0" max={overview.summary.find((item) => item.key === 'lifestyleChange')?.count || 0} value={romEstimateDraft} onChange={(event) => setRomEstimateDraft(event.target.value)} className="mt-1 w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-slate-900" />
-        </label>
-        <button type="button" onClick={handleSaveRomEstimate} disabled={isSaving} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50">Uložit souhrnný odhad</button>
-        <p className="w-full text-xs text-amber-800">Odhad se neukládá ke konkrétním klientům.</p>
       </div>
 
       <details className="mt-3 rounded-xl border border-slate-300 bg-white p-3" open>
@@ -190,7 +150,12 @@ function MonitoringPanel({ clients = [], monitoringRecords = [], workRecords = [
                   <div key={item.key} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 md:grid-cols-[minmax(250px,1fr)_160px_minmax(280px,1.4fr)] md:items-end">
                     <div>
                       <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{item.group}</div>
-                      <CheckboxField label={item.label} checked={entry.achieved} onChange={(checked) => updateEntry(item.key, { achieved: checked })} compact />
+                      <CheckboxField label={item.label} checked={entry.achieved} onChange={(checked) => updateEntry(item.key, { achieved: checked, ...(!checked && item.key === 'lifestyleChange' ? { qualifiedRomaEstimate: false } : {}) })} compact />
+                      {item.key === 'lifestyleChange' && entry.achieved && (
+                        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5">
+                          <CheckboxField label="Zahrnout do kvalifikovaného odhadu počtu Romů" checked={entry.qualifiedRomaEstimate} onChange={(checked) => updateEntry(item.key, { qualifiedRomaEstimate: checked })} compact />
+                        </div>
+                      )}
                     </div>
                     <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                       Datum dosažení

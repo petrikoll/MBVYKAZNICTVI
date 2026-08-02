@@ -3898,7 +3898,7 @@ function App() {
 
   const saveMandatoryMonitoring = async ({ id = '', clientId = '', clientName = '', payload = {} } = {}) => {
     if (!clientId || isSavingMonitoring) return false;
-    if (clientId !== '__aggregate__' && !clients.some((client) => client.id === clientId)) {
+    if (!clients.some((client) => client.id === clientId)) {
       setFlash('Klienta pro monitoring se nepodařilo najít.');
       return false;
     }
