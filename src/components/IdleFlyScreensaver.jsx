@@ -1,6 +1,6 @@
 import React from 'react';
 
-const IDLE_DELAY_MS = 5 * 60 * 1000;
+const IDLE_DELAY_MS = 60 * 1000;
 const MESSAGES = [
   'Bzzzz… výkazy si dávají krátkou pauzu.',
   'Kontroluji, jestli někde neuletěly hodiny.',
