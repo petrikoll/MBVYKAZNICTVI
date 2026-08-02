@@ -20,3 +20,88 @@ select,
 textarea {
   font: inherit;
 }
+
+@layer base {
+  button,
+  a,
+  label {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  label:focus-visible {
+    outline: 3px solid rgba(99, 102, 241, 0.32);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  :is(button, a, label)[class*="bg-blue-600"],
+  :is(button, a, label)[class*="bg-blue-700"],
+  :is(button, a, label)[class*="bg-indigo-600"],
+  :is(button, a, label)[class*="bg-indigo-700"],
+  :is(button, a, label)[class*="bg-cyan-700"] {
+    box-shadow: 0 2px 3px rgba(30, 64, 175, 0.22), 0 8px 18px rgba(37, 99, 235, 0.22);
+    transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease, background-color 160ms ease;
+  }
+
+  :is(button, a, label)[class*="bg-emerald-600"],
+  :is(button, a, label)[class*="bg-emerald-700"] {
+    box-shadow: 0 2px 3px rgba(4, 120, 87, 0.2), 0 8px 18px rgba(5, 150, 105, 0.2);
+    transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease, background-color 160ms ease;
+  }
+
+  :is(button, a, label)[class*="bg-slate-700"],
+  :is(button, a, label)[class*="bg-slate-800"],
+  :is(button, a, label)[class*="bg-slate-900"] {
+    box-shadow: 0 2px 3px rgba(15, 23, 42, 0.2), 0 8px 18px rgba(15, 23, 42, 0.2);
+    transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease, background-color 160ms ease;
+  }
+
+  @media (hover: hover) {
+    :is(button, a, label)[class*="bg-blue-600"]:not(:disabled):hover,
+    :is(button, a, label)[class*="bg-blue-700"]:not(:disabled):hover,
+    :is(button, a, label)[class*="bg-indigo-600"]:not(:disabled):hover,
+    :is(button, a, label)[class*="bg-indigo-700"]:not(:disabled):hover,
+    :is(button, a, label)[class*="bg-cyan-700"]:not(:disabled):hover,
+    :is(button, a, label)[class*="bg-emerald-600"]:not(:disabled):hover,
+    :is(button, a, label)[class*="bg-emerald-700"]:not(:disabled):hover,
+    :is(button, a, label)[class*="bg-slate-700"]:not(:disabled):hover,
+    :is(button, a, label)[class*="bg-slate-800"]:not(:disabled):hover,
+    :is(button, a, label)[class*="bg-slate-900"]:not(:disabled):hover {
+      filter: saturate(1.08) brightness(1.035);
+      transform: translateY(-2px);
+    }
+  }
+
+  :is(button, a, label)[class*="bg-blue-600"]:not(:disabled):active,
+  :is(button, a, label)[class*="bg-blue-700"]:not(:disabled):active,
+  :is(button, a, label)[class*="bg-indigo-600"]:not(:disabled):active,
+  :is(button, a, label)[class*="bg-indigo-700"]:not(:disabled):active,
+  :is(button, a, label)[class*="bg-cyan-700"]:not(:disabled):active,
+  :is(button, a, label)[class*="bg-emerald-600"]:not(:disabled):active,
+  :is(button, a, label)[class*="bg-emerald-700"]:not(:disabled):active,
+  :is(button, a, label)[class*="bg-slate-700"]:not(:disabled):active,
+  :is(button, a, label)[class*="bg-slate-800"]:not(:disabled):active,
+  :is(button, a, label)[class*="bg-slate-900"]:not(:disabled):active {
+    box-shadow: 0 2px 5px rgba(15, 23, 42, 0.18);
+    transform: translateY(0);
+  }
+
+  :is(button, a, label):disabled {
+    box-shadow: none;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
