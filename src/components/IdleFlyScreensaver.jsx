@@ -73,8 +73,10 @@ function IdleFlyScreensaver() {
 
   return (
     <div className={`idle-saver fixed inset-0 z-[250] overflow-hidden text-white${closing ? ' idle-saver--closing' : ''}`} role="dialog" aria-modal="true" aria-label="Spořič obrazovky">
-      <img className="idle-saver-image absolute inset-0 h-full w-full object-cover" src={screensaverImage} alt="" aria-hidden="true" />
       <div className="idle-saver-shade absolute inset-0" aria-hidden="true" />
+      <div className="idle-saver-stage absolute inset-0 flex items-center justify-center p-4 sm:p-8" aria-hidden="true">
+        <img className="idle-saver-image h-auto object-contain" src={screensaverImage} alt="" />
+      </div>
       <div className="idle-saver-clock absolute right-5 top-5 z-10 rounded-2xl border border-white/20 bg-slate-950/25 px-5 py-3 text-right shadow-xl backdrop-blur-md sm:right-8 sm:top-8">
         <div className="text-3xl font-semibold tabular-nums tracking-tight text-white sm:text-4xl">{formatClock(clock)}</div>
         <div className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.18em] text-white/65">Moravský Beroun</div>

@@ -107,6 +107,7 @@ textarea {
 }
 
 .idle-saver {
+  background: #020617;
   animation: idle-saver-overlay-in 650ms ease-out both;
 }
 
@@ -115,14 +116,23 @@ textarea {
   animation: idle-saver-overlay-out 500ms ease-in both;
 }
 
+.idle-saver-stage {
+  z-index: 1;
+}
+
 .idle-saver-image {
+  width: min(86vw, 1080px);
+  max-height: 84vh;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 1.25rem;
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.58), 0 8px 24px rgba(0, 0, 0, 0.32);
   animation: idle-saver-arrive 1100ms ease-out both;
 }
 
 .idle-saver-shade {
   background:
-    linear-gradient(180deg, rgba(4, 12, 24, 0.22), rgba(4, 12, 24, 0.08) 45%, rgba(4, 12, 24, 0.3)),
-    radial-gradient(circle at 78% 12%, transparent 0, rgba(3, 10, 20, 0.22) 70%);
+    radial-gradient(circle at 50% 46%, rgba(38, 92, 139, 0.24), transparent 52%),
+    linear-gradient(145deg, #071426, #020617 72%);
 }
 
 .idle-saver-clock {
