@@ -11,9 +11,80 @@
     <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="icon" href="/icons/app-icon-192.png" />
     <link rel="apple-touch-icon" href="/icons/app-icon-192.png" />
+    <link rel="preload" as="image" href="/src/assets/screensaver-moravsky-beroun.webp" fetchpriority="high" />
+    <style>
+      html, body { min-height: 100%; margin: 0; background: #020617; }
+      #startup-curtain {
+        position: fixed;
+        inset: 0;
+        z-index: 300;
+        box-sizing: border-box;
+        color: #fff;
+        background: radial-gradient(circle at 50% 46%, rgba(38, 92, 139, 0.24), transparent 52%), linear-gradient(145deg, #071426, #020617 72%);
+        opacity: 1;
+        transition: opacity 500ms ease-in;
+      }
+      #startup-curtain.startup-curtain--hidden { pointer-events: none; opacity: 0; }
+      #startup-curtain-stage {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+        padding: 2rem;
+      }
+      #startup-curtain-image {
+        width: min(86vw, 1080px);
+        max-height: 84vh;
+        object-fit: contain;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 1.25rem;
+        box-shadow: 0 32px 90px rgba(0, 0, 0, 0.58), 0 8px 24px rgba(0, 0, 0, 0.32);
+      }
+      #startup-curtain-status {
+        position: absolute;
+        right: 1rem;
+        bottom: 2.5rem;
+        left: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        width: max-content;
+        max-width: calc(100% - 2rem);
+        box-sizing: border-box;
+        margin: 0 auto;
+        padding: 0.75rem 1.25rem;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 1rem;
+        background: rgba(2, 6, 23, 0.35);
+        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+        font: 600 0.875rem/1.25rem system-ui, sans-serif;
+        letter-spacing: 0.025em;
+        backdrop-filter: blur(12px);
+      }
+      #startup-curtain-dot {
+        width: 0.625rem;
+        height: 0.625rem;
+        border-radius: 9999px;
+        background: #7dd3fc;
+        box-shadow: 0 0 14px rgba(125, 211, 252, 0.9);
+        animation: startup-curtain-pulse 1.5s ease-in-out infinite;
+      }
+      @keyframes startup-curtain-pulse { 50% { opacity: 0.35; transform: scale(0.85); } }
+      @media (prefers-reduced-motion: reduce) {
+        #startup-curtain { transition-duration: 0.01ms; }
+        #startup-curtain-dot { animation: none; }
+      }
+    </style>
     <title>Projektové výkaznictví - Moravský Beroun</title>
   </head>
   <body>
+    <div id="startup-curtain" role="status" aria-live="polite">
+      <div id="startup-curtain-stage" aria-hidden="true"><img id="startup-curtain-image" src="/src/assets/screensaver-moravsky-beroun.webp" alt="" /></div>
+      <div id="startup-curtain-status"><span id="startup-curtain-dot" aria-hidden="true"></span>Načítám data…</div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

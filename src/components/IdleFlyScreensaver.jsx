@@ -2,7 +2,7 @@ import React from 'react';
 import screensaverImage from '../assets/screensaver-moravsky-beroun.webp';
 
 const IDLE_DELAY_MS = 60 * 1000;
-const STARTUP_DISPLAY_MS = 3 * 1000;
+const STARTUP_DISPLAY_MS = 4 * 1000;
 const EXIT_DURATION_MS = 520;
 
 const formatClock = (date) => date.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
@@ -14,10 +14,19 @@ function IdleFlyScreensaver() {
   const [clock, setClock] = React.useState(() => new Date());
   const idleTimerRef = React.useRef(null);
   const startupTimerRef = React.useRef(null);
+  const curtainTimerRef = React.useRef(null);
   const exitTimerRef = React.useRef(null);
   const lastResetRef = React.useRef(0);
 
-  React.useEffect(() => {
+  const beginStartupCountdown = React.useCallback(() => {
+    if (startupTimerRef.current !== null) return;
+
+    const startupCurtain = document.getElementById('startup-curtain');
+    if (startupCurtain) {
+      startupCurtain.classList.add('startup-curtain--hidden');
+      curtainTimerRef.current = window.setTimeout(() => startupCurtain.remove(), EXIT_DURATION_MS);
+    }
+
     startupTimerRef.current = window.setTimeout(() => {
       setClosing(true);
       window.clearTimeout(exitTimerRef.current);
@@ -27,8 +36,11 @@ function IdleFlyScreensaver() {
         setStartup(false);
       }, EXIT_DURATION_MS);
     }, STARTUP_DISPLAY_MS);
+  }, []);
 
-    return () => window.clearTimeout(startupTimerRef.current);
+  React.useEffect(() => () => {
+    window.clearTimeout(startupTimerRef.current);
+    window.clearTimeout(curtainTimerRef.current);
   }, []);
 
   React.useEffect(() => {
@@ -92,7 +104,7 @@ function IdleFlyScreensaver() {
     <div className={`idle-saver fixed inset-0 z-[250] overflow-hidden text-white${closing ? ' idle-saver--closing' : ''}`} role="dialog" aria-modal="true" aria-label="Spořič obrazovky">
       <div className="idle-saver-shade absolute inset-0" aria-hidden="true" />
       <div className="idle-saver-stage absolute inset-0 flex items-center justify-center p-4 sm:p-8" aria-hidden="true">
-        <img className="idle-saver-image h-auto object-contain" src={screensaverImage} alt="" />
+        <img className="idle-saver-image h-auto object-contain" src={screensaverImage} alt="" onLoad={beginStartupCountdown} onError={beginStartupCountdown} />
       </div>
       <div className="idle-saver-clock absolute right-5 top-5 z-10 rounded-2xl border border-white/20 bg-slate-950/25 px-5 py-3 text-right shadow-xl backdrop-blur-md sm:right-8 sm:top-8">
         <div className="text-3xl font-semibold tabular-nums tracking-tight text-white sm:text-4xl">{formatClock(clock)}</div>
