@@ -86,7 +86,7 @@ function doPost(e) {
     }
 
     if (payload.action === 'deleteIndividualPlan') {
-      deleteRecord_(CONFIG.individualPlanSheetName, 'plan_id', payload.id);
+      deleteRecord_(CONFIG.individualPlanSheetName, 'plan_id', payload.id, payload.expected_updated_at, payload.updated_by);
       return json_({ ok: true });
     }
 
@@ -101,23 +101,23 @@ function doPost(e) {
     }
 
     if (payload.action === 'deletePerformance') {
+      deleteRecord_(CONFIG.performanceSheetName, 'vykon_id', payload.id, payload.expected_updated_at, payload.updated_by);
       deactivatePerformanceStatistics_(payload.id);
-      deleteRecord_(CONFIG.performanceSheetName, 'vykon_id', payload.id);
       return json_({ ok: true });
     }
 
     if (payload.action === 'deleteMeeting') {
-      deleteRecord_(CONFIG.meetingSheetName, 'meeting_id', payload.id);
+      deleteRecord_(CONFIG.meetingSheetName, 'meeting_id', payload.id, payload.expected_updated_at, payload.updated_by);
       return json_({ ok: true });
     }
 
     if (payload.action === 'deletePartner') {
-      deleteRecord_(CONFIG.partnerSheetName, 'partner_id', payload.id);
+      deleteRecord_(CONFIG.partnerSheetName, 'partner_id', payload.id, payload.expected_updated_at, payload.updated_by);
       return json_({ ok: true });
     }
 
     if (payload.action === 'deleteNetworkMeeting') {
-      deleteRecord_(CONFIG.networkMeetingSheetName, 'schuzka_site_id', payload.id);
+      deleteRecord_(CONFIG.networkMeetingSheetName, 'schuzka_site_id', payload.id, payload.expected_updated_at, payload.updated_by);
       return json_({ ok: true });
     }
 
@@ -132,7 +132,7 @@ function doPost(e) {
     }
 
     if (payload.action === 'deleteEducation') {
-      deleteRecord_(CONFIG.educationSheetName, 'vzdelavani_id', payload.id);
+      deleteRecord_(CONFIG.educationSheetName, 'vzdelavani_id', payload.id, payload.expected_updated_at, payload.updated_by);
       return json_({ ok: true });
     }
 
@@ -142,7 +142,7 @@ function doPost(e) {
     }
 
     if (payload.action === 'deleteSupervision') {
-      deleteRecord_(CONFIG.supervisionSheetName, 'sepervize_id', payload.id);
+      deleteRecord_(CONFIG.supervisionSheetName, 'sepervize_id', payload.id, payload.expected_updated_at, payload.updated_by);
       return json_({ ok: true });
     }
 
@@ -164,7 +164,7 @@ function doPost(e) {
 
     return json_({ ok: false, error: 'Unknown action' });
   } catch (error) {
-    return json_({ ok: false, error: String(error.message || error) });
+    return json_({ ok: false, code: error && error.code ? String(error.code) : '', error: String(error.message || error) });
   } finally {
     if (lockAcquired && lock) lock.releaseLock();
   }
@@ -326,7 +326,8 @@ const EDUCATION_HEADERS_ = [
   'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
 ];
 const SUPERVISION_HEADERS_ = [
-  'sepervize_id', 'datum', 'pocet_hodin', 'typ_supervize', 'jmeno_pracovnika1', 'jmeno_pracovnika2', 'jmeno_pracovnika3'
+  'sepervize_id', 'datum', 'pocet_hodin', 'typ_supervize', 'jmeno_pracovnika1', 'jmeno_pracovnika2', 'jmeno_pracovnika3',
+  'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
 ];
 const SUPERVISION_TYPE_OPTIONS_ = ['individuální', 'skupinová'];
 
@@ -410,6 +411,8 @@ function saveClient_(client) {
   const existing = existingRow
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
+  assertExpectedVersion_(existing, incoming.expected_updated_at, 'Klienta ' + incoming.klient_id);
+  delete incoming.expected_updated_at;
   const normalized = Object.assign({}, existing, incoming);
   normalized.updated_at = now;
   normalized.updated_by = incoming.updated_by || existing.updated_by || '';
@@ -451,13 +454,24 @@ function savePartner_(partner) {
 
   const now = new Date();
   const normalized = Object.assign({}, partner);
+  const incomingPartnerId = String(normalized.partner_id || '').trim();
+  const existingRow = incomingPartnerId ? findPartnerRow_(sheet, partnerIdColumn, incomingPartnerId) : null;
+  if (!existingRow) {
+    const duplicateRow = findDuplicateRecordRow_(sheet, headers, normalized, 'partner_id');
+    if (duplicateRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
+  }
+  const existing = existingRow
+    ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
+    : {};
+  assertExpectedVersion_(existing, normalized.expected_updated_at, 'Partnera ' + incomingPartnerId);
+  delete normalized.expected_updated_at;
   normalized.partner_id = normalized.partner_id || nextPartnerId_(sheet, partnerIdColumn);
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
-  normalized.created_at = normalized.created_at || now;
-  normalized.created_by = normalized.created_by || '';
+  normalized.created_at = existing.created_at || normalized.created_at || now;
+  normalized.created_by = existing.created_by || normalized.created_by || '';
 
-  const targetRow = findPartnerRow_(sheet, partnerIdColumn, normalized.partner_id) || sheet.getLastRow() + 1;
+  const targetRow = existingRow || sheet.getLastRow() + 1;
   const values = headers.map((header) => normalized[header] ?? '');
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
 
@@ -516,6 +530,11 @@ function saveIndividualPlan_(individualPlan) {
   if (!clientId) throw new Error('Individualni plan musi byt prirazen ke klientovi.');
 
   const existingRow = incomingPlanId ? findRowById_(sheet, idColumn, incomingPlanId) : null;
+  const existing = existingRow
+    ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
+    : {};
+  assertExpectedVersion_(existing, normalized.expected_updated_at, 'Individualni plan ' + incomingPlanId);
+  delete normalized.expected_updated_at;
   if (!existingRow) {
     const exactDuplicateRow = findDuplicateRecordRow_(sheet, headers, normalized, 'plan_id');
     if (exactDuplicateRow) {
@@ -532,8 +551,8 @@ function saveIndividualPlan_(individualPlan) {
   normalized.klient_id = clientId;
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
-  normalized.created_at = normalized.created_at || now;
-  normalized.created_by = normalized.created_by || '';
+  normalized.created_at = existing.created_at || normalized.created_at || now;
+  normalized.created_by = existing.created_by || normalized.created_by || '';
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
   const values = headers.map((header) => normalized[header] ?? '');
@@ -570,6 +589,13 @@ function savePerformance_(performance) {
   normalized.created_by = normalized.created_by || '';
 
   const existingRow = findRowById_(sheet, idColumn, normalized.vykon_id);
+  const existing = existingRow
+    ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
+    : {};
+  assertExpectedVersion_(existing, normalized.expected_updated_at, 'Vykon ' + normalized.vykon_id);
+  delete normalized.expected_updated_at;
+  normalized.created_at = existing.created_at || normalized.created_at || now;
+  normalized.created_by = existing.created_by || normalized.created_by || '';
   const duplicateRow = existingRow ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'vykon_id');
   if (duplicateRow && !existingRow) {
     const duplicate = rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
@@ -762,15 +788,67 @@ function listMeetings_() {
     .map((row) => rowToObject_(headers, row));
 }
 
-function deleteRecord_(sheetName, idHeader, id) {
+function deleteRecord_(sheetName, idHeader, id, expectedUpdatedAt, updatedBy) {
   if (!id) throw new Error('Missing id');
   const sheet = getOrCreateSheet_(sheetName, []);
-  const headers = getHeaders_(sheet);
+  let headers = getHeaders_(sheet);
+  ensureHeader_(sheet, headers, 'status');
+  ensureHeader_(sheet, getHeaders_(sheet), 'updated_at');
+  ensureHeader_(sheet, getHeaders_(sheet), 'updated_by');
+  headers = getHeaders_(sheet);
   const idColumn = headers.indexOf(idHeader) + 1;
   if (!idColumn) throw new Error('Missing ' + idHeader + ' column');
   const targetRow = findRowById_(sheet, idColumn, id);
   if (!targetRow) throw new Error('Record not found: ' + id);
-  sheet.deleteRow(targetRow);
+  const existing = rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
+  if (normalizeDuplicateText_(existing.status).startsWith('smaz')) return existing;
+  assertExpectedVersion_(existing, expectedUpdatedAt, 'Zaznam ' + id);
+  const updated = Object.assign({}, existing, {
+    status: 'Smazan\u00fd',
+    updated_at: new Date(),
+    updated_by: updatedBy || existing.updated_by || ''
+  });
+  sheet.getRange(targetRow, headers.indexOf('status') + 1).setValue(updated.status);
+  sheet.getRange(targetRow, headers.indexOf('updated_at') + 1).setValue(updated.updated_at);
+  sheet.getRange(targetRow, headers.indexOf('updated_by') + 1).setValue(updated.updated_by);
+  return updated;
+}
+
+// Rucni uprava v Google Sheetu take zmeni verzi radku. Programove zapisy z API
+// tento trigger nespousteji a nastavuji updated_at primo v save funkci.
+function onEdit(e) {
+  if (!e || !e.range) return;
+  const sheet = e.range.getSheet();
+  const watchedSheets = [
+    CONFIG.sheetName,
+    CONFIG.partnerSheetName,
+    CONFIG.individualPlanSheetName,
+    CONFIG.performanceSheetName,
+    CONFIG.meetingSheetName,
+    CONFIG.networkMeetingSheetName,
+    CONFIG.educationSheetName,
+    CONFIG.supervisionSheetName
+  ];
+  if (!watchedSheets.includes(sheet.getName())) return;
+  if (e.range.getRow() <= CONFIG.headerRow) return;
+
+  const headers = getHeaders_(sheet);
+  const updatedAtColumn = headers.indexOf('updated_at') + 1;
+  if (!updatedAtColumn) return;
+  const firstRow = Math.max(e.range.getRow(), CONFIG.headerRow + 1);
+  const rowCount = e.range.getNumRows();
+  const now = new Date();
+  sheet.getRange(firstRow, updatedAtColumn, rowCount, 1).setValues(
+    Array.from({ length: rowCount }, () => [now])
+  );
+
+  const updatedByColumn = headers.indexOf('updated_by') + 1;
+  const editor = e.user && typeof e.user.getEmail === 'function' ? e.user.getEmail() : '';
+  if (updatedByColumn && editor) {
+    sheet.getRange(firstRow, updatedByColumn, rowCount, 1).setValues(
+      Array.from({ length: rowCount }, () => [editor])
+    );
+  }
 }
 
 function saveMeeting_(meeting) {
@@ -784,10 +862,15 @@ function saveMeeting_(meeting) {
   normalized.meeting_id = normalized.meeting_id || nextPrefixedId_(sheet, idColumn, 'SETKANI');
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
-  normalized.created_at = normalized.created_at || now;
-  normalized.created_by = normalized.created_by || '';
 
   const existingRow = findRowById_(sheet, idColumn, normalized.meeting_id);
+  const existing = existingRow
+    ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
+    : {};
+  assertExpectedVersion_(existing, normalized.expected_updated_at, 'Setkani ' + normalized.meeting_id);
+  delete normalized.expected_updated_at;
+  normalized.created_at = existing.created_at || normalized.created_at || now;
+  normalized.created_by = existing.created_by || normalized.created_by || '';
   const duplicateRow = existingRow ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'meeting_id');
   if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
 
@@ -827,13 +910,27 @@ function saveNetworkMeeting_(networkMeeting) {
 
   const now = new Date();
   const normalized = Object.assign({}, networkMeeting);
+  const incomingMeetingId = String(normalized.schuzka_site_id || '').trim();
+  const existingRow = incomingMeetingId ? findNetworkMeetingRow_(sheet, meetingIdColumn, incomingMeetingId) : null;
+  if (!existingRow) {
+    const duplicateRow = findDuplicateRecordRow_(sheet, headers, normalized, 'schuzka_site_id');
+    if (duplicateRow) {
+      const duplicateRange = sheet.getRange(duplicateRow, 1, 1, headers.length);
+      return rowToObject_(headers, duplicateRange.getValues()[0], duplicateRange.getDisplayValues()[0]);
+    }
+  }
+  const existing = existingRow
+    ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
+    : {};
+  assertExpectedVersion_(existing, normalized.expected_updated_at, 'Schuzku site ' + incomingMeetingId);
+  delete normalized.expected_updated_at;
   normalized.schuzka_site_id = normalized.schuzka_site_id || nextNetworkMeetingId_(sheet, meetingIdColumn);
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
-  normalized.created_at = normalized.created_at || now;
-  normalized.created_by = normalized.created_by || '';
+  normalized.created_at = existing.created_at || normalized.created_at || now;
+  normalized.created_by = existing.created_by || normalized.created_by || '';
 
-  const targetRow = findNetworkMeetingRow_(sheet, meetingIdColumn, normalized.schuzka_site_id) || sheet.getLastRow() + 1;
+  const targetRow = existingRow || sheet.getLastRow() + 1;
   const values = headers.map((header) => normalized[header] ?? '');
   const savedRange = sheet.getRange(targetRow, 1, 1, headers.length);
   savedRange.setValues([values]);
@@ -879,6 +976,13 @@ function saveEducation_(education) {
   normalized.status = normalized.status || 'Platn\u00fd';
 
   const existingRow = findRowById_(sheet, educationIdColumn, normalized.vzdelavani_id);
+  const existing = existingRow
+    ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
+    : {};
+  assertExpectedVersion_(existing, normalized.expected_updated_at, 'Vzdelavani ' + normalized.vzdelavani_id);
+  delete normalized.expected_updated_at;
+  normalized.created_at = existing.created_at || normalized.created_at || now;
+  normalized.created_by = existing.created_by || normalized.created_by || '';
   const duplicateRow = incomingEducationId ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'vzdelavani_id');
   if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
 
@@ -913,11 +1017,22 @@ function saveSupervision_(supervision) {
   const supervisionIdColumn = headers.indexOf('sepervize_id') + 1;
   if (!supervisionIdColumn) throw new Error('Missing sepervize_id column');
 
+  const now = new Date();
   const normalized = Object.assign({}, supervision);
   const incomingSupervisionId = String(normalized.sepervize_id || '').trim();
   normalized.sepervize_id = normalized.sepervize_id || nextPrefixedId_(sheet, supervisionIdColumn, 'SUPERVIZE');
 
   const existingRow = findRowById_(sheet, supervisionIdColumn, normalized.sepervize_id);
+  const existing = existingRow
+    ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
+    : {};
+  assertExpectedVersion_(existing, normalized.expected_updated_at, 'Supervizi ' + normalized.sepervize_id);
+  delete normalized.expected_updated_at;
+  normalized.updated_at = now;
+  normalized.updated_by = normalized.updated_by || '';
+  normalized.created_at = existing.created_at || normalized.created_at || now;
+  normalized.created_by = existing.created_by || normalized.created_by || '';
+  normalized.status = normalized.status || 'Platn\u00fd';
   const duplicateRow = incomingSupervisionId ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'sepervize_id');
   if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
 
@@ -1603,6 +1718,8 @@ function rowToObject_(headers, row, displayRow) {
       } else {
         acc[header] = value;
       }
+    } else if ((header === 'created_at' || header === 'updated_at' || header === 'deleted_at') && value instanceof Date) {
+      acc[header] = value.toISOString();
     } else if (value instanceof Date) {
       acc[header] = Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
     } else {
@@ -1610,6 +1727,29 @@ function rowToObject_(headers, row, displayRow) {
     }
     return acc;
   }, {});
+}
+
+function versionToken_(value) {
+  if (value instanceof Date) return String(value.getTime());
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  const text = String(value == null ? '' : value).trim();
+  if (!text) return '';
+  const numeric = Number(text);
+  if (Number.isFinite(numeric) && /^\d+$/.test(text)) return String(numeric);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text : String(parsed.getTime());
+}
+
+function assertExpectedVersion_(existing, expectedUpdatedAt, recordLabel) {
+  const expected = versionToken_(expectedUpdatedAt);
+  const current = versionToken_(existing && existing.updated_at);
+  if (!current) return;
+  if (current && current === expected) return;
+  const error = new Error(
+    'CONFLICT: ' + (recordLabel || 'Zaznam') + ' mezitim upravil jiny uzivatel. Obnovte data a zmenu provedte znovu.'
+  );
+  error.code = 'CONFLICT';
+  throw error;
 }
 
 
@@ -1650,13 +1790,14 @@ function findDuplicateClientRow_(sheet, headers, incoming, excludedRow) {
 }
 
 function buildRecordDuplicateKey_(record, idHeader) {
-  const ignoredHeaders = [idHeader, 'document_url', 'document_error', 'status', 'created_at', 'created_by', 'updated_at', 'updated_by'];
+  const ignoredHeaders = [idHeader, 'expected_updated_at', 'document_url', 'document_error', 'status', 'created_at', 'created_by', 'updated_at', 'updated_by'];
   const object = Object.assign({}, record);
   ignoredHeaders.forEach((header) => delete object[header]);
   return JSON.stringify(Object.keys(object).sort().reduce((acc, key) => {
     let value = object[key];
     if (value instanceof Date) value = formatDateValue_(value);
-    acc[key] = normalizeDuplicateText_(value);
+    const normalized = normalizeDuplicateText_(value);
+    if (normalized !== '') acc[key] = normalized;
     return acc;
   }, {}));
 }

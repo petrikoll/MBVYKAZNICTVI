@@ -42,7 +42,7 @@ import {
   X
 } from 'lucide-react';
 import { onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
-import { addDoc, collection, deleteDoc, doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import {
   APP_VIEWS,
   GOOGLE_DRIVE_UPLOAD_URL,
@@ -1750,8 +1750,8 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
         workers
       },
       indicatorFlags: {},
-      createdAt: Date.parse(asSheetText(row.datum)) || 0,
-      updatedAt: Date.parse(asSheetText(row.datum)) || 0
+      createdAt: Date.parse(asSheetText(row.created_at || row.datum)) || 0,
+      updatedAt: parseSheetVersion(row.updated_at) || Date.parse(asSheetText(row.datum)) || 0
     });
   });
 
@@ -1781,6 +1781,7 @@ function mapClientDraftToSheetClient(draft, klientId = '') {
   const caseManagementPotreba = caseManagementDisabled ? 'Ne' : draft.caseManagementPotreba || 'Ne';
   return {
     klient_id: klientId,
+    expected_updated_at: klientId ? draft.updatedAt || '' : '',
     jmeno: String(draft.jmeno || '').trim(),
     prijmeni: String(draft.prijmeni || '').trim(),
     datum_narozeni: normalizeClientDateForSheet(draft.datumNarozeni),
@@ -2151,6 +2152,20 @@ function storeGlobalWorker(worker) {
   } catch {
     // Ukládání do localStorage může být v některých režimech prohlížeče blokované.
   }
+}
+
+function parseSheetVersion(value) {
+  const text = asSheetText(value).trim();
+  if (!text) return 0;
+  const numeric = Number(text);
+  if (Number.isFinite(numeric) && /^\d+$/.test(text)) return numeric;
+  return Date.parse(text) || 0;
+}
+
+function withSheetVersion(record, row) {
+  const updatedAt = parseSheetVersion(row?.updated_at);
+  const { expectedUpdatedAt: _expectedUpdatedAt, ...cleanRecord } = record;
+  return updatedAt ? { ...cleanRecord, updatedAt } : cleanRecord;
 }
 
 function App() {
@@ -3578,6 +3593,9 @@ function App() {
   };
 
   const saveErrorMessage = (fallback, error) => {
+    if (error?.code === 'CONFLICT') {
+      return `${fallback}: záznam mezitím změnil jiný uživatel. Obnovte data a změnu proveďte znovu.`;
+    }
     const detail = String(error?.message || '').trim();
     return detail ? `${fallback}: ${detail}` : fallback;
   };
@@ -3828,7 +3846,11 @@ function App() {
     });
     if (!response.ok) throw new Error('Google Sheet akce selhala: ' + response.status);
     const result = await response.json().catch(() => ({}));
-    if (result.ok === false) throw new Error(result.error || 'Google Sheet akce selhala.');
+    if (result.ok === false) {
+      const error = new Error(result.error || 'Google Sheet akce selhala.');
+      error.code = result.code || '';
+      throw error;
+    }
     return result;
   };
 
@@ -3927,6 +3949,7 @@ function App() {
   const syncRecordToGoogleSheet = async (record) => {
     if (!GOOGLE_SHEET_MACRO_URL || record.entityType === 'ai_style_memory') return record;
     const payload = record.payload || {};
+    const expectedUpdatedAt = record.expectedUpdatedAt || record.updatedAt || '';
 
     if (record.entityType === 'actor_registry') {
       const contactSheetFields = actorContactsToSheetFields(payload);
@@ -3939,10 +3962,11 @@ function App() {
           puvod_site: payload.networkOrigin || 'st\u00e1vaj\u00edc\u00ed',
           datum_zapojeni: payload.joinedNetworkDate || record.activityDate || '',
           ...contactSheetFields,
+          expected_updated_at: expectedUpdatedAt,
           status: 'Platn\u00fd'
         }
       });
-      return { ...record, id: result?.partner?.partner_id || record.id };
+      return withSheetVersion({ ...record, id: result?.partner?.partner_id || record.id }, result?.partner);
     }
 
     if (record.entityType === 'network_activities') {
@@ -3964,10 +3988,11 @@ function App() {
           vystup: payload.outcome || payload.description || '',
           dalsi_kroky: payload.nextSteps || '',
           dokument_text: record.documentText || payload.description || '',
+          expected_updated_at: expectedUpdatedAt,
           status: 'Platn\u00fd'
         }
       });
-      return { ...record, id: result?.networkMeeting?.schuzka_site_id || record.id };
+      return withSheetVersion({ ...record, id: result?.networkMeeting?.schuzka_site_id || record.id }, result?.networkMeeting);
     }
 
     if (record.entityType === 'education_records') {
@@ -3984,10 +4009,12 @@ function App() {
           jmeno_pracovnika1: workers[0] || '',
           jmeno_pracovnika2: workers[1] || '',
           jmeno_pracovnika3: workers[2] || '',
+          expected_updated_at: expectedUpdatedAt,
           status: 'Platný'
         }
       });
-      return { ...record, id: result?.education?.vzdelavani_id || result?.vzdelavani?.vzdelavani_id || record.id };
+      const savedEducation = result?.education || result?.vzdelavani;
+      return withSheetVersion({ ...record, id: savedEducation?.vzdelavani_id || record.id }, savedEducation);
     }
 
     if (record.entityType === 'supervision_records') {
@@ -4001,10 +4028,13 @@ function App() {
           typ_supervize: payload.type || '',
           jmeno_pracovnika1: workers[0] || '',
           jmeno_pracovnika2: workers[1] || '',
-          jmeno_pracovnika3: workers[2] || ''
+          jmeno_pracovnika3: workers[2] || '',
+          expected_updated_at: expectedUpdatedAt,
+          status: 'Platn\u00fd'
         }
       });
-      return { ...record, id: result?.supervision?.sepervize_id || result?.supervize?.sepervize_id || record.id };
+      const savedSupervision = result?.supervision || result?.supervize;
+      return withSheetVersion({ ...record, id: savedSupervision?.sepervize_id || record.id }, savedSupervision);
     }
 
     if (record.entityType === 'plans') {
@@ -4049,15 +4079,16 @@ function App() {
           zaverecne_vyhodnoceni: payload.finalEvaluation || '',
           accepted_plan_text: payload.acceptedPlanText || record.documentText || '',
           pocet_minut: String(payload.durationMinutes ?? '').trim() && Number.isFinite(Number(payload.durationMinutes)) ? Number(payload.durationMinutes) : 60,
+          expected_updated_at: expectedUpdatedAt,
           status: 'Platn\u00fd'
         }
       });
-      return {
+      return withSheetVersion({
         ...record,
         id: result?.individualPlan?.plan_id || record.id,
         goals: normalizedGoals,
         payload: { ...payload, structuredGoals: normalizedGoals }
-      };
+      }, result?.individualPlan);
     }
 
     if (record.clientId && payload.caseManagementMode) {
@@ -4089,10 +4120,11 @@ function App() {
           vysledek: payload.outcome || '',
           dalsi_krok: payload.nextSteps || '',
           dokument_text: record.documentText || '',
+          expected_updated_at: expectedUpdatedAt,
           status: 'Platn\u00fd'
         }
       });
-      return { ...record, id: result?.meeting?.meeting_id || record.id };
+      return withSheetVersion({ ...record, id: result?.meeting?.meeting_id || record.id }, result?.meeting);
     }
 
     if (record.clientId) {
@@ -4117,11 +4149,12 @@ function App() {
           vysledek: payload.outcome || payload.solutionPlan || payload.recommendations || payload.developmentAreas || '',
           dalsi_krok: payload.nextSteps || payload.plannedSteps || '',
           dokument_text: record.documentText || '',
+          expected_updated_at: expectedUpdatedAt,
           status: 'Platn\u00fd'
         }
       });
       await refreshStatisticsRows();
-      return { ...record, id: result?.performance?.vykon_id || record.id };
+      return withSheetVersion({ ...record, id: result?.performance?.vykon_id || record.id }, result?.performance);
     }
 
     return record;
@@ -4194,8 +4227,14 @@ function App() {
         ...payload,
         createdAt: Date.now()
       };
-      const docRef = await addDoc(recordsRef, recordToSave);
-      const syncedRecord = await syncRecordToGoogleSheet({ ...recordToSave, id: recordToSave.id || docRef.id });
+      const pendingId = recordToSave.id || `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const syncedRecord = await syncRecordToGoogleSheet({ ...recordToSave, id: pendingId });
+      try {
+        await setDoc(doc(recordsRef, syncedRecord.id), syncedRecord, { merge: true });
+      } catch (firebaseError) {
+        if (!GOOGLE_SHEET_MACRO_URL) throw firebaseError;
+        console.warn('Firebase mirror save failed; Google Sheet remains authoritative:', firebaseError);
+      }
       if (syncedRecord.entityType !== 'ai_style_memory') {
         await syncRecordToGoogleDrive(syncedRecord);
       }
@@ -4235,6 +4274,7 @@ function App() {
         ...payload,
         id: existingRecord.id,
         createdAt: existingRecord.createdAt || Date.now(),
+        expectedUpdatedAt: existingRecord.updatedAt || '',
         updatedAt: Date.now()
       };
 
@@ -4249,12 +4289,13 @@ function App() {
         return completeSave();
       }
 
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projectRecords', recordId), {
-        ...payload,
-        createdAt: existingRecord.createdAt || Date.now(),
-        updatedAt: Date.now()
-      });
       const syncedRecord = await syncRecordToGoogleSheet(updatedRecord);
+      try {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projectRecords', recordId), syncedRecord, { merge: true });
+      } catch (firebaseError) {
+        if (!GOOGLE_SHEET_MACRO_URL) throw firebaseError;
+        console.warn('Firebase mirror update failed; Google Sheet remains authoritative:', firebaseError);
+      }
       if (syncedRecord.entityType !== 'ai_style_memory') {
         await syncRecordToGoogleDrive(syncedRecord);
       }
@@ -4285,7 +4326,12 @@ function App() {
       action = 'deleteSupervision';
     }
     if (action) {
-      await postGoogleSheetAction({ action, id: record.id });
+      await postGoogleSheetAction({
+        action,
+        id: record.id,
+        expected_updated_at: record.updatedAt || '',
+        updated_by: currentWorker || ''
+      });
       if (action === 'deletePerformance') await refreshStatisticsRows();
     }
   };
@@ -4312,7 +4358,7 @@ function App() {
     } catch (error) {
       setRecords(previousRecords);
       console.error('Delete record error:', error);
-      setFlash('Záznam se nepodařilo smazat.');
+      setFlash(saveErrorMessage('Záznam nebyl smazán', error));
     } finally {
       setIsSaving(false);
     }
