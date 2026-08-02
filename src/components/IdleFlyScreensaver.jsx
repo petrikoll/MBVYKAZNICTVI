@@ -1,5 +1,5 @@
 import React from 'react';
-import screensaverImage from '../assets/screensaver-moravsky-beroun.png';
+import screensaverImage from '../assets/screensaver-moravsky-beroun.webp';
 
 const IDLE_DELAY_MS = 60 * 1000;
 const EXIT_DURATION_MS = 520;
