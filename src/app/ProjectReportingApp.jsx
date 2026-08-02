@@ -2168,6 +2168,34 @@ function withSheetVersion(record, row) {
   return updatedAt ? { ...cleanRecord, updatedAt } : cleanRecord;
 }
 
+async function fetchGoogleSheetAction(action) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const url = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
+      url.searchParams.set('action', action);
+      const response = await fetch(url.toString(), { cache: 'no-store' });
+      if (!response.ok) {
+        let detail = '';
+        try {
+          const errorPayload = await response.json();
+          detail = errorPayload?.error || '';
+        } catch {
+          // Odpoved bez JSON tela - pouzije se obecna hlaska nize.
+        }
+        throw new Error(detail || 'Google Sheet akce ' + action + ' selhala (HTTP ' + response.status + ').');
+      }
+      const json = await response.json();
+      if (json?.ok === false) throw new Error(json.error || 'Google Sheet akce ' + action + ' selhala.');
+      return json;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 350));
+    }
+  }
+  throw lastError || new Error('Google Sheet akce ' + action + ' selhala.');
+}
+
 function App() {
   const [mainView, setMainView] = useState('clients');
   const [searchQuery, setSearchQuery] = useState('');
@@ -2198,6 +2226,7 @@ function App() {
   const [saveButtonNotices, setSaveButtonNotices] = useState({});
   const pendingRecordSaveSignaturesRef = useRef(new Set());
   const pendingClientSaveSignaturesRef = useRef(new Set());
+  const prefetchedSheetActionsRef = useRef(new Map());
   const generatedOutputSaveLockRef = useRef(false);
   const isEsfExportRequestRef = useRef(0);
   const isEsfSupportExportRequestRef = useRef(0);
@@ -2502,16 +2531,12 @@ function App() {
     const fetchClients = async () => {
       setIsLoadingClients(true);
       setSheetError('');
+      const performancePrefetch = fetchGoogleSheetAction('listPerformances')
+        .then((result) => ({ result }))
+        .catch((error) => ({ error }));
+      prefetchedSheetActionsRef.current.set('listPerformances', performancePrefetch);
       try {
-        const clientsUrl = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
-        clientsUrl.searchParams.set('action', 'listClients');
-        const response = await fetch(clientsUrl.toString());
-        if (!response.ok) {
-          throw new Error('Nepodařilo se načíst klientský registr.');
-        }
-
-        const json = await response.json();
-        if (json?.ok === false) throw new Error(json.error || 'Nepodařilo se načíst klientský registr.');
+        const json = await fetchGoogleSheetAction('listClients');
         let rows = [];
         if (Array.isArray(json)) rows = json;
         else if (json && Array.isArray(json.clients)) rows = json.clients;
@@ -2580,40 +2605,16 @@ function App() {
     if (!GOOGLE_SHEET_MACRO_URL || clients.length === 0) return undefined;
     let cancelled = false;
 
-    const fetchAction = async (action) => {
-      let lastError = null;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          const url = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
-          url.searchParams.set('action', action);
-          const response = await fetch(url.toString());
-          if (!response.ok) {
-            let detail = '';
-            try {
-              const errorPayload = await response.json();
-              detail = errorPayload?.error || '';
-            } catch {
-              // Odpověď bez JSON těla – použije se obecná hláška níže.
-            }
-            throw new Error(detail || 'Google Sheet akce ' + action + ' selhala (HTTP ' + response.status + ').');
-          }
-          const json = await response.json();
-          if (json.ok === false) throw new Error(json.error || 'Google Sheet akce ' + action + ' selhala.');
-          return json;
-        } catch (error) {
-          lastError = error;
-          if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 350));
-        }
-      }
-      throw lastError || new Error('Google Sheet akce ' + action + ' selhala.');
-    };
-
     const fetchSheetRecords = async () => {
       const failedActions = [];
       const loadedActions = new Set();
       const loadAction = async (action, fallback) => {
         try {
-          const result = await fetchAction(action);
+          const prefetched = prefetchedSheetActionsRef.current.get(action);
+          if (prefetched) prefetchedSheetActionsRef.current.delete(action);
+          const outcome = prefetched ? await prefetched : null;
+          if (outcome?.error) throw outcome.error;
+          const result = outcome?.result || await fetchGoogleSheetAction(action);
           loadedActions.add(action);
           return result;
         } catch (error) {
@@ -2623,48 +2624,81 @@ function App() {
         }
       };
 
-      // Apps Script má omezený počet souběžných spuštění. Postupné načítání je pomalejší
-      // jen o několik okamžiků, ale zabrání tomu, aby výpadek doplňkové tabulky skryl výkony.
-      const performances = await loadAction('listPerformances', { performances: [] });
-      const meetings = await loadAction('listMeetings', { meetings: [] });
-      const plans = await loadAction('listIndividualPlans', { individualPlans: [] });
-      const networkMeetings = await loadAction('listNetworkMeetings', { networkMeetings: [] });
-      const partners = await loadAction('listPartners', { partners: [] });
-      const education = await loadAction('listEducation', { education: [], educations: [], vzdelavani: [] });
-      const supervision = await loadAction('listSupervision', { supervision: [], supervisions: [], supervize: [] });
-      const statistics = await loadAction('listStatistics', { statistics: [] });
+      const applyLoadedResults = ({
+        performances = { performances: [] },
+        meetings = { meetings: [] },
+        plans = { individualPlans: [] },
+        networkMeetings = { networkMeetings: [] },
+        partners = { partners: [] },
+        education = { education: [] },
+        supervision = { supervision: [] }
+      }, actionsForMerge) => {
+        if (cancelled) return;
+        const remoteRecords = canonicalizeWorkerReferences(mapSheetRecordsToAppRecords({
+          individualPlans: plans.individualPlans || [],
+          performances: performances.performances || [],
+          meetings: meetings.meetings || [],
+          networkMeetings: networkMeetings.networkMeetings || [],
+          partners: partners.partners || [],
+          education: education.education || education.educations || education.vzdelavani || [],
+          supervision: supervision.supervision || supervision.supervisions || supervision.supervize || []
+        }, clientIndex));
+        setRecords((prev) => {
+          const remoteIds = new Set(remoteRecords.map((record) => record.id));
+          const sourceLoadedForRecord = (record) => {
+            if (record.entityType === 'plans') return actionsForMerge.has('listIndividualPlans');
+            if (record.entityType === 'consultations' && record.ka === 'KA1') return actionsForMerge.has('listPerformances');
+            if (record.entityType === 'consultations' && record.ka === 'KA2') return actionsForMerge.has('listMeetings');
+            if (record.entityType === 'network_activities') return actionsForMerge.has('listNetworkMeetings');
+            if (record.entityType === 'actor_registry') return actionsForMerge.has('listPartners');
+            if (record.entityType === 'education_records') return actionsForMerge.has('listEducation');
+            if (record.entityType === 'supervision_records') return actionsForMerge.has('listSupervision');
+            return true;
+          };
+          const preservedFailedRemote = prev.filter((record) =>
+            record.remoteSource && !remoteIds.has(record.id) && !sourceLoadedForRecord(record)
+          );
+          const localOnly = prev.filter((record) => !record.remoteSource && !remoteIds.has(record.id));
+          const merged = [...remoteRecords, ...preservedFailedRemote, ...localOnly].sort(compareTimelineRecordsDesc);
+          if (!hasFirebaseConfig || !db) saveLocalRecords(merged);
+          return merged;
+        });
+      };
+
+      // Výkony se načítají už souběžně s klienty. Case management a plány běží
+      // zároveň, ale další skupiny se dávkují, aby nebyl Apps Script zahlcen.
+      const performancesPromise = loadAction('listPerformances', { performances: [] });
+      const meetingsPromise = loadAction('listMeetings', { meetings: [] });
+      const plansPromise = loadAction('listIndividualPlans', { individualPlans: [] });
+
+      const performances = await performancesPromise;
+      applyLoadedResults(
+        { performances },
+        new Set(loadedActions.has('listPerformances') ? ['listPerformances'] : [])
+      );
+
+      const [meetings, plans] = await Promise.all([meetingsPromise, plansPromise]);
+      const coreActions = new Set(
+        ['listPerformances', 'listMeetings', 'listIndividualPlans'].filter((action) => loadedActions.has(action))
+      );
+      applyLoadedResults({ performances, meetings, plans }, coreActions);
+
+      const [networkMeetings, partners, education] = await Promise.all([
+        loadAction('listNetworkMeetings', { networkMeetings: [] }),
+        loadAction('listPartners', { partners: [] }),
+        loadAction('listEducation', { education: [], educations: [], vzdelavani: [] })
+      ]);
+      const [supervision, statistics] = await Promise.all([
+        loadAction('listSupervision', { supervision: [], supervisions: [], supervize: [] }),
+        loadAction('listStatistics', { statistics: [] })
+      ]);
 
       if (cancelled) return;
       if (loadedActions.has('listStatistics')) setStatisticsRows(statistics.statistics || []);
-      const remoteRecords = canonicalizeWorkerReferences(mapSheetRecordsToAppRecords({
-        individualPlans: plans.individualPlans || [],
-        performances: performances.performances || [],
-        meetings: meetings.meetings || [],
-        networkMeetings: networkMeetings.networkMeetings || [],
-        partners: partners.partners || [],
-        education: education.education || education.educations || education.vzdelavani || [],
-        supervision: supervision.supervision || supervision.supervisions || supervision.supervize || []
-      }, clientIndex));
-      setRecords((prev) => {
-        const remoteIds = new Set(remoteRecords.map((record) => record.id));
-        const sourceLoadedForRecord = (record) => {
-          if (record.entityType === 'plans') return loadedActions.has('listIndividualPlans');
-          if (record.entityType === 'consultations' && record.ka === 'KA1') return loadedActions.has('listPerformances');
-          if (record.entityType === 'consultations' && record.ka === 'KA2') return loadedActions.has('listMeetings');
-          if (record.entityType === 'network_activities') return loadedActions.has('listNetworkMeetings');
-          if (record.entityType === 'actor_registry') return loadedActions.has('listPartners');
-          if (record.entityType === 'education_records') return loadedActions.has('listEducation');
-          if (record.entityType === 'supervision_records') return loadedActions.has('listSupervision');
-          return true;
-        };
-        const preservedFailedRemote = prev.filter((record) =>
-          record.remoteSource && !remoteIds.has(record.id) && !sourceLoadedForRecord(record)
-        );
-        const localOnly = prev.filter((record) => !record.remoteSource && !remoteIds.has(record.id));
-        const merged = [...remoteRecords, ...preservedFailedRemote, ...localOnly].sort(compareTimelineRecordsDesc);
-        if (!hasFirebaseConfig || !db) saveLocalRecords(merged);
-        return merged;
-      });
+      applyLoadedResults(
+        { performances, meetings, plans, networkMeetings, partners, education, supervision },
+        new Set(loadedActions)
+      );
 
       const actionLabels = {
         listPerformances: 'výkony KA1',
