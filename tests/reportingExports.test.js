@@ -38,3 +38,14 @@ test('starý duplicitní panel a souhrnné tlačítko XLSX už nejsou v rozhran�
   assert.match(source, /Nejprve vyberte konkrétní monitorovací období/);
   assert.match(source, /V MO1 je DatumOd dnem vstupu osoby do projektu/);
 });
+
+test('tlačítko podrobných výstupů je na dashboardu oranžové', () => {
+  const buttonStart = source.indexOf('onClick={() => setShowDetailedOutputs(true)}');
+  const buttonEnd = source.indexOf('</button>', buttonStart);
+  const buttonSource = source.slice(buttonStart, buttonEnd);
+
+  assert.ok(buttonStart >= 0 && buttonEnd > buttonStart);
+  assert.match(buttonSource, /bg-orange-500/);
+  assert.match(buttonSource, /hover:bg-orange-600/);
+  assert.match(buttonSource, /Podrobné výstupy/);
+});

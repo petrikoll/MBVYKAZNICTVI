@@ -527,7 +527,7 @@ function ReportingView({
               <SelectField label="Vykazované období" help={HELP.dashboardPeriod} value={dashboardFilters.period} onChange={(value) => setDashboardFilters((prev) => ({ ...prev, period: value }))} options={REPORTING_PERIODS.map((period) => ({ value: period.value, label: period.label }))} />
             </div>
             <div className="pb-2 text-xs whitespace-nowrap text-slate-600"><strong>{filteredRecords.length}</strong> záznamů</div>
-            <button type="button" onClick={() => setShowDetailedOutputs(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+            <button type="button" onClick={() => setShowDetailedOutputs(true)} className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:ring-offset-2">
               <FileSpreadsheet className="h-4 w-4" /> Podrobné výstupy
             </button>
           </div>
