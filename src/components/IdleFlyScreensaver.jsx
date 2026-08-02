@@ -2,17 +2,34 @@ import React from 'react';
 import screensaverImage from '../assets/screensaver-moravsky-beroun.webp';
 
 const IDLE_DELAY_MS = 60 * 1000;
+const STARTUP_DISPLAY_MS = 3 * 1000;
 const EXIT_DURATION_MS = 520;
 
 const formatClock = (date) => date.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
 
 function IdleFlyScreensaver() {
-  const [active, setActive] = React.useState(false);
+  const [active, setActive] = React.useState(true);
+  const [startup, setStartup] = React.useState(true);
   const [closing, setClosing] = React.useState(false);
   const [clock, setClock] = React.useState(() => new Date());
   const idleTimerRef = React.useRef(null);
+  const startupTimerRef = React.useRef(null);
   const exitTimerRef = React.useRef(null);
   const lastResetRef = React.useRef(0);
+
+  React.useEffect(() => {
+    startupTimerRef.current = window.setTimeout(() => {
+      setClosing(true);
+      window.clearTimeout(exitTimerRef.current);
+      exitTimerRef.current = window.setTimeout(() => {
+        setActive(false);
+        setClosing(false);
+        setStartup(false);
+      }, EXIT_DURATION_MS);
+    }, STARTUP_DISPLAY_MS);
+
+    return () => window.clearTimeout(startupTimerRef.current);
+  }, []);
 
   React.useEffect(() => {
     const armTimer = () => {
@@ -27,7 +44,7 @@ function IdleFlyScreensaver() {
 
     const registerActivity = () => {
       if (active) {
-        if (closing) return;
+        if (startup || closing) return;
         setClosing(true);
         window.clearTimeout(exitTimerRef.current);
         exitTimerRef.current = window.setTimeout(() => {
@@ -58,7 +75,7 @@ function IdleFlyScreensaver() {
       events.forEach((eventName) => window.removeEventListener(eventName, registerActivity));
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [active, closing]);
+  }, [active, closing, startup]);
 
   React.useEffect(() => () => window.clearTimeout(exitTimerRef.current), []);
 
@@ -81,9 +98,17 @@ function IdleFlyScreensaver() {
         <div className="text-3xl font-semibold tabular-nums tracking-tight text-white sm:text-4xl">{formatClock(clock)}</div>
         <div className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.18em] text-white/65">Moravský Beroun</div>
       </div>
+      {startup && (
+        <div className="idle-saver-loading absolute inset-x-0 bottom-7 z-10 flex justify-center px-4 sm:bottom-10">
+          <div className="flex items-center gap-3 rounded-2xl border border-white/20 bg-slate-950/35 px-5 py-3 text-sm font-semibold tracking-wide text-white shadow-xl backdrop-blur-md" role="status" aria-live="polite">
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-sky-300 shadow-[0_0_14px_rgba(125,211,252,0.9)]" aria-hidden="true" />
+            Načítám data…
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export { IDLE_DELAY_MS };
+export { IDLE_DELAY_MS, STARTUP_DISPLAY_MS };
 export default IdleFlyScreensaver;

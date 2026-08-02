@@ -139,6 +139,10 @@ textarea {
   animation: idle-saver-clock-arrive 500ms 180ms ease-out both;
 }
 
+.idle-saver-loading {
+  animation: idle-saver-loading-arrive 500ms 220ms ease-out both;
+}
+
 @keyframes idle-saver-arrive {
   from { transform: scale(1.025); }
   to { transform: scale(1); }
@@ -159,9 +163,15 @@ textarea {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes idle-saver-loading-arrive {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .idle-saver-image,
   .idle-saver-clock,
+  .idle-saver-loading,
   .idle-saver,
   .idle-saver--closing {
     animation: none;
