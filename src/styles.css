@@ -106,70 +106,33 @@ textarea {
   }
 }
 
-.idle-fly-grid {
-  background-image:
-    radial-gradient(circle at 18% 22%, rgba(99, 102, 241, 0.22), transparent 28%),
-    radial-gradient(circle at 82% 76%, rgba(14, 165, 233, 0.16), transparent 30%),
-    radial-gradient(rgba(255, 255, 255, 0.13) 1px, transparent 1px);
-  background-size: auto, auto, 28px 28px;
-  mask-image: linear-gradient(to bottom, black, rgba(0, 0, 0, 0.55));
+.idle-saver-image {
+  animation: idle-saver-arrive 900ms ease-out both;
 }
 
-.idle-fly-orbit {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 20;
-  filter: drop-shadow(0 8px 8px rgba(0, 0, 0, 0.5));
-  animation: idle-fly-tour 17s cubic-bezier(0.42, 0, 0.58, 1) infinite;
-  will-change: transform;
+.idle-saver-shade {
+  background:
+    linear-gradient(180deg, rgba(4, 12, 24, 0.22), rgba(4, 12, 24, 0.08) 45%, rgba(4, 12, 24, 0.3)),
+    radial-gradient(circle at 78% 12%, transparent 0, rgba(3, 10, 20, 0.22) 70%);
 }
 
-.idle-fly-orbit::after {
-  position: absolute;
-  left: -30px;
-  top: 50%;
-  width: 26px;
-  border-top: 2px dotted rgba(255, 255, 255, 0.24);
-  content: '';
+.idle-saver-clock {
+  animation: idle-saver-clock-arrive 500ms 180ms ease-out both;
 }
 
-.idle-fly-emoji {
-  display: block;
-  font-size: clamp(2.25rem, 4vw, 3.75rem);
-  line-height: 1;
-  transform-origin: center;
-  animation: idle-fly-buzz 120ms ease-in-out infinite alternate;
+@keyframes idle-saver-arrive {
+  from { opacity: 0; transform: scale(1.015); }
+  to { opacity: 1; transform: scale(1); }
 }
 
-@keyframes idle-fly-buzz {
-  from { transform: rotate(-8deg) scale(0.96); }
-  to { transform: rotate(9deg) scale(1.04); }
-}
-
-@keyframes idle-fly-tour {
-  0% { transform: translate3d(6vw, 14vh, 0) rotate(12deg); }
-  9% { transform: translate3d(36vw, 9vh, 0) rotate(-18deg); }
-  19% { transform: translate3d(77vw, 24vh, 0) rotate(24deg); }
-  28% { transform: translate3d(88vw, 67vh, 0) rotate(95deg); }
-  38% { transform: translate3d(62vw, 82vh, 0) rotate(168deg); }
-  47% { transform: translate3d(52vw, 56vh, 0) rotate(214deg); }
-  56% { transform: translate3d(22vw, 74vh, 0) rotate(188deg); }
-  66% { transform: translate3d(8vw, 48vh, 0) rotate(112deg); }
-  76% { transform: translate3d(33vw, 34vh, 0) rotate(24deg); }
-  86% { transform: translate3d(71vw, 46vh, 0) rotate(-18deg); }
-  94% { transform: translate3d(42vw, 17vh, 0) rotate(168deg); }
-  100% { transform: translate3d(6vw, 14vh, 0) rotate(372deg); }
+@keyframes idle-saver-clock-arrive {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .idle-fly-orbit {
-    left: 72%;
-    top: 18%;
-    animation: none;
-  }
-
-  .idle-fly-emoji {
+  .idle-saver-image,
+  .idle-saver-clock {
     animation: none;
   }
 }

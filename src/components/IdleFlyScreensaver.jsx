@@ -1,19 +1,13 @@
 import React from 'react';
+import screensaverImage from '../assets/screensaver-moravsky-beroun.png';
 
 const IDLE_DELAY_MS = 60 * 1000;
-const MESSAGES = [
-  'Bzzzz… výkazy si dávají krátkou pauzu.',
-  'Kontroluji, jestli někde neuletěly hodiny.',
-  'Nebojte, nic neukládám. Jen tu bzučím.',
-  'Pohněte myší a letím zase pryč.'
-];
 
 const formatClock = (date) => date.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
 
 function IdleFlyScreensaver() {
   const [active, setActive] = React.useState(false);
   const [clock, setClock] = React.useState(() => new Date());
-  const [messageIndex, setMessageIndex] = React.useState(0);
   const idleTimerRef = React.useRef(null);
   const lastResetRef = React.useRef(0);
 
@@ -30,7 +24,6 @@ function IdleFlyScreensaver() {
       if (!active && now - lastResetRef.current < 800) return;
       lastResetRef.current = now;
       setActive(false);
-      setMessageIndex(0);
       armTimer();
     };
 
@@ -55,30 +48,18 @@ function IdleFlyScreensaver() {
     if (!active) return undefined;
     setClock(new Date());
     const clockTimer = window.setInterval(() => setClock(new Date()), 1000);
-    const messageTimer = window.setInterval(() => setMessageIndex((value) => (value + 1) % MESSAGES.length), 4800);
-    return () => {
-      window.clearInterval(clockTimer);
-      window.clearInterval(messageTimer);
-    };
+    return () => window.clearInterval(clockTimer);
   }, [active]);
 
   if (!active) return null;
 
   return (
-    <div className="idle-fly-saver fixed inset-0 z-[250] flex items-center justify-center overflow-hidden bg-slate-950/90 px-6 text-white backdrop-blur-xl" role="dialog" aria-modal="true" aria-label="Spořič obrazovky">
-      <div className="idle-fly-grid absolute inset-0" aria-hidden="true" />
-      <div className="idle-fly-orbit" aria-hidden="true">
-        <span className="idle-fly-emoji">🪰</span>
-      </div>
-
-      <div className="relative z-10 max-w-xl text-center">
-        <div className="text-6xl font-black tabular-nums tracking-tight text-white drop-shadow-lg sm:text-7xl">{formatClock(clock)}</div>
-        <div className="mx-auto mt-5 min-h-14 rounded-2xl border border-white/15 bg-white/10 px-5 py-3 text-base font-semibold text-slate-100 shadow-2xl backdrop-blur-md sm:text-lg">
-          {MESSAGES[messageIndex]}
-        </div>
-        <button type="button" className="mt-6 rounded-xl border border-white/20 bg-white/10 px-5 py-2.5 text-sm font-bold text-white shadow-lg transition hover:bg-white/20" onClick={() => setActive(false)}>
-          Odehnat mouchu a pokračovat
-        </button>
+    <div className="idle-saver fixed inset-0 z-[250] overflow-hidden text-white" role="dialog" aria-modal="true" aria-label="Spořič obrazovky">
+      <img className="idle-saver-image absolute inset-0 h-full w-full object-cover" src={screensaverImage} alt="" aria-hidden="true" />
+      <div className="idle-saver-shade absolute inset-0" aria-hidden="true" />
+      <div className="idle-saver-clock absolute right-5 top-5 z-10 rounded-2xl border border-white/20 bg-slate-950/25 px-5 py-3 text-right shadow-xl backdrop-blur-md sm:right-8 sm:top-8">
+        <div className="text-3xl font-semibold tabular-nums tracking-tight text-white sm:text-4xl">{formatClock(clock)}</div>
+        <div className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.18em] text-white/65">Moravský Beroun</div>
       </div>
     </div>
   );
