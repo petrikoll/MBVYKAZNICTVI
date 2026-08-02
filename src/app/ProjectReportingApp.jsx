@@ -1302,10 +1302,6 @@ const NAV_THEMES = {
   dashboard: {
     active: 'border-slate-400 bg-slate-700 text-white shadow-sm shadow-slate-300/70',
     idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-slate-400 hover:bg-slate-100 hover:text-slate-800'
-  },
-  statistics: {
-    active: 'border-cyan-300 bg-cyan-700 text-white shadow-sm shadow-cyan-200/70',
-    idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800'
   }
 };
 
@@ -2531,12 +2527,22 @@ function App() {
     const fetchClients = async () => {
       setIsLoadingClients(true);
       setSheetError('');
-      const performancePrefetch = fetchGoogleSheetAction('listPerformances')
+      const bootstrapPrefetch = fetchGoogleSheetAction('bootstrap')
         .then((result) => ({ result }))
         .catch((error) => ({ error }));
-      prefetchedSheetActionsRef.current.set('listPerformances', performancePrefetch);
+      prefetchedSheetActionsRef.current.set('bootstrap', bootstrapPrefetch);
       try {
-        const json = await fetchGoogleSheetAction('listClients');
+        const bootstrapOutcome = await bootstrapPrefetch;
+        let json = bootstrapOutcome.result;
+        const bootstrapClientError = json?.errors?.find((item) => item?.action === 'listClients');
+        if (bootstrapOutcome.error || bootstrapClientError) {
+          prefetchedSheetActionsRef.current.delete('bootstrap');
+          const performancePrefetch = fetchGoogleSheetAction('listPerformances')
+            .then((result) => ({ result }))
+            .catch((error) => ({ error }));
+          prefetchedSheetActionsRef.current.set('listPerformances', performancePrefetch);
+          json = await fetchGoogleSheetAction('listClients');
+        }
         let rows = [];
         if (Array.isArray(json)) rows = json;
         else if (json && Array.isArray(json.clients)) rows = json.clients;
@@ -2667,6 +2673,58 @@ function App() {
 
       // Výkony se načítají už souběžně s klienty. Case management a plány běží
       // zároveň, ale další skupiny se dávkují, aby nebyl Apps Script zahlcen.
+      const bootstrapPrefetch = prefetchedSheetActionsRef.current.get('bootstrap');
+      if (bootstrapPrefetch) {
+        prefetchedSheetActionsRef.current.delete('bootstrap');
+        const bootstrapOutcome = await bootstrapPrefetch;
+        if (!bootstrapOutcome?.error && bootstrapOutcome?.result) {
+          const bootstrap = bootstrapOutcome.result;
+          const bootstrapErrors = Array.isArray(bootstrap.errors) ? bootstrap.errors : [];
+          const failedBootstrapActions = new Set(bootstrapErrors.map((item) => item?.action).filter(Boolean));
+          const bootstrapActions = [
+            'listPerformances',
+            'listMeetings',
+            'listIndividualPlans',
+            'listNetworkMeetings',
+            'listPartners',
+            'listEducation',
+            'listSupervision',
+            'listStatistics'
+          ];
+          const loadedBootstrapActions = new Set(
+            bootstrapActions.filter((action) => !failedBootstrapActions.has(action))
+          );
+
+          if (loadedBootstrapActions.has('listStatistics')) {
+            setStatisticsRows(Array.isArray(bootstrap.statistics) ? bootstrap.statistics : []);
+          }
+          applyLoadedResults({
+            performances: { performances: Array.isArray(bootstrap.performances) ? bootstrap.performances : [] },
+            meetings: { meetings: Array.isArray(bootstrap.meetings) ? bootstrap.meetings : [] },
+            plans: { individualPlans: Array.isArray(bootstrap.individualPlans) ? bootstrap.individualPlans : [] },
+            networkMeetings: { networkMeetings: Array.isArray(bootstrap.networkMeetings) ? bootstrap.networkMeetings : [] },
+            partners: { partners: Array.isArray(bootstrap.partners) ? bootstrap.partners : [] },
+            education: { education: Array.isArray(bootstrap.education) ? bootstrap.education : [] },
+            supervision: { supervision: Array.isArray(bootstrap.supervision) ? bootstrap.supervision : [] }
+          }, loadedBootstrapActions);
+
+          const bootstrapActionLabels = {
+            listPerformances: 'v\u00fdkony KA1',
+            listMeetings: 'z\u00e1pisy case managementu',
+            listIndividualPlans: 'individu\u00e1ln\u00ed pl\u00e1ny',
+            listNetworkMeetings: 'sch\u016fzky s\u00edt\u011b',
+            listPartners: 'akt\u00e9\u0159i s\u00edt\u011b',
+            listEducation: 'vzd\u011bl\u00e1v\u00e1n\u00ed',
+            listSupervision: 'supervize',
+            listStatistics: 'statistiky K\u00da'
+          };
+          setSheetError(bootstrapErrors.length
+            ? 'Nepoda\u0159ilo se na\u010d\u00edst: ' + bootstrapErrors.map((item) => bootstrapActionLabels[item.action] || item.action).join(', ') + '. Ostatn\u00ed data jsou dostupn\u00e1.'
+            : '');
+          return;
+        }
+      }
+
       const performancesPromise = loadAction('listPerformances', { performances: [] });
       const meetingsPromise = loadAction('listMeetings', { meetings: [] });
       const plansPromise = loadAction('listIndividualPlans', { individualPlans: [] });
@@ -2889,40 +2947,51 @@ function App() {
 
   const recordsByType = useMemo(() => groupRecordsByType(records), [records]);
 
+  const isReportingViewActive = mainView === 'dashboard';
+  const shouldComputeIndicators = isReportingViewActive || ['ka2case', 'ka01', 'ka02'].includes(mainView);
+
   const selectedReportingPeriod = useMemo(
     () => REPORTING_PERIODS.find((item) => item.value === dashboardFilters.period) || REPORTING_PERIODS[0],
     [dashboardFilters.period]
   );
 
   const storedActivityRecords = useMemo(
-    () => records.filter((record) => CURRENT_ACTIVITY_ENTITY_TYPES.has(record.entityType)),
-    [records]
+    () => shouldComputeIndicators
+      ? records.filter((record) => CURRENT_ACTIVITY_ENTITY_TYPES.has(record.entityType))
+      : [],
+    [records, shouldComputeIndicators]
   );
 
   const filteredRecords = useMemo(() => {
+    if (!shouldComputeIndicators) return [];
     return storedActivityRecords.filter((record) => {
       const matchesPeriod = isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod);
       const matchesKa = dashboardFilters.ka === 'all' || getEffectiveRecordKa(record) === dashboardFilters.ka;
       const matchesWorker = dashboardFilters.worker === 'all' || record.worker === dashboardFilters.worker;
       return matchesPeriod && matchesKa && matchesWorker;
     });
-  }, [dashboardFilters, selectedReportingPeriod, storedActivityRecords]);
+  }, [dashboardFilters, selectedReportingPeriod, shouldComputeIndicators, storedActivityRecords]);
 
   const isEsfSupportRecords = useMemo(
-    () => getUniqueKa1ClientSupportRecords(
-      records.filter((record) => isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod))
-    ),
-    [records, selectedReportingPeriod]
+    () => isReportingViewActive
+      ? getUniqueKa1ClientSupportRecords(
+        records.filter((record) => isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod))
+      )
+      : [],
+    [isReportingViewActive, records, selectedReportingPeriod]
   );
 
   const isEsfSupportedClients = useMemo(() => {
+    if (!isReportingViewActive) return [];
     const supportedClientIds = new Set(isEsfSupportRecords.flatMap(getRecordClientIds));
     return accessibleClients.filter((client) => supportedClientIds.has(client.id));
-  }, [accessibleClients, isEsfSupportRecords]);
+  }, [accessibleClients, isEsfSupportRecords, isReportingViewActive]);
 
   const isEsfPersonImportMatch = useMemo(
-    () => matchClientsToIsEsfPersonRows(isEsfSupportedClients, isEsfPersonImport.rows),
-    [isEsfPersonImport.rows, isEsfSupportedClients]
+    () => isReportingViewActive
+      ? matchClientsToIsEsfPersonRows(isEsfSupportedClients, isEsfPersonImport.rows)
+      : { matchedClients: [], matchedPersonRows: [], unmatchedClients: [], ambiguousClients: [] },
+    [isEsfPersonImport.rows, isEsfSupportedClients, isReportingViewActive]
   );
 
   useEffect(() => {
@@ -2959,13 +3028,15 @@ function App() {
   }, [clients, accessibleClients, searchQuery, showAllClients]);
 
   const computedIndicators = useMemo(() => {
+    if (!shouldComputeIndicators) return {};
     return buildIndicators({
       clients: accessibleClients,
       records: filteredRecords
     });
-  }, [accessibleClients, filteredRecords]);
+  }, [accessibleClients, filteredRecords, shouldComputeIndicators]);
 
   const professionalDevelopmentRecords = useMemo(() => {
+    if (!isReportingViewActive) return [];
     const normalize = (value) =>
       String(value || '')
         .toLowerCase()
@@ -2993,9 +3064,10 @@ function App() {
 
       return workers.some((worker) => normalize(worker) === normalize(dashboardFilters.worker));
     });
-  }, [dashboardFilters.worker, records, selectedReportingPeriod]);
+  }, [dashboardFilters.worker, isReportingViewActive, records, selectedReportingPeriod]);
 
   const dashboardOverview = useMemo(() => {
+    if (!isReportingViewActive) return null;
     const normalize = (value) =>
       String(value || '')
         .toLowerCase()
@@ -3272,14 +3344,16 @@ function App() {
         { key: 'missing-evaluation', label: 'Chyb\u00ed vyhodnocen\u00ed c\u00edle', count: missingGoalEvaluationCount, detail: 'Uzav\u0159en\u00fd c\u00edl nem\u00e1 slovn\u00ed vyhodnocen\u00ed' }
       ]
     };
-  }, [clients, filteredRecords, professionalDevelopmentRecords, records, selectedReportingPeriod]);
+  }, [clients, filteredRecords, isReportingViewActive, professionalDevelopmentRecords, records, selectedReportingPeriod]);
 
   const periodRecordsForZor = useMemo(
-    () => records.filter(
-      (record) => ZOR_ACTIVITY_ENTITY_TYPES.has(record.entityType)
-        && isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod)
-    ),
-    [records, selectedReportingPeriod]
+    () => isReportingViewActive
+      ? records.filter(
+        (record) => ZOR_ACTIVITY_ENTITY_TYPES.has(record.entityType)
+          && isDateWithinPeriod(record.activityDate || '', selectedReportingPeriod)
+      )
+      : [],
+    [isReportingViewActive, records, selectedReportingPeriod]
   );
 
   const clientTimeline = useMemo(() => {
@@ -3973,7 +4047,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (mainView === 'statistics') {
+    if (mainView === 'dashboard') {
       void refreshStatisticsRows().then((ok) => {
         if (!ok) setFlash('Statistiky se nepodařilo obnovit z Google Sheetu.');
       });
@@ -5864,8 +5938,8 @@ ${rawOutput}` }] }],
   };
 
   const filteredClientSupportRecords = useMemo(
-    () => getUniqueClientSupportRecords(filteredRecords),
-    [filteredRecords]
+    () => isReportingViewActive ? getUniqueClientSupportRecords(filteredRecords) : [],
+    [filteredRecords, isReportingViewActive]
   );
 
   const exportClientsIsEsfCsv = async () => {
@@ -6714,8 +6788,10 @@ ${rawPlanOutput}` }] }],
   };
 
   const kuStatisticsOverview = useMemo(
-    () => buildKuStatisticsOverview(statisticsRows, statisticsFilters),
-    [statisticsRows, statisticsFilters]
+    () => isReportingViewActive
+      ? buildKuStatisticsOverview(statisticsRows, statisticsFilters)
+      : { rows: [], groups: {}, totalUniqueClients: 0, totalRecords: 0, dateFrom: '', dateTo: '' },
+    [isReportingViewActive, statisticsRows, statisticsFilters]
   );
 
   const hasValidKuStatisticsDateRange = Boolean(statisticsFilters.dateFrom && statisticsFilters.dateTo)
@@ -7954,93 +8030,6 @@ ${rawPlanOutput}` }] }],
           </div>
         )}
 
-        {mainView === 'statistics' && (
-          <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
-            <Panel
-              title="Statistiky"
-              description="Přehled pro KÚ se generuje z listu Statistiky. Do klientské osy se tyto položky samostatně nepromítají."
-              icon={BarChart3}
-            >
-              <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
-                <InputField
-                  label="Datum od"
-                  type="date"
-                  value={statisticsFilters.dateFrom}
-                  onChange={(value) => setStatisticsFilters((prev) => ({ ...prev, dateFrom: value }))}
-                />
-                <InputField
-                  label="Datum do"
-                  type="date"
-                  value={statisticsFilters.dateTo}
-                  onChange={(value) => setStatisticsFilters((prev) => ({ ...prev, dateTo: value }))}
-                />
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={handleExportKuStatisticsDocx}
-                    disabled={!hasValidKuStatisticsDateRange || isExportingKuStatistics}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-cyan-200 bg-cyan-700 px-4 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-                  >
-                    {isExportingKuStatistics ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                    Statistika pro KÚ
-                  </button>
-                  {statisticsFilters.dateFrom && statisticsFilters.dateTo && !hasValidKuStatisticsDateRange ? (
-                    <p className="text-xs text-rose-600">Datum od nesmí být později než datum do.</p>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-3 md:grid-cols-3">
-                <div className="rounded-lg border border-cyan-100 bg-cyan-50 p-4">
-                  <div className="text-xs font-semibold uppercase text-cyan-700">Unikátní osoby</div>
-                  <div className="mt-1 text-2xl font-bold text-slate-900">{kuStatisticsOverview.totalUniqueClients}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-4">
-                  <div className="text-xs font-semibold uppercase text-slate-500">Statistické záznamy</div>
-                  <div className="mt-1 text-2xl font-bold text-slate-900">{kuStatisticsOverview.totalRecords}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-4">
-                  <div className="text-xs font-semibold uppercase text-slate-500">Načteno z listu Statistiky</div>
-                  <div className="mt-1 text-2xl font-bold text-slate-900">{statisticsRows.length}</div>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                {hasValidKuStatisticsDateRange && kuStatisticsOverview.rows.length === 0 && (
-                  <EmptyState title="Bez dat pro zvolené období" text="V listu Statistiky nejsou pro zadaný rozsah aktivní položky typu podpory dle KÚ." icon={FileText} />
-                )}
-              {kuStatisticsOverview.rows.length > 0 && (
-                <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
-                  <table className="min-w-[760px] w-full divide-y divide-slate-100 text-xs">
-                    <thead className="bg-slate-50 text-[11px] font-semibold uppercase text-slate-500">
-                      <tr>
-                        <th className="px-3 py-2 text-left">Skupina</th>
-                        <th className="px-3 py-2 text-left">Forma pomoci</th>
-                        <th className="px-3 py-2 text-left">Klienti</th>
-                        <th className="px-3 py-2 text-right">Osob</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {kuStatisticsOverview.rows.map((item) => (
-                        <tr key={item.key} className="align-middle">
-                          <td className="whitespace-nowrap px-3 py-2 font-semibold text-slate-700">{item.group}</td>
-                          <td className="px-3 py-2 font-semibold text-slate-900">{item.name}</td>
-                          <td className="max-w-[360px] truncate px-3 py-2 text-slate-500" title={item.clientNames.join(', ')}>
-                            {item.clientNames.slice(0, 6).join(', ')}{item.clientNames.length > 6 ? ` a další ${item.clientNames.length - 6}` : ''}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right text-sm font-bold text-cyan-800">{item.clientCount}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              </div>
-            </Panel>
-            <div aria-hidden="true" className="hidden xl:block" />
-          </div>
-        )}
-
         {mainView === 'dashboard' && (
           <React.Suspense fallback={<LazyViewFallback />}>
             <ReportingView
@@ -8065,6 +8054,13 @@ ${rawPlanOutput}` }] }],
               isExportingDetailedOutputs={isExportingDetailedOutputs}
               supportExportCount={filteredClientSupportRecords.length}
               analyticsRecords={filteredClientSupportRecords}
+              kuStatisticsOverview={kuStatisticsOverview}
+              statisticsRowsCount={statisticsRows.length}
+              statisticsFilters={statisticsFilters}
+              setStatisticsFilters={setStatisticsFilters}
+              hasValidKuStatisticsDateRange={hasValidKuStatisticsDateRange}
+              handleExportKuStatisticsDocx={handleExportKuStatisticsDocx}
+              isExportingKuStatistics={isExportingKuStatistics}
               workReportRecords={records}
               clients={clients}
               onOpenClient={(clientId) => openClient(clientId, 'clients')}

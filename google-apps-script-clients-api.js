@@ -24,6 +24,9 @@ const CONFIG = {
 function doGet(e) {
   try {
     assertToken_(e.parameter.token);
+    if (e.parameter.action === 'bootstrap') {
+      return json_(buildBootstrapPayload_());
+    }
     if (e.parameter.action === 'listClients') {
       return json_({ ok: true, clients: listClients_() });
     }
@@ -361,13 +364,10 @@ function setClientDateFormats_(sheet, headers) {
   });
 }
 
-function listClients_() {
-  const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
+function listClients_(spreadsheet) {
+  const sheet = (spreadsheet || getSpreadsheet_()).getSheetByName(CONFIG.sheetName);
   if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
-  ensureHeader_(sheet, getHeaders_(sheet), 'klicovy_pracovnik');
-  ensureHeader_(sheet, getHeaders_(sheet), 'rodina');
-  const headers = getHeaders_(sheet);
-  setClientDateFormats_(sheet, headers);
+  const headers = ensureHeaders_(sheet, ['klicovy_pracovnik', 'rodina']);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
 
@@ -381,9 +381,7 @@ function listClients_() {
 function saveClient_(client) {
   const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
   if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
-  ensureHeader_(sheet, getHeaders_(sheet), 'klicovy_pracovnik');
-  ensureHeader_(sheet, getHeaders_(sheet), 'rodina');
-  const headers = getHeaders_(sheet);
+  const headers = ensureHeaders_(sheet, ['klicovy_pracovnik', 'rodina']);
   setColumnListValidation_(sheet, headers, 'klicovy_pracovnik', WORKER_OPTIONS_);
   setColumnListValidation_(sheet, headers, 'rodina', YES_NO_OPTIONS_);
   const klientIdColumn = headers.indexOf('klient_id') + 1;
@@ -429,8 +427,8 @@ function saveClient_(client) {
   return rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
 }
 
-function listPartners_() {
-  const sheet = getSpreadsheet_().getSheetByName(CONFIG.partnerSheetName);
+function listPartners_(spreadsheet) {
+  const sheet = (spreadsheet || getSpreadsheet_()).getSheetByName(CONFIG.partnerSheetName);
   if (!sheet) throw new Error('Missing sheet: ' + CONFIG.partnerSheetName);
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
@@ -479,8 +477,8 @@ function savePartner_(partner) {
 }
 
 
-function getIndividualPlanSheet_() {
-  const spreadsheet = getSpreadsheet_();
+function getIndividualPlanSheet_(spreadsheetOverride) {
+  const spreadsheet = spreadsheetOverride || getSpreadsheet_();
   const existing = spreadsheet.getSheetByName(CONFIG.individualPlanSheetName);
 
   if (existing) {
@@ -501,11 +499,11 @@ function getIndividualPlanSheet_() {
     if (legacyBarriersIndex >= 0) existing.deleteColumn(legacyBarriersIndex + 1);
   }
 
-  return getOrCreateSheet_(CONFIG.individualPlanSheetName, INDIVIDUAL_PLAN_HEADERS_);
+  return getOrCreateSheet_(CONFIG.individualPlanSheetName, INDIVIDUAL_PLAN_HEADERS_, spreadsheet);
 }
 
-function listIndividualPlans_() {
-  const sheet = getIndividualPlanSheet_();
+function listIndividualPlans_(spreadsheet) {
+  const sheet = getIndividualPlanSheet_(spreadsheet);
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -561,8 +559,8 @@ function saveIndividualPlan_(individualPlan) {
   return rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
 }
 
-function listPerformances_() {
-  const sheet = getOrCreateSheet_(CONFIG.performanceSheetName, PERFORMANCE_HEADERS_);
+function listPerformances_(spreadsheet) {
+  const sheet = getOrCreateSheet_(CONFIG.performanceSheetName, PERFORMANCE_HEADERS_, spreadsheet);
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -619,8 +617,8 @@ function savePerformance_(performance) {
   return rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
 }
 
-function listStatistics_() {
-  const sheet = getOrCreateSheet_(CONFIG.statisticsSheetName, STATISTICS_HEADERS_);
+function listStatistics_(spreadsheet) {
+  const sheet = getOrCreateSheet_(CONFIG.statisticsSheetName, STATISTICS_HEADERS_, spreadsheet);
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -775,8 +773,8 @@ function getClientNameById_(clientId) {
   return [client.jmeno, client.prijmeni].filter(Boolean).join(' ').trim();
 }
 
-function listMeetings_() {
-  const sheet = getOrCreateSheet_(CONFIG.meetingSheetName, MEETING_HEADERS_);
+function listMeetings_(spreadsheet) {
+  const sheet = getOrCreateSheet_(CONFIG.meetingSheetName, MEETING_HEADERS_, spreadsheet);
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -851,6 +849,33 @@ function onEdit(e) {
   }
 }
 
+function buildBootstrapPayload_() {
+  const spreadsheet = getSpreadsheet_();
+  const errors = [];
+  const load = (action, fallback, loader) => {
+    try {
+      return loader();
+    } catch (error) {
+      errors.push({ action: action, error: String(error.message || error) });
+      return fallback;
+    }
+  };
+
+  return {
+    ok: true,
+    clients: load('listClients', [], () => listClients_(spreadsheet)),
+    performances: load('listPerformances', [], () => listPerformances_(spreadsheet)),
+    meetings: load('listMeetings', [], () => listMeetings_(spreadsheet)),
+    individualPlans: load('listIndividualPlans', [], () => listIndividualPlans_(spreadsheet)),
+    networkMeetings: load('listNetworkMeetings', [], () => listNetworkMeetings_(spreadsheet)),
+    partners: load('listPartners', [], () => listPartners_(spreadsheet)),
+    education: load('listEducation', [], () => listEducation_(spreadsheet)),
+    supervision: load('listSupervision', [], () => listSupervision_(spreadsheet)),
+    statistics: load('listStatistics', [], () => listStatistics_(spreadsheet)),
+    errors: errors
+  };
+}
+
 // Spustte jednou rucne po vlozeni kodu do samostatneho Apps Script projektu.
 // U projektu navazaneho primo na tabulku je jednoduchy onEdit aktivni automaticky.
 function installSpreadsheetEditTrigger() {
@@ -903,8 +928,8 @@ function saveMeeting_(meeting) {
   return rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
 }
 
-function listNetworkMeetings_() {
-  const sheet = getOrCreateSheet_(CONFIG.networkMeetingSheetName, NETWORK_MEETING_HEADERS_);
+function listNetworkMeetings_(spreadsheet) {
+  const sheet = getOrCreateSheet_(CONFIG.networkMeetingSheetName, NETWORK_MEETING_HEADERS_, spreadsheet);
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -954,8 +979,8 @@ function saveNetworkMeeting_(networkMeeting) {
   return rowToObject_(headers, savedRange.getValues()[0], savedRange.getDisplayValues()[0]);
 }
 
-function listEducation_() {
-  const sheet = getOrCreateSheet_(CONFIG.educationSheetName, EDUCATION_HEADERS_);
+function listEducation_(spreadsheet) {
+  const sheet = getOrCreateSheet_(CONFIG.educationSheetName, EDUCATION_HEADERS_, spreadsheet);
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -1010,10 +1035,9 @@ function saveEducation_(education) {
   return rowToObject_(headers, savedRange.getValues()[0], savedRange.getDisplayValues()[0]);
 }
 
-function listSupervision_() {
-  const sheet = getOrCreateSheet_(CONFIG.supervisionSheetName, SUPERVISION_HEADERS_);
+function listSupervision_(spreadsheet) {
+  const sheet = getOrCreateSheet_(CONFIG.supervisionSheetName, SUPERVISION_HEADERS_, spreadsheet);
   const headers = getHeaders_(sheet);
-  setColumnListValidation_(sheet, headers, 'typ_supervize', SUPERVISION_TYPE_OPTIONS_);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
 
@@ -1696,8 +1720,22 @@ function ensureHeader_(sheet, headers, header) {
   return nextColumn;
 }
 
-function getOrCreateSheet_(sheetName, headers) {
-  const spreadsheet = getSpreadsheet_();
+function ensureHeaders_(sheet, requiredHeaders, currentHeadersOverride) {
+  const currentHeaders = Array.isArray(currentHeadersOverride) ? currentHeadersOverride : getHeaders_(sheet);
+  const missingHeaders = requiredHeaders.filter((header) => !currentHeaders.includes(header));
+  if (missingHeaders.length === 0) return currentHeaders;
+
+  const firstNewColumn = currentHeaders.length + 1;
+  const requiredColumnCount = currentHeaders.length + missingHeaders.length;
+  if (sheet.getMaxColumns() < requiredColumnCount) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), requiredColumnCount - sheet.getMaxColumns());
+  }
+  sheet.getRange(CONFIG.headerRow, firstNewColumn, 1, missingHeaders.length).setValues([missingHeaders]);
+  return currentHeaders.concat(missingHeaders);
+}
+
+function getOrCreateSheet_(sheetName, headers, spreadsheetOverride) {
+  const spreadsheet = spreadsheetOverride || getSpreadsheet_();
   let sheet = spreadsheet.getSheetByName(sheetName);
   if (!sheet) {
     sheet = spreadsheet.insertSheet(sheetName);
@@ -1713,7 +1751,7 @@ function getOrCreateSheet_(sheetName, headers) {
     return sheet;
   }
 
-  headers.forEach((header) => ensureHeader_(sheet, getHeaders_(sheet), header));
+  ensureHeaders_(sheet, headers, currentHeaders);
   return sheet;
 }
 

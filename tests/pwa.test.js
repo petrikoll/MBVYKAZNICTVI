@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
 
+test('verzovane staticke soubory pouzivaji cache-first a dlouhou HTTP cache', async () => {
+  const [serviceWorker, server] = await Promise.all([
+    readFile(new URL('../public/sw.js', import.meta.url), 'utf8'),
+    readFile(new URL('../server.js', import.meta.url), 'utf8')
+  ]);
+
+  assert.match(serviceWorker, /isVersionedAsset/);
+  assert.match(serviceWorker, /caches\.match\(request\)/);
+  assert.match(serviceWorker, /'video'/);
+  assert.match(server, /max-age=31536000, immutable/);
+  assert.match(server, /isRevalidatedFile/);
+});
+
 test('manifest obsahuje instalační údaje a obě požadované velikosti ikon', async () => {
   const manifest = JSON.parse(await readFile(new URL('../public/manifest.webmanifest', import.meta.url), 'utf8'));
 

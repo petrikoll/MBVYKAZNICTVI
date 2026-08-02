@@ -4,6 +4,15 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const source = readFileSync(fileURLToPath(new URL('../src/app/ReportingView.jsx', import.meta.url)), 'utf8');
+const appSource = readFileSync(fileURLToPath(new URL('../src/app/ProjectReportingApp.jsx', import.meta.url)), 'utf8');
+const configSource = readFileSync(fileURLToPath(new URL('../src/config/projectConfig.js', import.meta.url)), 'utf8');
+
+test('statistika KU je soucasti analyz a nema samostatny hlavni list', () => {
+  assert.match(source, /<KuStatisticsPanel/);
+  assert.match(source, /Statistika KÚ/);
+  assert.doesNotMatch(configSource, /id: 'statistics'/);
+  assert.doesNotMatch(appSource, /mainView === 'statistics'/);
+});
 
 test('sekce sestav nabízí každý dokončený výstup právě jednou', () => {
   const expectedActions = [

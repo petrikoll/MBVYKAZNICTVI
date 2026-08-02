@@ -1,7 +1,7 @@
 import React from 'react';
-import { Activity, AlertTriangle, Archive, ArrowLeft, ArrowRight, Brain, ClipboardCopy, Download, FileClock, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target, Upload, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, Archive, ArrowLeft, ArrowRight, BarChart3, Brain, ClipboardCopy, Download, FileClock, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target, Upload, Users, X } from 'lucide-react';
 
-import { HelpIcon, Panel, SelectField } from '../components/ui.jsx';
+import { EmptyState, HelpIcon, InputField, Panel, SelectField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { REPORTING_PERIODS, WORKERS } from '../config/projectConfig.js';
 import { backupProgressText, isBackupStatusActive } from '../lib/backupStatus.js';
@@ -131,6 +131,98 @@ const ProfessionalDevelopmentCard = ({ item }) => {
   );
 };
 
+const KuStatisticsPanel = ({
+  overview,
+  sourceRowCount = 0,
+  filters,
+  setFilters,
+  hasValidDateRange,
+  onExport,
+  isExporting = false
+}) => (
+  <Panel
+    title="Statistika KÚ"
+    description="Přehled se generuje z evidovaných statistických položek a zvoleného období."
+    icon={BarChart3}
+  >
+    <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+      <InputField
+        label="Datum od"
+        type="date"
+        value={filters.dateFrom}
+        onChange={(value) => setFilters((previous) => ({ ...previous, dateFrom: value }))}
+      />
+      <InputField
+        label="Datum do"
+        type="date"
+        value={filters.dateTo}
+        onChange={(value) => setFilters((previous) => ({ ...previous, dateTo: value }))}
+      />
+      <div className="flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={onExport}
+          disabled={!hasValidDateRange || isExporting}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-cyan-200 bg-cyan-700 px-4 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          Stáhnout statistiku DOCX
+        </button>
+        {filters.dateFrom && filters.dateTo && !hasValidDateRange ? (
+          <p className="text-xs text-rose-600">Datum od nesmí být později než datum do.</p>
+        ) : null}
+      </div>
+    </div>
+
+    <div className="mt-5 grid gap-3 md:grid-cols-3">
+      <div className="rounded-lg border border-cyan-100 bg-cyan-50 p-4">
+        <div className="text-xs font-semibold uppercase text-cyan-700">Unikátní osoby</div>
+        <div className="mt-1 text-2xl font-bold text-slate-900">{overview.totalUniqueClients}</div>
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="text-xs font-semibold uppercase text-slate-500">Statistické záznamy</div>
+        <div className="mt-1 text-2xl font-bold text-slate-900">{overview.totalRecords}</div>
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="text-xs font-semibold uppercase text-slate-500">Zdrojové položky</div>
+        <div className="mt-1 text-2xl font-bold text-slate-900">{sourceRowCount}</div>
+      </div>
+    </div>
+
+    <div className="mt-4">
+      {hasValidDateRange && overview.rows.length === 0 && (
+        <EmptyState title="Bez dat pro zvolené období" text="Pro zadaný rozsah nejsou evidovány aktivní položky typu podpory dle KÚ." icon={FileText} />
+      )}
+      {overview.rows.length > 0 && (
+        <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
+          <table className="min-w-[760px] w-full divide-y divide-slate-100 text-xs">
+            <thead className="bg-slate-50 text-[11px] font-semibold uppercase text-slate-500">
+              <tr>
+                <th className="px-3 py-2 text-left">Skupina</th>
+                <th className="px-3 py-2 text-left">Forma pomoci</th>
+                <th className="px-3 py-2 text-left">Klienti</th>
+                <th className="px-3 py-2 text-right">Osob</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {overview.rows.map((item) => (
+                <tr key={item.key} className="align-middle">
+                  <td className="whitespace-nowrap px-3 py-2 font-semibold text-slate-700">{item.group}</td>
+                  <td className="px-3 py-2 font-semibold text-slate-900">{item.name}</td>
+                  <td className="max-w-[360px] truncate px-3 py-2 text-slate-500" title={item.clientNames.join(', ')}>
+                    {item.clientNames.slice(0, 6).join(', ')}{item.clientNames.length > 6 ? ` a další ${item.clientNames.length - 6}` : ''}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right text-sm font-bold text-cyan-800">{item.clientCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  </Panel>
+);
+
 const ExportCard = ({ icon: Icon, title, format, description, children, tone = 'blue' }) => {
   const toneClasses = {
     blue: 'border-blue-200 bg-blue-50 text-blue-900',
@@ -192,6 +284,13 @@ function ReportingView({
   isExportingDetailedOutputs = false,
   supportExportCount,
   analyticsRecords = [],
+  kuStatisticsOverview = { rows: [], totalUniqueClients: 0, totalRecords: 0 },
+  statisticsRowsCount = 0,
+  statisticsFilters = { dateFrom: '', dateTo: '' },
+  setStatisticsFilters,
+  hasValidKuStatisticsDateRange = false,
+  handleExportKuStatisticsDocx,
+  isExportingKuStatistics = false,
   workReportRecords = [],
   clients = [],
   onOpenClient,
@@ -289,7 +388,18 @@ function ReportingView({
         {detailedSection === 'workReports' ? (
           <WorkReportsView records={workReportRecords} />
         ) : detailedSection === 'analytics' ? (
-          <ReportingAnalyticsView records={analyticsRecords} clients={clients} onOpenClient={onOpenClient} />
+          <>
+            <ReportingAnalyticsView records={analyticsRecords} clients={clients} onOpenClient={onOpenClient} />
+            <KuStatisticsPanel
+              overview={kuStatisticsOverview}
+              sourceRowCount={statisticsRowsCount}
+              filters={statisticsFilters}
+              setFilters={setStatisticsFilters}
+              hasValidDateRange={hasValidKuStatisticsDateRange}
+              onExport={handleExportKuStatisticsDocx}
+              isExporting={isExportingKuStatistics}
+            />
+          </>
         ) : (
           <>
             <Panel title="Interní sestavy" icon={FileSpreadsheet}>

@@ -3,7 +3,7 @@ import screensaverPoster from '../assets/screensaver-moravsky-beroun-poster.webp
 import screensaverVideo from '../assets/screensaver-moravsky-beroun-loop.mp4';
 
 const IDLE_DELAY_MS = 60 * 1000;
-const STARTUP_DISPLAY_MS = 4 * 1000;
+const STARTUP_DISPLAY_MS = 5 * 1000;
 const EXIT_DURATION_MS = 520;
 
 const formatClock = (date) => date.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
@@ -105,12 +105,12 @@ function IdleFlyScreensaver() {
   return (
     <div className={`idle-saver fixed inset-0 z-[250] overflow-hidden text-white${closing ? ' idle-saver--closing' : ''}`} role="dialog" aria-modal="true" aria-label="Spořič obrazovky">
       <div className="idle-saver-shade absolute inset-0" aria-hidden="true" />
-      <div className="idle-saver-stage absolute inset-0 flex items-center justify-center p-4 sm:p-8" aria-hidden="true">
+      <div className="idle-saver-stage absolute inset-0 flex items-center justify-center" aria-hidden="true">
         {videoFailed ? (
-          <img className="idle-saver-image h-auto object-contain" src={screensaverPoster} alt="" onLoad={beginStartupCountdown} />
+          <img className="idle-saver-image" src={screensaverPoster} alt="" onLoad={beginStartupCountdown} />
         ) : (
           <video
-            className="idle-saver-image h-auto object-contain"
+            className="idle-saver-image"
             src={screensaverVideo}
             poster={screensaverPoster}
             autoPlay

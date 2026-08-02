@@ -79,8 +79,18 @@ const mimeTypes = {
 
 function sendFile(response, filePath) {
   const extension = extname(filePath).toLowerCase();
+  const relativePath = filePath.slice(distDir.length).replace(/\\/g, '/');
+  const isVersionedAsset = /^\/assets\/.+-[A-Za-z0-9_-]{8,}\.[^/]+$/.test(relativePath);
+  const isRevalidatedFile = extension === '.html' || relativePath === '/sw.js' || relativePath === '/manifest.webmanifest';
+  const cacheControl = isVersionedAsset
+    ? 'public, max-age=31536000, immutable'
+    : isRevalidatedFile
+      ? 'no-cache'
+      : 'public, max-age=86400';
   response.writeHead(200, {
-    'Content-Type': mimeTypes[extension] || 'application/octet-stream'
+    'Content-Type': mimeTypes[extension] || 'application/octet-stream',
+    'Cache-Control': cacheControl,
+    'Content-Length': statSync(filePath).size
   });
   createReadStream(filePath).pipe(response);
 }
