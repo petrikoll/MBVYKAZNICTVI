@@ -2176,6 +2176,38 @@ function withSheetVersion(record, row) {
   };
 }
 
+function actorSheetRowMatchesPayload(row, partner) {
+  if (!row || !partner) return false;
+  const normalize = (value) => asSheetText(value).trim().replace(/\r\n/g, '\n');
+  const expectedId = normalize(partner.partner_id);
+  if (expectedId && normalize(row.partner_id) !== expectedId) return false;
+
+  const textFields = ['nazev_subjektu', 'typ_aktera', 'puvod_site'];
+  if (textFields.some((field) => normalize(row[field]) !== normalize(partner[field]))) return false;
+
+  const expectedDate = asSheetDate(partner.datum_zapojeni);
+  if (expectedDate && asSheetDate(row.datum_zapojeni) !== expectedDate) return false;
+
+  const comparableContacts = (source) => normalizeActorContacts({
+    kontaktni_osoby_json: source.kontaktni_osoby_json,
+    contactName: source.kontaktni_osoba,
+    contactRole: source.funkce,
+    phone: source.telefon,
+    email: source.email
+  }).map(({ id, name, title, firstName, lastName, role, phone, email }) => ({
+    id,
+    name,
+    title,
+    firstName,
+    lastName,
+    role,
+    phone,
+    email
+  }));
+
+  return JSON.stringify(comparableContacts(row)) === JSON.stringify(comparableContacts(partner));
+}
+
 async function fetchGoogleSheetAction(action) {
   let lastError = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -4028,20 +4060,33 @@ function App() {
 
     if (record.entityType === 'actor_registry') {
       const contactSheetFields = actorContactsToSheetFields(payload);
-      const result = await postGoogleSheetAction({
-        action: 'savePartner',
-        partner: {
-          partner_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
-          nazev_subjektu: payload.name || record.title || '',
-          typ_aktera: payload.actorType || '',
-          puvod_site: payload.networkOrigin || 'st\u00e1vaj\u00edc\u00ed',
-          datum_zapojeni: payload.joinedNetworkDate || record.activityDate || '',
-          ...contactSheetFields,
-          expected_updated_at: expectedUpdatedAt,
-          status: 'Platn\u00fd',
-          updated_by: record.worker || currentWorker || ''
-        }
-      });
+      const partnerToSave = {
+        partner_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
+        nazev_subjektu: payload.name || record.title || '',
+        typ_aktera: payload.actorType || '',
+        puvod_site: payload.networkOrigin || 'st\u00e1vaj\u00edc\u00ed',
+        datum_zapojeni: payload.joinedNetworkDate || record.activityDate || '',
+        ...contactSheetFields,
+        expected_updated_at: expectedUpdatedAt,
+        status: 'Platn\u00fd',
+        updated_by: record.worker || currentWorker || ''
+      };
+      let result;
+      try {
+        result = await postGoogleSheetAction({
+          action: 'savePartner',
+          partner: partnerToSave
+        });
+      } catch (error) {
+        if (error?.code !== 'INVALID_JSON_RESPONSE' || !partnerToSave.partner_id) throw error;
+        const verification = await fetchGoogleSheetAction('listPartners').catch(() => null);
+        const verifiedPartner = (verification?.partners || []).find((row) =>
+          asSheetText(row.partner_id) === partnerToSave.partner_id
+          && actorSheetRowMatchesPayload(row, partnerToSave)
+        );
+        if (!verifiedPartner) throw error;
+        result = { ok: true, partner: verifiedPartner, recoveredConfirmation: true };
+      }
       const savedPartner = requireSavedGoogleSheetRecord(result, 'partner', 'partner_id', 'aktéra');
       return withSheetVersion({ ...record, id: savedPartner.partner_id }, savedPartner);
     }

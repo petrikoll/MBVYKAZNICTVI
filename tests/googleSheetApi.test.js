@@ -9,7 +9,10 @@ test('neplatná JSON odpověď nesmí být považována za úspěšné uložení
     headers: { 'Content-Type': 'text/html' }
   });
 
-  await assert.rejects(parseGoogleSheetResponse(response), /nevrátil platnou JSON odpověď/);
+  await assert.rejects(
+    parseGoogleSheetResponse(response),
+    (error) => error.code === 'INVALID_JSON_RESPONSE' && /nevrátil platnou JSON odpověď/.test(error.message)
+  );
 });
 
 test('odpověď bez výslovného ok true nesmí potvrdit uložení', async () => {

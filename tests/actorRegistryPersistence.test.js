@@ -23,3 +23,10 @@ test('actor update preserves the exact sheet version token for conflict checks',
   assert.match(source, /expectedUpdatedAt: existingRecord\.expectedUpdatedAt \|\| existingRecord\.updatedAt \|\| ''/);
   assert.match(source, /\.\.\.\(expectedUpdatedAt \? \{ expectedUpdatedAt \} : \{\}\)/);
 });
+
+test('actor save verifies the sheet after a damaged confirmation response', () => {
+  assert.match(source, /error\?\.code !== 'INVALID_JSON_RESPONSE'/);
+  assert.match(source, /fetchGoogleSheetAction\('listPartners'\)/);
+  assert.match(source, /actorSheetRowMatchesPayload\(row, partnerToSave\)/);
+  assert.match(source, /recoveredConfirmation: true/);
+});

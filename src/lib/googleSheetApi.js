@@ -1,9 +1,13 @@
 async function parseGoogleSheetResponse(response) {
+  const responseText = await response.text();
   let result;
   try {
-    result = await response.json();
+    result = JSON.parse(responseText);
   } catch {
-    throw new Error('Google Sheet nevrátil platnou JSON odpověď. Uložení nelze potvrdit.');
+    const error = new Error('Google Sheet nevrátil platnou JSON odpověď. Uložení nelze potvrdit.');
+    error.code = 'INVALID_JSON_RESPONSE';
+    error.status = response.status;
+    throw error;
   }
 
   if (!response.ok) {
