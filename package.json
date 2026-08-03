@@ -15,7 +15,6 @@
     "@xmldom/xmldom": "^0.9.10",
     "adm-zip": "^0.5.17",
     "exceljs": "^4.4.0",
-    "firebase": "^11.0.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.468.0",
