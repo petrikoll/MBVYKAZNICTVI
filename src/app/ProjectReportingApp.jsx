@@ -41,8 +41,6 @@ import {
   Printer,
   X
 } from 'lucide-react';
-import { onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
-import { addDoc, collection, deleteDoc, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import {
   APP_VIEWS,
   GOOGLE_DRIVE_UPLOAD_URL,
@@ -87,8 +85,8 @@ import {
   TopMetric
 } from '../components/ui.jsx';
 import IdleFlyScreensaver from '../components/IdleFlyScreensaver.jsx';
-import { appId, auth, db, hasFirebaseConfig } from '../lib/firebase.js';
 import { buildSensitiveTerms, parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
+import { parseGoogleSheetResponse, requireSavedGoogleSheetRecord } from '../lib/googleSheetApi.js';
 import {
   actorContactsToSheetFields,
   attendanceSheetTitle,
@@ -2206,16 +2204,18 @@ function haveSameClientSnapshot(currentClients, nextClients) {
   });
 }
 
+const LOCAL_ONLY_ENTITY_TYPES = new Set(['ai_style_memory', 'client_folder_bundle', 'mentor_report_document']);
+const isLocalOnlyRecord = (record) => LOCAL_ONLY_ENTITY_TYPES.has(record?.entityType);
+
 function App() {
   const cachedClientsAtStartup = useMemo(() => loadLocalClients(), []);
   const cachedRecordsAtStartup = useMemo(
-    () => (!hasFirebaseConfig || !db ? loadLocalRecords() : []),
+    () => loadLocalRecords().filter(isLocalOnlyRecord),
     []
   );
   const [mainView, setMainView] = useState('clients');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAllClients, setShowAllClients] = useState(true);
-  const [user, setUser] = useState(null);
   const [records, setRecords] = useState(cachedRecordsAtStartup);
   const [clients, setClients] = useState(cachedClientsAtStartup);
   const [hasLocalDataCache, setHasLocalDataCache] = useState(
@@ -2224,7 +2224,6 @@ function App() {
   const [isLoadingClients, setIsLoadingClients] = useState(false);
   const [isClientRegistryAvailable, setIsClientRegistryAvailable] = useState(false);
   const [sheetError, setSheetError] = useState('');
-  const [firebaseAuthError, setFirebaseAuthError] = useState('');
   const [selectedClientId, setSelectedClientId] = useState('');
   const [showClientForm, setShowClientForm] = useState(false);
   const [clientDraft, setClientDraft] = useState(emptyClientDraft);
@@ -2495,57 +2494,6 @@ function App() {
   const isIndividualSupervision = supervisionDraft.type === 'individuální';
 
   useEffect(() => {
-    if (!hasFirebaseConfig || !auth) {
-      setUser({ uid: 'local-user' });
-      return undefined;
-    }
-
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-        setFirebaseAuthError('');
-      } catch (error) {
-        console.error('Auth error:', error);
-        setFirebaseAuthError('Firebase Authentication není připravené. Ve Firebase zapni Authentication > Sign-in method > Anonymous.');
-      }
-    };
-
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user) return undefined;
-    if (!hasFirebaseConfig || !db) {
-      setRecords(loadLocalRecords());
-      return undefined;
-    }
-
-    const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'projectRecords');
-    const unsubscribe = onSnapshot(
-      recordsRef,
-      (snapshot) => {
-        const loaded = snapshot.docs.map((docSnapshot) => canonicalizeWorkerReferences({
-          id: docSnapshot.id,
-          ...docSnapshot.data()
-        }));
-        loaded.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        setRecords(loaded);
-      },
-      (error) => {
-        console.error('Firestore snapshot error:', error);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [user]);
-
-  useEffect(() => {
     const fetchClients = async () => {
       setIsLoadingClients(true);
       setSheetError('');
@@ -2685,12 +2633,10 @@ function App() {
           const preservedFailedRemote = prev.filter((record) =>
             record.remoteSource && !remoteIds.has(record.id) && !sourceLoadedForRecord(record)
           );
-          const localOnly = prev.filter((record) => !record.remoteSource && !remoteIds.has(record.id));
+          const localOnly = prev.filter((record) => isLocalOnlyRecord(record) && !remoteIds.has(record.id));
           const merged = [...remoteRecords, ...preservedFailedRemote, ...localOnly].sort(compareTimelineRecordsDesc);
-          if (!hasFirebaseConfig || !db) {
-            saveLocalRecords(merged);
-            if (merged.length > 0) setHasLocalDataCache(true);
-          }
+          saveLocalRecords(merged);
+          if (merged.length > 0) setHasLocalDataCache(true);
           return merged;
         });
       };
@@ -2928,6 +2874,10 @@ function App() {
 
 
   useEffect(() => {
+    if (mainView === 'clients' && showClientForm) {
+      if (selectedClientId) setSelectedClientId('');
+      return;
+    }
     if (clientSelectionPool.length === 0) {
       setSelectedClientId('');
       setGeneratorDraft((prev) => ({ ...prev, clientId: '' }));
@@ -2944,7 +2894,7 @@ function App() {
       setKa02Draft((prev) => ({ ...prev, selectedClientId: nextClientId }));
       setKa03Draft((prev) => ({ ...prev, selectedClientId: nextClientId, tpmClientId: nextClientId, employmentClientId: nextClientId }));
     }
-  }, [clientSelectionPool, selectedClientId]);
+  }, [clientSelectionPool, selectedClientId, mainView, showClientForm]);
 
   useEffect(() => {
     if (!selectedClientId) return;
@@ -3874,31 +3824,14 @@ function App() {
       indicatorFlags: {}
     };
 
-    if (!hasFirebaseConfig || !db) {
-      const nextRecord = existingRecord
-        ? { ...existingRecord, ...payload, createdAt: existingRecord.createdAt || Date.now() }
-        : { ...payload, id: `local-drive-bundle-${client.id}`, createdAt: Date.now() };
-      const nextRecords = existingRecord
-        ? records.map((record) => (record.id === existingRecord.id ? nextRecord : record))
-        : [nextRecord, ...records];
-      setRecords(nextRecords);
-      saveLocalRecords(nextRecords);
-      return;
-    }
-
-    const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'projectRecords');
-    if (existingRecord?.id) {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projectRecords', existingRecord.id), {
-        ...payload,
-        createdAt: existingRecord.createdAt || Date.now()
-      });
-      return;
-    }
-
-    await addDoc(recordsRef, {
-      ...payload,
-      createdAt: Date.now()
-    });
+    const nextRecord = existingRecord
+      ? { ...existingRecord, ...payload, createdAt: existingRecord.createdAt || Date.now() }
+      : { ...payload, id: `local-drive-bundle-${client.id}`, createdAt: Date.now() };
+    const nextRecords = existingRecord
+      ? records.map((record) => (record.id === existingRecord.id ? nextRecord : record))
+      : [nextRecord, ...records];
+    setRecords(nextRecords);
+    saveLocalRecords(nextRecords);
   };
 
   const provisionClientDriveFolder = async (client, { silent = false, manageState = true } = {}) => {
@@ -3976,20 +3909,13 @@ function App() {
 
 
   const postGoogleSheetAction = async (payload) => {
-    if (!GOOGLE_SHEET_MACRO_URL) return null;
+    if (!GOOGLE_SHEET_MACRO_URL) throw new Error('Propojení s Google Sheetem není nastavené.');
     const response = await fetch(GOOGLE_SHEET_MACRO_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     });
-    if (!response.ok) throw new Error('Google Sheet akce selhala: ' + response.status);
-    const result = await response.json().catch(() => ({}));
-    if (result.ok === false) {
-      const error = new Error(result.error || 'Google Sheet akce selhala.');
-      error.code = result.code || '';
-      throw error;
-    }
-    return result;
+    return parseGoogleSheetResponse(response);
   };
 
   const loadBackupStatus = async () => {
@@ -4104,7 +4030,8 @@ function App() {
           status: 'Platn\u00fd'
         }
       });
-      return withSheetVersion({ ...record, id: result?.partner?.partner_id || record.id }, result?.partner);
+      const savedPartner = requireSavedGoogleSheetRecord(result, 'partner', 'partner_id', 'aktéra');
+      return withSheetVersion({ ...record, id: savedPartner.partner_id }, savedPartner);
     }
 
     if (record.entityType === 'network_activities') {
@@ -4130,7 +4057,8 @@ function App() {
           status: 'Platn\u00fd'
         }
       });
-      return withSheetVersion({ ...record, id: result?.networkMeeting?.schuzka_site_id || record.id }, result?.networkMeeting);
+      const savedMeeting = requireSavedGoogleSheetRecord(result, 'networkMeeting', 'schuzka_site_id', 'síťové aktivity');
+      return withSheetVersion({ ...record, id: savedMeeting.schuzka_site_id }, savedMeeting);
     }
 
     if (record.entityType === 'education_records') {
@@ -4151,8 +4079,8 @@ function App() {
           status: 'Platný'
         }
       });
-      const savedEducation = result?.education || result?.vzdelavani;
-      return withSheetVersion({ ...record, id: savedEducation?.vzdelavani_id || record.id }, savedEducation);
+      const savedEducation = requireSavedGoogleSheetRecord(result, ['education', 'vzdelavani'], 'vzdelavani_id', 'vzdělávání');
+      return withSheetVersion({ ...record, id: savedEducation.vzdelavani_id }, savedEducation);
     }
 
     if (record.entityType === 'supervision_records') {
@@ -4171,8 +4099,8 @@ function App() {
           status: 'Platn\u00fd'
         }
       });
-      const savedSupervision = result?.supervision || result?.supervize;
-      return withSheetVersion({ ...record, id: savedSupervision?.sepervize_id || record.id }, savedSupervision);
+      const savedSupervision = requireSavedGoogleSheetRecord(result, ['supervision', 'supervize'], 'sepervize_id', 'supervize');
+      return withSheetVersion({ ...record, id: savedSupervision.sepervize_id }, savedSupervision);
     }
 
     if (record.entityType === 'plans') {
@@ -4221,12 +4149,13 @@ function App() {
           status: 'Platn\u00fd'
         }
       });
+      const savedPlan = requireSavedGoogleSheetRecord(result, 'individualPlan', 'plan_id', 'individuálního plánu');
       return withSheetVersion({
         ...record,
-        id: result?.individualPlan?.plan_id || record.id,
+        id: savedPlan.plan_id,
         goals: normalizedGoals,
         payload: { ...payload, structuredGoals: normalizedGoals }
-      }, result?.individualPlan);
+      }, savedPlan);
     }
 
     if (record.clientId && payload.caseManagementMode) {
@@ -4262,7 +4191,8 @@ function App() {
           status: 'Platn\u00fd'
         }
       });
-      return withSheetVersion({ ...record, id: result?.meeting?.meeting_id || record.id }, result?.meeting);
+      const savedMeeting = requireSavedGoogleSheetRecord(result, 'meeting', 'meeting_id', 'výkonu case managementu');
+      return withSheetVersion({ ...record, id: savedMeeting.meeting_id }, savedMeeting);
     }
 
     if (record.clientId) {
@@ -4291,8 +4221,9 @@ function App() {
           status: 'Platn\u00fd'
         }
       });
+      const savedPerformance = requireSavedGoogleSheetRecord(result, 'performance', 'vykon_id', 'výkonu');
       await refreshStatisticsRows();
-      return withSheetVersion({ ...record, id: result?.performance?.vykon_id || record.id }, result?.performance);
+      return withSheetVersion({ ...record, id: savedPerformance.vykon_id }, savedPerformance);
     }
 
     return record;
@@ -4324,55 +4255,24 @@ function App() {
       setFlash('Tento záznam se už ukládá. Vyčkej na dokončení ukládání.');
       return false;
     }
-    if (!user && hasFirebaseConfig) {
-      if (noticeKey) setSaveButtonNotice(noticeKey, 'error', 'Uložení se nepodařilo. Zkontrolujte připojení a Apps Script.');
-      setFlash('Ulo\u017een\u00ed do Google Sheetu se nepoda\u0159ilo. Zkontroluj p\u0159ipojen\u00ed a nasazen\u00fd Apps Script.');
-      return false;
-    }
-    if (!user) {
-      if (noticeKey) setSaveButtonNotice(noticeKey, 'error', 'Záznam nelze uložit bez přihlášeného uživatele.');
-      setFlash('Záznam nelze uložit bez přihlášeného uživatele.');
-      return false;
-    }
-
     pendingRecordSaveSignaturesRef.current.add(pendingSignature);
     setIsSaving(true);
     if (noticeKey) setSaveButtonNotice(noticeKey, 'progress', progressText);
     try {
-      if (!hasFirebaseConfig || !db) {
-        const localRecord = {
-          ...payload,
-          id: payload.id || `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-          createdAt: Date.now()
-        };
-        const syncedRecord = await syncRecordToGoogleSheet(localRecord);
-        setRecords((previousRecords) => {
-          const nextRecords = [
-            syncedRecord,
-            ...previousRecords.filter((record) => record.id !== syncedRecord.id)
-          ];
-          saveLocalRecords(nextRecords);
-          return nextRecords;
-        });
-        if (syncedRecord.entityType !== 'ai_style_memory') {
-          await syncRecordToGoogleDrive(syncedRecord);
-        }
-        return completeSave();
-      }
-
-      const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'projectRecords');
-      const recordToSave = {
+      const localRecord = {
         ...payload,
+        id: payload.id || `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         createdAt: Date.now()
       };
-      const pendingId = recordToSave.id || `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const syncedRecord = await syncRecordToGoogleSheet({ ...recordToSave, id: pendingId });
-      try {
-        await setDoc(doc(recordsRef, syncedRecord.id), syncedRecord, { merge: true });
-      } catch (firebaseError) {
-        if (!GOOGLE_SHEET_MACRO_URL) throw firebaseError;
-        console.warn('Firebase mirror save failed; Google Sheet remains authoritative:', firebaseError);
-      }
+      const syncedRecord = await syncRecordToGoogleSheet(localRecord);
+      setRecords((previousRecords) => {
+        const nextRecords = [
+          syncedRecord,
+          ...previousRecords.filter((record) => record.id !== syncedRecord.id)
+        ];
+        saveLocalRecords(nextRecords);
+        return nextRecords;
+      });
       if (syncedRecord.entityType !== 'ai_style_memory') {
         await syncRecordToGoogleDrive(syncedRecord);
       }
@@ -4416,24 +4316,10 @@ function App() {
         updatedAt: Date.now()
       };
 
-      if (!hasFirebaseConfig || !db) {
-        const syncedRecord = await syncRecordToGoogleSheet(updatedRecord);
-        const nextRecords = records.map((record) => (record.id === recordId ? syncedRecord : record));
-        setRecords(nextRecords);
-        saveLocalRecords(nextRecords);
-        if (syncedRecord.entityType !== 'ai_style_memory') {
-          await syncRecordToGoogleDrive(syncedRecord);
-        }
-        return completeSave();
-      }
-
       const syncedRecord = await syncRecordToGoogleSheet(updatedRecord);
-      try {
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projectRecords', recordId), syncedRecord, { merge: true });
-      } catch (firebaseError) {
-        if (!GOOGLE_SHEET_MACRO_URL) throw firebaseError;
-        console.warn('Firebase mirror update failed; Google Sheet remains authoritative:', firebaseError);
-      }
+      const nextRecords = records.map((record) => (record.id === recordId ? syncedRecord : record));
+      setRecords(nextRecords);
+      saveLocalRecords(nextRecords);
       if (syncedRecord.entityType !== 'ai_style_memory') {
         await syncRecordToGoogleDrive(syncedRecord);
       }
@@ -4485,13 +4371,7 @@ function App() {
     try {
       await deleteGoogleSheetRecord(record);
       setRecords(nextRecords);
-      if (!hasFirebaseConfig || !db) {
-        saveLocalRecords(nextRecords);
-        setFlash('Záznam byl smazán.');
-        return;
-      }
-
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projectRecords', record.id));
+      saveLocalRecords(nextRecords);
       setFlash('Záznam byl smazán.');
     } catch (error) {
       setRecords(previousRecords);
@@ -4549,6 +4429,7 @@ function App() {
       if (!savedClient) throw new Error('Ulo\u017een\u00e9ho klienta se nepoda\u0159ilo na\u010d\u00edst.');
 
       setClients((prev) => [savedClient, ...prev.filter((client) => client.id !== savedClient.id)]);
+      setShowClientForm(false);
       setSelectedClientId(savedClient.id);
       setClientDraft({ ...emptyClientDraft, datumVstupu: todayIso(), keyWorker: isGarantWorker(currentWorker) ? '' : currentWorker });
       setSheetError('');
@@ -5361,7 +5242,7 @@ ${rawOutput}` }] }],
       setRecords((previous) => {
         const otherRecords = previous.filter((record) => record.entityType !== 'network_activities');
         const merged = [...remoteNetworkRecords, ...otherRecords].sort(compareTimelineRecordsDesc);
-        if (!hasFirebaseConfig || !db) saveLocalRecords(merged);
+        saveLocalRecords(merged);
         return merged;
       });
     } catch (error) {
@@ -5920,6 +5801,7 @@ ${rawOutput}` }] }],
 
   const openClient = (clientId, nextView = 'clients') => {
     if (nextView !== mainView && !confirmAndResetBeforeViewChange()) return;
+    setShowClientForm(false);
     setShowClientEditForm(false);
     setClientCaseSummary('');
     setEditingGeneratedRecordId('');
@@ -7102,11 +6984,6 @@ ${rawPlanOutput}` }] }],
       </header>
 
       <main className="relative z-[1] mx-auto max-w-7xl px-4 py-6 md:px-6">
-        {firebaseAuthError && (
-          <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-            {firebaseAuthError}
-          </div>
-        )}
         {sheetError && (
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             <span>{sheetError}</span>
@@ -7133,9 +7010,12 @@ ${rawPlanOutput}` }] }],
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => {
+                        const willOpen = !showClientForm;
                         setClientDraft((prev) => ({ ...prev, keyWorker: prev.keyWorker || (isGarantWorker(currentWorker) ? '' : currentWorker) }));
                         clearSaveButtonNotice('client-create');
-                        setShowClientForm((prev) => !prev);
+                        setShowClientEditForm(false);
+                        if (willOpen) setSelectedClientId('');
+                        setShowClientForm(willOpen);
                       }}
                       className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
                     >
