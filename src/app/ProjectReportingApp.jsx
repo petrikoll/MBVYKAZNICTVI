@@ -2249,6 +2249,27 @@ function haveSameClientSnapshot(currentClients, nextClients) {
 
 const LOCAL_ONLY_ENTITY_TYPES = new Set(['ai_style_memory', 'client_folder_bundle', 'mentor_report_document']);
 const isLocalOnlyRecord = (record) => LOCAL_ONLY_ENTITY_TYPES.has(record?.entityType);
+const VERIFIED_RECORD_SOURCE_ACTIONS = [
+  'listPerformances',
+  'listMeetings',
+  'listIndividualPlans',
+  'listNetworkMeetings',
+  'listPartners',
+  'listEducation',
+  'listSupervision'
+];
+
+function recordSourceAction(record) {
+  if (!record || isLocalOnlyRecord(record)) return '';
+  if (record.entityType === 'plans') return 'listIndividualPlans';
+  if (record.entityType === 'actor_registry') return 'listPartners';
+  if (record.entityType === 'network_activities') return 'listNetworkMeetings';
+  if (record.entityType === 'education_records') return 'listEducation';
+  if (record.entityType === 'supervision_records') return 'listSupervision';
+  if (record.entityType === 'consultations' && (record.ka === 'KA2' || record.payload?.caseManagementMode)) return 'listMeetings';
+  if (record.clientId || (Array.isArray(record.clientIds) && record.clientIds.length)) return 'listPerformances';
+  return '';
+}
 
 function App() {
   const cachedClientsAtStartup = useMemo(() => loadLocalClients(), []);
@@ -2258,6 +2279,7 @@ function App() {
   const [showAllClients, setShowAllClients] = useState(true);
   const [records, setRecords] = useState(cachedRecordsAtStartup);
   const [clients, setClients] = useState(cachedClientsAtStartup);
+  const [verifiedRecordActions, setVerifiedRecordActions] = useState(() => new Set());
   const [hasLocalDataCache, setHasLocalDataCache] = useState(
     cachedClientsAtStartup.length > 0 || cachedRecordsAtStartup.length > 0
   );
@@ -2621,6 +2643,7 @@ function App() {
     let cancelled = false;
 
     const fetchSheetRecords = async () => {
+      setVerifiedRecordActions(new Set());
       const failedActions = [];
       const loadedActions = new Set();
       const loadAction = async (action, fallback) => {
@@ -2631,6 +2654,9 @@ function App() {
           if (outcome?.error) throw outcome.error;
           const result = outcome?.result || await fetchGoogleSheetAction(action);
           loadedActions.add(action);
+          if (!cancelled && VERIFIED_RECORD_SOURCE_ACTIONS.includes(action)) {
+            setVerifiedRecordActions((previous) => new Set([...previous, action]));
+          }
           return result;
         } catch (error) {
           console.warn('Google Sheets action load skipped:', action, error);
@@ -2711,6 +2737,10 @@ function App() {
         const loadedBootstrapActions = new Set(
           bootstrapActions.filter((action) => !failedBootstrapActions.has(action))
         );
+        setVerifiedRecordActions((previous) => new Set([
+          ...previous,
+          ...[...loadedBootstrapActions].filter((action) => VERIFIED_RECORD_SOURCE_ACTIONS.includes(action))
+        ]));
 
           if (loadedBootstrapActions.has('listStatistics')) {
             setStatisticsRows(Array.isArray(bootstrap.statistics) ? bootstrap.statistics : []);
@@ -2789,6 +2819,12 @@ function App() {
   }, [clients, clientIndex]);
 
   const currentWorker = globalWorker || WORKERS[0];
+  const pendingRecordVerification = VERIFIED_RECORD_SOURCE_ACTIONS.some((action) => !verifiedRecordActions.has(action));
+  const recordWriteBlockMessage = (record) => {
+    const sourceAction = recordSourceAction(record);
+    if (!sourceAction || verifiedRecordActions.has(sourceAction)) return '';
+    return 'Aktuální data této oblasti se ještě ověřují. Do dokončení aktualizace je ukládání a mazání zablokováno.';
+  };
   const canSeeAllClients = isGarantWorker(currentWorker);
   const accessibleClients = useMemo(() => {
     if (canSeeAllClients) return clients;
@@ -4293,6 +4329,8 @@ function App() {
       if (noticeKey) setSaveButtonNotice(noticeKey, 'success', successText);
       return true;
     };
+    const writeBlockMessage = recordWriteBlockMessage(payload);
+    if (writeBlockMessage) return failSave(writeBlockMessage);
     const hasClientBinding = Boolean(payload.clientId || (Array.isArray(payload.clientIds) && payload.clientIds.length));
     if (hasClientBinding && !isClientRegistryAvailable) {
       if (noticeKey) setSaveButtonNotice(noticeKey, 'error', 'Klientský registr není dostupný. Uložení bylo zablokováno.');
@@ -4357,6 +4395,8 @@ function App() {
       setFlash('Upravovaný záznam už v evidenci není.');
       return false;
     }
+    const writeBlockMessage = recordWriteBlockMessage(existingRecord);
+    if (writeBlockMessage) return failSave(writeBlockMessage);
 
     setIsSaving(true);
     if (noticeKey) setSaveButtonNotice(noticeKey, 'progress', progressText);
@@ -4416,6 +4456,11 @@ function App() {
 
   const deleteRecord = async (record) => {
     if (!record?.id) return;
+    const writeBlockMessage = recordWriteBlockMessage(record);
+    if (writeBlockMessage) {
+      setFlash(writeBlockMessage);
+      return;
+    }
     const confirmed = window.confirm(`Opravdu smazat záznam "${record.title || 'bez názvu'}"?`);
     if (!confirmed) return;
 
@@ -7041,6 +7086,11 @@ ${rawPlanOutput}` }] }],
       </header>
 
       <main className="relative z-[1] mx-auto max-w-7xl px-4 py-6 md:px-6">
+        {pendingRecordVerification && cachedRecordsAtStartup.some((record) => !isLocalOnlyRecord(record)) && (
+          <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+            Zobrazuje se poslední lokální kopie. Jednotlivé oblasti jsou pouze pro čtení, dokud se jejich data neověří v Google Sheetu.
+          </div>
+        )}
         {sheetError && (
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             <span>{sheetError}</span>
