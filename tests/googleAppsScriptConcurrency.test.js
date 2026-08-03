@@ -84,3 +84,57 @@ test('delete keeps the row as an audit trail and checks its version', () => {
   assert.equal(Object.prototype.toString.call(savedValues[3]), '[object Date]');
   assert.equal(savedValues[4], 'Radka');
 });
+
+test('actor update preserves partner columns not sent by the application', () => {
+  const context = createContext();
+  const current = new Date('2026-08-02T10:15:30.000Z');
+  const headers = [
+    'partner_id',
+    'nazev_subjektu',
+    'typ_aktera',
+    'poznamka',
+    'status',
+    'created_at',
+    'created_by',
+    'updated_at',
+    'updated_by'
+  ];
+  let storedRow = [
+    'PARTNER-0001',
+    'Puvodni nazev',
+    'obec',
+    'Dulezita poznamka',
+    'Platny',
+    new Date('2026-07-01T08:00:00.000Z'),
+    'Radka',
+    current,
+    'Radka'
+  ];
+  const sheet = {
+    getLastRow: () => 2,
+    getRange: () => ({
+      getValues: () => [storedRow],
+      setValues: ([values]) => { storedRow = values; }
+    })
+  };
+
+  context.getSpreadsheet_ = () => ({ getSheetByName: () => sheet });
+  context.getHeaders_ = () => headers;
+  context.ensureHeader_ = () => {};
+  context.findPartnerRow_ = () => 2;
+
+  context.savePartner_({
+    partner_id: 'PARTNER-0001',
+    nazev_subjektu: 'Novy nazev',
+    expected_updated_at: current.getTime(),
+    status: 'Platny',
+    updated_by: 'Josef'
+  });
+
+  const saved = Object.fromEntries(headers.map((header, index) => [header, storedRow[index]]));
+  assert.equal(saved.nazev_subjektu, 'Novy nazev');
+  assert.equal(saved.typ_aktera, 'obec');
+  assert.equal(saved.poznamka, 'Dulezita poznamka');
+  assert.equal(saved.created_by, 'Radka');
+  assert.equal(saved.updated_by, 'Josef');
+});

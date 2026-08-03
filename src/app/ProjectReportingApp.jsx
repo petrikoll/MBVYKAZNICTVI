@@ -4027,7 +4027,8 @@ function App() {
           datum_zapojeni: payload.joinedNetworkDate || record.activityDate || '',
           ...contactSheetFields,
           expected_updated_at: expectedUpdatedAt,
-          status: 'Platn\u00fd'
+          status: 'Platn\u00fd',
+          updated_by: record.worker || currentWorker || ''
         }
       });
       const savedPartner = requireSavedGoogleSheetRecord(result, 'partner', 'partner_id', 'aktéra');
@@ -5430,6 +5431,7 @@ ${rawOutput}` }] }],
     }
 
     const editingId = ka01ActorDraft.id || '';
+    const isPersistedEdit = Boolean(editingId && records.some((record) => record.id === editingId));
     const duplicate = records.find((record) =>
       record.entityType === 'actor_registry'
       && record.id !== editingId
@@ -5449,7 +5451,9 @@ ${rawOutput}` }] }],
       clientIds: [],
       documentText: '',
       payload: {
-        id: editingId,
+        ...ka01ActorDraft,
+        id: isPersistedEdit ? editingId : '',
+        ...(editingId && !isPersistedEdit ? { seedSourceId: editingId } : {}),
         name,
         actorType: ka01ActorDraft.actorType,
         networkOrigin: origin,
@@ -5467,7 +5471,7 @@ ${rawOutput}` }] }],
       indicatorFlags: { ka01NetworkSize: 1 }
     };
 
-    const ok = editingId
+    const ok = isPersistedEdit
       ? await updateExistingRecord(editingId, actorRecord, { noticeKey: 'actor', successText: 'Uloženo' })
       : await saveRecord(actorRecord, { noticeKey: 'actor', successText: 'Uloženo' });
     if (!ok) return;

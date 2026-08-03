@@ -451,7 +451,7 @@ function savePartner_(partner) {
   if (!partnerIdColumn) throw new Error('Missing partner_id column');
 
   const now = new Date();
-  const normalized = Object.assign({}, partner);
+  let normalized = Object.assign({}, partner);
   const incomingPartnerId = String(normalized.partner_id || '').trim();
   const existingRow = incomingPartnerId ? findPartnerRow_(sheet, partnerIdColumn, incomingPartnerId) : null;
   if (!existingRow) {
@@ -463,6 +463,7 @@ function savePartner_(partner) {
     : {};
   assertExpectedVersion_(existing, normalized.expected_updated_at, 'Partnera ' + incomingPartnerId);
   delete normalized.expected_updated_at;
+  normalized = Object.assign({}, existing, normalized);
   normalized.partner_id = normalized.partner_id || nextPartnerId_(sheet, partnerIdColumn);
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
