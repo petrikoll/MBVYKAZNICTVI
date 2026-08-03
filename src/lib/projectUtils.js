@@ -1893,7 +1893,9 @@ function escapeHtml(value) {
 const LOCAL_CLIENTS_CACHE_KEY = 'projectReporting.clients.v1';
 const LOCAL_RECORDS_CACHE_KEY = 'projectReporting.records';
 const LOCAL_CLIENTS_CACHE_VERSION = 1;
+const LOCAL_RECORDS_CACHE_VERSION = 1;
 const LOCAL_CLIENTS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const LOCAL_RECORDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function getBrowserStorage(storage) {
   if (storage) return storage;
@@ -1951,21 +1953,46 @@ function clearLocalReportingCache(storage) {
   }
 }
 
-function loadLocalRecords() {
+function loadLocalRecords(storage, now = Date.now()) {
   try {
-    const stored = window.localStorage.getItem(LOCAL_RECORDS_CACHE_KEY);
-    return stored ? canonicalizeWorkerReferences(JSON.parse(stored)) : [];
+    const browserStorage = getBrowserStorage(storage);
+    if (!browserStorage) return [];
+    const stored = browserStorage.getItem(LOCAL_RECORDS_CACHE_KEY);
+    if (!stored) return [];
+    const cached = JSON.parse(stored);
+
+    // Původní verze ukládala přímo pole. Jednorázově je přijmeme, aby se
+    // uživateli po aktualizaci okamžitě zobrazila poslední známá data.
+    if (Array.isArray(cached)) return canonicalizeWorkerReferences(cached);
+
+    const savedAt = Number(cached?.savedAt);
+    const isCurrent = cached?.version === LOCAL_RECORDS_CACHE_VERSION
+      && Number.isFinite(savedAt)
+      && now - savedAt <= LOCAL_RECORDS_MAX_AGE_MS;
+    if (!isCurrent || !Array.isArray(cached.records)) {
+      browserStorage.removeItem(LOCAL_RECORDS_CACHE_KEY);
+      return [];
+    }
+    return canonicalizeWorkerReferences(cached.records);
   } catch (error) {
     console.error('Local records load error:', error);
     return [];
   }
 }
 
-function saveLocalRecords(records) {
+function saveLocalRecords(records, storage, now = Date.now()) {
   try {
-    window.localStorage.setItem(LOCAL_RECORDS_CACHE_KEY, JSON.stringify(records));
+    const browserStorage = getBrowserStorage(storage);
+    if (!browserStorage) return false;
+    browserStorage.setItem(LOCAL_RECORDS_CACHE_KEY, JSON.stringify({
+      version: LOCAL_RECORDS_CACHE_VERSION,
+      savedAt: now,
+      records: Array.isArray(records) ? records : []
+    }));
+    return true;
   } catch (error) {
     console.error('Local records save error:', error);
+    return false;
   }
 }
 

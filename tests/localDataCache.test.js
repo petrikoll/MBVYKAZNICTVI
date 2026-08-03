@@ -3,8 +3,13 @@ import test from 'node:test';
 import {
   clearLocalReportingCache,
   loadLocalClients,
-  saveLocalClients
+  loadLocalRecords,
+  saveLocalClients,
+  saveLocalRecords
 } from '../src/lib/projectUtils.js';
+import { readFileSync } from 'node:fs';
+
+const appSource = readFileSync(new URL('../src/app/ProjectReportingApp.jsx', import.meta.url), 'utf8');
 
 function createStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -33,6 +38,39 @@ test('zastaralá lokální kopie se po sedmi dnech nepoužije', () => {
   const eightDaysLater = now + 8 * 24 * 60 * 60 * 1000;
   assert.deepEqual(loadLocalClients(storage, eightDaysLater), []);
   assert.equal(storage.has('projectReporting.clients.v1'), false);
+});
+
+test('lokální kopie výkonů a aktérů je dostupná hned při dalším spuštění', () => {
+  const storage = createStorage();
+  const now = Date.UTC(2026, 7, 3, 12);
+  const records = [
+    { id: 'VYKON-0001', entityType: 'consultations', remoteSource: 'google-sheet' },
+    { id: 'PARTNER-0001', entityType: 'actor_registry', remoteSource: 'google-sheet' }
+  ];
+
+  assert.equal(saveLocalRecords(records, storage, now), true);
+  assert.deepEqual(loadLocalRecords(storage, now + 1000), records);
+});
+
+test('původní lokální pole záznamů zůstane po aktualizaci použitelné', () => {
+  const records = [{ id: 'VYKON-0002', entityType: 'consultations' }];
+  const storage = createStorage({ 'projectReporting.records': JSON.stringify(records) });
+
+  assert.deepEqual(loadLocalRecords(storage), records);
+});
+
+test('zastaralá lokální kopie záznamů se po sedmi dnech odstraní', () => {
+  const storage = createStorage();
+  const now = Date.UTC(2026, 7, 3, 12);
+  saveLocalRecords([{ id: 'VYKON-0001' }], storage, now);
+
+  assert.deepEqual(loadLocalRecords(storage, now + 8 * 24 * 60 * 60 * 1000), []);
+  assert.equal(storage.has('projectReporting.records'), false);
+});
+
+test('aplikace při startu použije celou lokální kopii záznamů', () => {
+  assert.match(appSource, /const cachedRecordsAtStartup = useMemo\(\(\) => loadLocalRecords\(\), \[\]\)/);
+  assert.match(appSource, /const preservedPendingRemote = prev\.filter/);
 });
 
 test('vymazání lokální kopie nezasahuje jiná nastavení aplikace', () => {

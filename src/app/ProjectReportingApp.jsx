@@ -2252,10 +2252,7 @@ const isLocalOnlyRecord = (record) => LOCAL_ONLY_ENTITY_TYPES.has(record?.entity
 
 function App() {
   const cachedClientsAtStartup = useMemo(() => loadLocalClients(), []);
-  const cachedRecordsAtStartup = useMemo(
-    () => loadLocalRecords().filter(isLocalOnlyRecord),
-    []
-  );
+  const cachedRecordsAtStartup = useMemo(() => loadLocalRecords(), []);
   const [mainView, setMainView] = useState('clients');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAllClients, setShowAllClients] = useState(true);
@@ -2673,11 +2670,11 @@ function App() {
             if (record.entityType === 'supervision_records') return actionsForMerge.has('listSupervision');
             return true;
           };
-          const preservedFailedRemote = prev.filter((record) =>
-            record.remoteSource && !remoteIds.has(record.id) && !sourceLoadedForRecord(record)
+          const preservedPendingRemote = prev.filter((record) =>
+            !isLocalOnlyRecord(record) && !remoteIds.has(record.id) && !sourceLoadedForRecord(record)
           );
           const localOnly = prev.filter((record) => isLocalOnlyRecord(record) && !remoteIds.has(record.id));
-          const merged = [...remoteRecords, ...preservedFailedRemote, ...localOnly].sort(compareTimelineRecordsDesc);
+          const merged = [...remoteRecords, ...preservedPendingRemote, ...localOnly].sort(compareTimelineRecordsDesc);
           saveLocalRecords(merged);
           if (merged.length > 0) setHasLocalDataCache(true);
           return merged;
