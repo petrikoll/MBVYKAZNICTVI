@@ -17,3 +17,9 @@ test('editing a generated actor creates a persisted replacement', () => {
 test('actor save preserves the complete draft payload', () => {
   assert.match(source, /payload: \{\s*\.\.\.ka01ActorDraft,\s*id: isPersistedEdit/);
 });
+
+test('actor update preserves the exact sheet version token for conflict checks', () => {
+  assert.match(source, /entityType: 'actor_registry',[\s\S]*?expectedUpdatedAt: asSheetText\(row\.updated_at\)/);
+  assert.match(source, /expectedUpdatedAt: existingRecord\.expectedUpdatedAt \|\| existingRecord\.updatedAt \|\| ''/);
+  assert.match(source, /\.\.\.\(expectedUpdatedAt \? \{ expectedUpdatedAt \} : \{\}\)/);
+});

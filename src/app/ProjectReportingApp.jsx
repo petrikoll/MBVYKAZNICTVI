@@ -1521,7 +1521,8 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       },
       indicatorFlags: { ka02Plans: true },
       createdAt: Date.parse(asSheetText(row.created_at)) || 0,
-      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0
+      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0,
+      expectedUpdatedAt: asSheetText(row.updated_at)
     });
   });
 
@@ -1564,7 +1565,8 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       },
       indicatorFlags: { ka02Consultations: true },
       createdAt: Date.parse(asSheetText(row.created_at)) || 0,
-      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0
+      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0,
+      expectedUpdatedAt: asSheetText(row.updated_at)
     });
   });
 
@@ -1614,7 +1616,8 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       },
       indicatorFlags: { ka02Consultations: true },
       createdAt: Date.parse(asSheetText(row.created_at)) || 0,
-      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0
+      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0,
+      expectedUpdatedAt: asSheetText(row.updated_at)
     });
   });
 
@@ -1650,7 +1653,8 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       },
       indicatorFlags: { ka01NetworkActivity: true },
       createdAt: Date.parse(asSheetText(row.created_at)) || 0,
-      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0
+      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0,
+      expectedUpdatedAt: asSheetText(row.updated_at)
     });
   });
 
@@ -1686,7 +1690,8 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       },
       indicatorFlags: { ka01ActorRegistry: true },
       createdAt: Date.parse(asSheetText(row.created_at)) || 0,
-      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0
+      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0,
+      expectedUpdatedAt: asSheetText(row.updated_at)
     });
   });
 
@@ -1719,7 +1724,8 @@ function mapSheetRecordsToAppRecords({ individualPlans = [], performances = [], 
       },
       indicatorFlags: {},
       createdAt: Date.parse(asSheetText(row.created_at)) || 0,
-      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0
+      updatedAt: Date.parse(asSheetText(row.updated_at)) || 0,
+      expectedUpdatedAt: asSheetText(row.updated_at)
     });
   });
 
@@ -2160,9 +2166,14 @@ function parseSheetVersion(value) {
 }
 
 function withSheetVersion(record, row) {
-  const updatedAt = parseSheetVersion(row?.updated_at);
+  const expectedUpdatedAt = asSheetText(row?.updated_at).trim();
+  const updatedAt = parseSheetVersion(expectedUpdatedAt);
   const { expectedUpdatedAt: _expectedUpdatedAt, ...cleanRecord } = record;
-  return updatedAt ? { ...cleanRecord, updatedAt } : cleanRecord;
+  return {
+    ...cleanRecord,
+    ...(updatedAt ? { updatedAt } : {}),
+    ...(expectedUpdatedAt ? { expectedUpdatedAt } : {})
+  };
 }
 
 async function fetchGoogleSheetAction(action) {
@@ -4313,7 +4324,7 @@ function App() {
         ...payload,
         id: existingRecord.id,
         createdAt: existingRecord.createdAt || Date.now(),
-        expectedUpdatedAt: existingRecord.updatedAt || '',
+        expectedUpdatedAt: existingRecord.expectedUpdatedAt || existingRecord.updatedAt || '',
         updatedAt: Date.now()
       };
 
