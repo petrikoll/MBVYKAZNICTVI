@@ -452,15 +452,50 @@ function savePartner_(partner) {
 
   const now = new Date();
   let normalized = Object.assign({}, partner);
+  normalized.nazev_subjektu = String(normalized.nazev_subjektu || '').trim();
+  if (!normalized.nazev_subjektu) {
+    const error = new Error('Chybi nazev subjektu. Ulozeni bylo zastaveno.');
+    error.code = 'VALIDATION';
+    throw error;
+  }
   const incomingPartnerId = String(normalized.partner_id || '').trim();
   const existingRow = incomingPartnerId ? findPartnerRow_(sheet, partnerIdColumn, incomingPartnerId) : null;
-  if (!existingRow) {
-    const duplicateRow = findDuplicateRecordRow_(sheet, headers, normalized, 'partner_id');
-    if (duplicateRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
+  if (incomingPartnerId && !existingRow) {
+    const error = new Error('Partnera s ID ' + incomingPartnerId + ' nelze najit. Ulozeni bylo zastaveno.');
+    error.code = 'NOT_FOUND';
+    throw error;
   }
+
+  const nameMatches = findActivePartnerRowsByName_(
+    sheet,
+    headers,
+    normalized.nazev_subjektu,
+    existingRow
+  );
+  if (nameMatches.length) {
+    if (!existingRow) {
+      const incomingKey = buildRecordDuplicateKey_(normalized, 'partner_id');
+      const idempotentMatch = nameMatches.find((match) => (
+        buildRecordDuplicateKey_(match.record, 'partner_id') === incomingKey
+      ));
+      if (idempotentMatch) return idempotentMatch.record;
+    }
+    const error = new Error(
+      'Subjekt ' + String(normalized.nazev_subjektu || '').trim()
+      + ' uz v registru existuje. Obnovte data a upravte existujiciho aktera.'
+    );
+    error.code = 'DUPLICATE';
+    throw error;
+  }
+
   const existing = existingRow
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
+  if (existingRow && normalizeDuplicateText_(existing.status).startsWith('smaz')) {
+    const error = new Error('Partner ' + incomingPartnerId + ' je smazany a nelze jej upravit. Obnovte data.');
+    error.code = 'CONFLICT';
+    throw error;
+  }
   assertExpectedVersion_(existing, normalized.expected_updated_at, 'Partnera ' + incomingPartnerId);
   delete normalized.expected_updated_at;
   normalized = Object.assign({}, existing, normalized);
@@ -1900,9 +1935,35 @@ function nextClientId_(sheet, klientIdColumn) {
 function findPartnerRow_(sheet, partnerIdColumn, partnerId) {
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return null;
+  const targetId = String(partnerId || '').trim();
+  if (!targetId) return null;
   const values = sheet.getRange(CONFIG.headerRow + 1, partnerIdColumn, lastRow - CONFIG.headerRow, 1).getValues();
-  const index = values.findIndex((row) => row[0] === partnerId);
+  const index = values.findIndex((row) => String(row[0] || '').trim() === targetId);
   return index === -1 ? null : CONFIG.headerRow + 1 + index;
+}
+
+function findActivePartnerRowsByName_(sheet, headers, partnerName, excludedRow) {
+  const normalizedName = normalizeDuplicateText_(partnerName);
+  const lastRow = sheet.getLastRow();
+  if (!normalizedName || lastRow <= CONFIG.headerRow) return [];
+
+  const values = sheet.getRange(
+    CONFIG.headerRow + 1,
+    1,
+    lastRow - CONFIG.headerRow,
+    headers.length
+  ).getValues();
+
+  return values.reduce((matches, row, index) => {
+    const rowNumber = CONFIG.headerRow + 1 + index;
+    if (excludedRow && rowNumber === excludedRow) return matches;
+    const record = rowToObject_(headers, row);
+    if (normalizeDuplicateText_(record.status).startsWith('smaz')) return matches;
+    const existingName = record.nazev_subjektu || record.subjekt || record.name;
+    if (normalizeDuplicateText_(existingName) !== normalizedName) return matches;
+    matches.push({ rowNumber: rowNumber, record: record });
+    return matches;
+  }, []);
 }
 
 function nextPartnerId_(sheet, partnerIdColumn) {

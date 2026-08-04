@@ -2304,8 +2304,10 @@ function App() {
   const [saveNotice, setSaveNotice] = useState(null);
   const [saveButtonNotices, setSaveButtonNotices] = useState({});
   const pendingRecordSaveSignaturesRef = useRef(new Set());
+  const pendingRecordMutationIdsRef = useRef(new Set());
   const pendingClientSaveSignaturesRef = useRef(new Set());
   const prefetchedSheetActionsRef = useRef(new Map());
+  const ka01ActorEditVersionRef = useRef('');
   const generatedOutputSaveLockRef = useRef(false);
   const isEsfExportRequestRef = useRef(0);
   const isEsfSupportExportRequestRef = useRef(0);
@@ -2429,49 +2431,7 @@ function App() {
     networkNextSteps: '',
     networkDescription: ''
   });
-  const [ka01ActorDraft, setKa01ActorDraft] = useState({
-    id: '',
-    name: '',
-    networkOrigin: '',
-    actorType: 'obec / m\u011bsto',
-    ico: '',
-    municipality: '',
-    web: '',
-    contactTitle: '',
-    contactFirstName: '',
-    contactLastName: '',
-    contactName: '',
-    contactRole: '',
-    phone: '',
-    email: '',
-    contacts: [createEmptyActorContact()],
-    communicationNote: '',
-    cooperationStatus: 'potenciální aktér',
-    joinedNetworkDate: '',
-    lastContactDate: '',
-    inactivityReason: '',
-    ownerWorker: WORKER_NAMES.guarantor,
-    roleRecruitment: false,
-    roleClientReferral: false,
-    roleMaterialDistribution: false,
-    roleInfoSharingWithConsent: false,
-    roleCoordinationMeetings: false,
-    roleJobOpportunities: false,
-    roleTpm: false,
-    roleHpp: false,
-    roleWorkplaceAdaptation: false,
-    roleFollowupService: false,
-    roleDebtSocialSupport: false,
-    roleOther: false,
-    roleOtherText: '',
-    plannedActor: false,
-    priority: 'střední',
-    plannedOutreachMonth: '',
-    outreachDate: '',
-    outreachResult: '',
-    formalJoinDate: '',
-    cooperationBarrierNote: ''
-  });
+  const [ka01ActorDraft, setKa01ActorDraft] = useState(createKa01ActorDraft);
 
   const [ka02Draft, setKa02Draft] = useState({
     date: todayIso(),
@@ -4089,7 +4049,8 @@ function App() {
   const syncRecordToGoogleSheet = async (record) => {
     if (!GOOGLE_SHEET_MACRO_URL || record.entityType === 'ai_style_memory') return record;
     const payload = record.payload || {};
-    const expectedUpdatedAt = record.expectedUpdatedAt || record.updatedAt || '';
+    const hasExplicitExpectedVersion = Object.prototype.hasOwnProperty.call(record, 'expectedUpdatedAt');
+    const expectedUpdatedAt = hasExplicitExpectedVersion ? record.expectedUpdatedAt : record.updatedAt || '';
 
     if (record.entityType === 'actor_registry') {
       const contactSheetFields = actorContactsToSheetFields(payload);
@@ -4111,13 +4072,15 @@ function App() {
           partner: partnerToSave
         });
       } catch (error) {
-        if (error?.code !== 'INVALID_JSON_RESPONSE' || !partnerToSave.partner_id) throw error;
+        if (error?.code !== 'INVALID_JSON_RESPONSE') throw error;
         const verification = await fetchGoogleSheetAction('listPartners').catch(() => null);
-        const verifiedPartner = (verification?.partners || []).find((row) =>
-          asSheetText(row.partner_id) === partnerToSave.partner_id
-          && actorSheetRowMatchesPayload(row, partnerToSave)
-        );
-        if (!verifiedPartner) throw error;
+        const verifiedPartners = (verification?.partners || []).filter((row) => {
+          if (String(row.status || '').toLowerCase().includes('smaz')) return false;
+          if (partnerToSave.partner_id && asSheetText(row.partner_id) !== partnerToSave.partner_id) return false;
+          return actorSheetRowMatchesPayload(row, partnerToSave);
+        });
+        if (verifiedPartners.length !== 1) throw error;
+        const [verifiedPartner] = verifiedPartners;
         result = { ok: true, partner: verifiedPartner, recoveredConfirmation: true };
       }
       const savedPartner = requireSavedGoogleSheetRecord(result, 'partner', 'partner_id', 'aktéra');
@@ -4398,22 +4361,33 @@ function App() {
     const writeBlockMessage = recordWriteBlockMessage(existingRecord);
     if (writeBlockMessage) return failSave(writeBlockMessage);
 
+    const mutationKey = `update:${recordId}`;
+    if (pendingRecordMutationIdsRef.current.has(mutationKey)) {
+      return failSave('Tento záznam se už ukládá. Vyčkejte na dokončení.');
+    }
+    pendingRecordMutationIdsRef.current.add(mutationKey);
+
     setIsSaving(true);
     if (noticeKey) setSaveButtonNotice(noticeKey, 'progress', progressText);
     try {
+      const expectedUpdatedAt = Object.prototype.hasOwnProperty.call(payload, 'expectedUpdatedAt')
+        ? payload.expectedUpdatedAt
+        : existingRecord.expectedUpdatedAt || existingRecord.updatedAt || '';
       const updatedRecord = {
         ...existingRecord,
         ...payload,
         id: existingRecord.id,
         createdAt: existingRecord.createdAt || Date.now(),
-        expectedUpdatedAt: existingRecord.expectedUpdatedAt || existingRecord.updatedAt || '',
+        expectedUpdatedAt,
         updatedAt: Date.now()
       };
 
       const syncedRecord = await syncRecordToGoogleSheet(updatedRecord);
-      const nextRecords = records.map((record) => (record.id === recordId ? syncedRecord : record));
-      setRecords(nextRecords);
-      saveLocalRecords(nextRecords);
+      setRecords((previousRecords) => {
+        const nextRecords = previousRecords.map((record) => (record.id === recordId ? syncedRecord : record));
+        saveLocalRecords(nextRecords);
+        return nextRecords;
+      });
       if (syncedRecord.entityType !== 'ai_style_memory') {
         await syncRecordToGoogleDrive(syncedRecord);
       }
@@ -4422,6 +4396,7 @@ function App() {
       console.error('Update record error:', error);
       return failSave(saveErrorMessage('Záznam nebyl uložen', error));
     } finally {
+      pendingRecordMutationIdsRef.current.delete(mutationKey);
       setIsSaving(false);
     }
   };
@@ -5513,6 +5488,11 @@ ${rawOutput}` }] }],
     }
   };
 
+  const resetKa01ActorRegistryDraft = () => {
+    ka01ActorEditVersionRef.current = '';
+    setKa01ActorDraft(createKa01ActorDraft());
+  };
+
   const handleSaveKa01ActorRegistry = async () => {
     const name = String(ka01ActorDraft.name || '').trim();
     const origin = String(ka01ActorDraft.networkOrigin || '').trim();
@@ -5533,7 +5513,7 @@ ${rawOutput}` }] }],
     const duplicate = records.find((record) =>
       record.entityType === 'actor_registry'
       && record.id !== editingId
-      && String(record.payload?.name || '').trim().toLowerCase() === name.toLowerCase()
+      && normalizeDuplicateText(record.payload?.name) === normalizeDuplicateText(name)
     );
     if (duplicate) {
       setSaveButtonNotice('actor', 'error', 'Aktér nebyl uložen: tento subjekt už existuje. Upravte jej a přidejte další kontaktní osobu.');
@@ -5548,6 +5528,7 @@ ${rawOutput}` }] }],
       worker: ka01Draft.worker || '',
       clientIds: [],
       documentText: '',
+      ...(isPersistedEdit ? { expectedUpdatedAt: ka01ActorEditVersionRef.current } : {}),
       payload: {
         ...ka01ActorDraft,
         id: isPersistedEdit ? editingId : '',
@@ -5574,15 +5555,7 @@ ${rawOutput}` }] }],
       : await saveRecord(actorRecord, { noticeKey: 'actor', successText: 'Uloženo' });
     if (!ok) return;
     setFlash(editingId ? 'Akt\u00e9r byl upraven.' : 'Akt\u00e9r byl ulo\u017een do registru.');
-    setKa01ActorDraft((previous) => ({
-      ...previous,
-      ...KA01_EMPTY_ACTOR_ROLES,
-      id: '', name: '', networkOrigin: '', actorType: 'obec / m\u011bsto',
-      ico: '', municipality: '', web: '', contactTitle: '', contactFirstName: '', contactLastName: '',
-      contactName: '', contactRole: '', phone: '', email: '', joinedNetworkDate: '',
-      contacts: [createEmptyActorContact()],
-      communicationNote: '', lastContactDate: '', inactivityReason: ''
-    }));
+    resetKa01ActorRegistryDraft();
   };
   const handleEditKa01ActorRegistry = (record) => {
     const payload = record.payload || {};
@@ -5604,6 +5577,7 @@ ${rawOutput}` }] }],
         ? fallbackTokens.slice(parsedTitle ? 2 : 1).join(' ')
         : '');
 
+    ka01ActorEditVersionRef.current = record.expectedUpdatedAt || record.updatedAt || '';
     setKa01ActorDraft({
       ...ka01ActorDraft,
       ...KA01_EMPTY_ACTOR_ROLES,
@@ -5632,6 +5606,12 @@ ${rawOutput}` }] }],
       id: record.id
     });
     setFlash('Karta aktéra byla načtena k úpravě.');
+  };
+
+  const cancelKa01ActorRegistryEdit = () => {
+    resetKa01ActorRegistryDraft();
+    clearSaveButtonNotice('actor');
+    setFlash('Úprava aktéra byla zrušena.');
   };
 
   const setKa01ActorAttendanceContacts = (recordId, contactIds) => {
@@ -7888,6 +7868,7 @@ ${rawPlanOutput}` }] }],
               ka01AttendanceSelection={ka01AttendanceSelection}
               exportKa01AttendanceSheet={exportKa01AttendanceSheet}
               handleEditKa01ActorRegistry={handleEditKa01ActorRegistry}
+              cancelKa01ActorRegistryEdit={cancelKa01ActorRegistryEdit}
               exportKa01NetworkBulk={exportKa01NetworkBulk}
               ka01NetworkTimeError={ka01NetworkTimeError}
               cancelKa01NetworkEdit={cancelKa01NetworkEdit}

@@ -97,7 +97,7 @@ function Ka01View({
   handleSaveKa01ActorRegistry, setKa01ActorAttendanceContacts,
   networkSaveNotice, actorSaveNotice,
   ka01AttendanceSelection, exportKa01AttendanceSheet,
-  handleEditKa01ActorRegistry, exportKa01NetworkBulk,
+  handleEditKa01ActorRegistry, cancelKa01ActorRegistryEdit, exportKa01NetworkBulk,
   ka01NetworkTimeError, cancelKa01NetworkEdit, ka01NetworkRecords,
   ka01ActorRegistryRecords, expandedKa01NetworkRecordIds,
   toggleKa01NetworkDescription, exportKa01NetworkDocx,
@@ -283,6 +283,12 @@ function Ka01View({
 
       <Panel title="KA02 - Evidence subjektů partnerské sítě" icon={Users} className="w-full min-w-0 overflow-hidden">
         <div className="grid gap-3">
+          {ka01ActorDraft.id && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <span><strong>Upravujete aktéra:</strong> {ka01ActorDraft.name || ka01ActorDraft.id}</span>
+              <span>Uložení zachová kontrolu verze načtené při otevření formuláře.</span>
+            </div>
+          )}
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <InputField label="Název subjektu" help={HELP.actorName} value={ka01ActorDraft.name} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, name: value }))} />
             <SelectField label="Typ aktéra" help={HELP.actorType} value={ka01ActorDraft.actorType} onChange={(value) => setKa01ActorDraft((previous) => ({ ...previous, actorType: value }))} options={actorTypeOptions} />
@@ -316,6 +322,7 @@ function Ka01View({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={handleSaveKa01ActorRegistry} disabled={isSaving} className="inline-flex w-fit items-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"><Save className="h-4 w-4" />{ka01ActorDraft.id ? 'Uložit úpravu aktéra' : 'Uložit aktéra do registru'}</button>
+            {ka01ActorDraft.id && <button type="button" onClick={cancelKa01ActorRegistryEdit} disabled={isSaving} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60">Zrušit úpravu</button>}
             <SaveInlineNotice notice={actorSaveNotice} />
           </div>
 
