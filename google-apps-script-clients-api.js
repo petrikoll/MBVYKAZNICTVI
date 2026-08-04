@@ -93,6 +93,9 @@ function doGet(e) {
     if (e.parameter.action === 'listClients') {
       return json_({ ok: true, clients: readCachedDataset_('listClients', () => listClients_()) });
     }
+    if (e.parameter.action === 'verifyClientDeletion') {
+      return json_({ ok: true, deletion: verifyClientDeletion_(e.parameter.klient_id) });
+    }
     if (e.parameter.action === 'listClientDirectory') {
       const clients = readCachedDataset_('listClients', () => listClients_());
       return json_({ ok: true, clients: buildClientDirectory_(clients) });
@@ -1641,6 +1644,39 @@ function listClients_(spreadsheet) {
     .filter((row) => row.some((cell) => cell !== ''))
     .map((row) => rowToObject_(headers, row))
     .filter((client) => !normalizeDuplicateText_(client.status).startsWith('smaz'));
+}
+
+// Prime autoritativni kontrola jednoho radku. Zamerne nevyuziva CacheService,
+// aby po nejasne odpovedi mazani nerozhodovala zastarala kopie seznamu.
+function verifyClientDeletion_(clientId) {
+  const id = String(clientId || '').trim();
+  if (!id) throw new Error('Missing klient_id');
+  const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
+  if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
+  const headers = getHeaders_(sheet);
+  const idColumn = headers.indexOf('klient_id') + 1;
+  if (!idColumn) throw new Error('Missing klient_id column');
+  const matchingRows = findClientRows_(sheet, idColumn, id);
+  if (matchingRows.length !== 1) {
+    return {
+      klient_id: id,
+      found: matchingRows.length > 0,
+      duplicate: matchingRows.length > 1,
+      deleted: false
+    };
+  }
+  const values = sheet.getRange(matchingRows[0], 1, 1, headers.length).getValues()[0];
+  const client = rowToObject_(headers, values);
+  return {
+    klient_id: id,
+    found: true,
+    duplicate: false,
+    deleted: normalizeDuplicateText_(client.status).startsWith('smaz'),
+    inactive: normalizeDuplicateText_(client.stav_klienta).startsWith('neaktiv'),
+    status: String(client.status || ''),
+    client_status: String(client.stav_klienta || ''),
+    updated_at: String(client.updated_at || '')
+  };
 }
 
 function saveClient_(client) {

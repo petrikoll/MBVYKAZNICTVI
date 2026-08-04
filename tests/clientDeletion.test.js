@@ -162,6 +162,19 @@ test('client list exposes a mini delete button only for the guarantor and requir
   assert.match(handler, /action: 'deleteClient'/);
 });
 
+test('client deletion requires the current uncached backend before the first write', () => {
+  const handlerStart = appSource.indexOf('const handleClientDelete = async');
+  const handlerEnd = appSource.indexOf('const handleGenerateText = async', handlerStart);
+  const handler = appSource.slice(handlerStart, handlerEnd);
+  const preflightIndex = handler.indexOf("'verifyClientDeletion'");
+  const deletePostIndex = handler.indexOf("action: 'deleteClient'");
+
+  assert.ok(preflightIndex >= 0);
+  assert.ok(deletePostIndex > preflightIndex);
+  assert.match(handler, /currentDeletionState\.inactive/);
+  assert.match(handler, /Mazání bylo zablokováno/);
+});
+
 test('deleteClient invalidates every affected cached dataset', () => {
   assert.match(appsScriptSource, /deleteClient:\s*\['listClients', 'listIndividualPlans', 'listPerformances', 'listMeetings', 'listStatistics'\]/);
   assert.match(appsScriptSource, /payload\.action === 'deleteClient'/);
@@ -177,9 +190,17 @@ test('ambiguous deletion response is verified against the authoritative client r
   const handlerEnd = appSource.indexOf('const handleGenerateText = async', handlerStart);
   const handler = appSource.slice(handlerStart, handlerEnd);
   assert.match(handler, /platnou JSON odpověď\|uložení nelze potvrdit/);
-  assert.match(handler, /fetchGoogleSheetAction\('listClients', 1\)/);
-  assert.match(handler, /normalizeDuplicateText\(targetRow\.status\)\.startsWith\('smaz'\)/);
+  assert.match(handler, /fetchGoogleSheetAction\([\s\S]*?'verifyClientDeletion'/);
+  assert.match(handler, /verification\?\.deletion\?\.found === true && verification\?\.deletion\?\.deleted === true/);
   assert.match(handler, /applyConfirmedDeletion\(\{ deleted: true, archive_warning: '' \}, true\)/);
+});
+
+test('client deletion verification bypasses the cached client list', () => {
+  assert.match(appsScriptSource, /e\.parameter\.action === 'verifyClientDeletion'/);
+  const section = appsScriptSource.match(/function verifyClientDeletion_\(clientId\)[\s\S]*?function saveClient_\(/)?.[0] || '';
+  assert.ok(section);
+  assert.match(section, /getSpreadsheet_\(\)\.getSheetByName/);
+  assert.doesNotMatch(section, /readCachedDataset_/);
 });
 
 test('doPost cleanup cannot replace a JSON response with an uncaught cleanup error', () => {

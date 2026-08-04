@@ -2190,7 +2190,7 @@ function actorSheetRowMatchesPayload(row, partner) {
 // ktery na serveru stale uspesne probiha, a uzivatel uvidi falesnou chybu.
 const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 65000;
 
-async function fetchGoogleSheetAction(action, maxAttempts = 2, timeoutMs = GOOGLE_SHEET_REQUEST_TIMEOUT_MS) {
+async function fetchGoogleSheetAction(action, maxAttempts = 2, timeoutMs = GOOGLE_SHEET_REQUEST_TIMEOUT_MS, queryParams = {}) {
   let lastError = null;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const controller = new AbortController();
@@ -2198,6 +2198,9 @@ async function fetchGoogleSheetAction(action, maxAttempts = 2, timeoutMs = GOOGL
     try {
       const url = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
       url.searchParams.set('action', action);
+      Object.entries(queryParams || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && String(value) !== '') url.searchParams.set(key, String(value));
+      });
       const response = await fetch(url.toString(), { cache: 'no-store', signal: controller.signal });
       if (!response.ok) {
         let detail = '';
@@ -4988,6 +4991,26 @@ function App() {
       setFlash(deletion.archive_warning ? `${summary} ${deletion.archive_warning}` : summary);
     };
     try {
+      // Mazani je povoleno jen proti aktualnimu Apps Scriptu, ktery umi
+      // necachovanou kontrolu radku. Stare nasazeni se tak zastavi jeste pred
+      // jakymkoli zapisem a nemuze znovu vytvorit castecne smazany stav.
+      const preflight = await fetchGoogleSheetAction(
+        'verifyClientDeletion',
+        1,
+        GOOGLE_SHEET_REQUEST_TIMEOUT_MS,
+        { klient_id: client.id }
+      );
+      const currentDeletionState = preflight?.deletion;
+      if (!currentDeletionState?.found || currentDeletionState?.duplicate) {
+        throw new Error('Klienta nelze jednoznačně ověřit přímo v Google Sheetu. Mazání bylo zablokováno.');
+      }
+      if (currentDeletionState.deleted) {
+        applyConfirmedDeletion({ deleted: true, archive_warning: '' }, true);
+        return;
+      }
+      if (currentDeletionState.inactive) {
+        throw new Error('Klient je v neúplném stavu po předchozím mazání. Nejprve jej obnovte a načtěte znovu.');
+      }
       const result = await postGoogleSheetAction({
         action: 'deleteClient',
         client: {
@@ -5003,10 +5026,13 @@ function App() {
       const ambiguousResponse = /platnou JSON odpověď|uložení nelze potvrdit/i.test(String(error?.message || ''));
       if (ambiguousResponse) {
         try {
-          const verification = await fetchGoogleSheetAction('listClients', 1);
-          const rows = Array.isArray(verification?.clients) ? verification.clients : [];
-          const targetRow = rows.find((row) => String(row?.klient_id || '').trim() === client.id);
-          const deletionConfirmed = !targetRow || normalizeDuplicateText(targetRow.status).startsWith('smaz');
+          const verification = await fetchGoogleSheetAction(
+            'verifyClientDeletion',
+            1,
+            GOOGLE_SHEET_REQUEST_TIMEOUT_MS,
+            { klient_id: client.id }
+          );
+          const deletionConfirmed = verification?.deletion?.found === true && verification?.deletion?.deleted === true;
           if (deletionConfirmed) {
             applyConfirmedDeletion({ deleted: true, archive_warning: '' }, true);
             return;
