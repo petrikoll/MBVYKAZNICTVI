@@ -2303,6 +2303,7 @@ function App() {
   const [isLoadingClients, setIsLoadingClients] = useState(false);
   const [isClientRegistryAvailable, setIsClientRegistryAvailable] = useState(false);
   const [sheetError, setSheetError] = useState('');
+  const [showVerificationNotice, setShowVerificationNotice] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [showClientForm, setShowClientForm] = useState(false);
   const [clientDraft, setClientDraft] = useState(emptyClientDraft);
@@ -2626,10 +2627,11 @@ function App() {
     });
     return map;
   }, [clients]);
+  const canLoadSheetRecords = isClientRegistryAvailable && clients.length > 0;
 
 
   useEffect(() => {
-    if (!GOOGLE_SHEET_MACRO_URL || clients.length === 0) return undefined;
+    if (!canLoadSheetRecords || !GOOGLE_SHEET_MACRO_URL) return undefined;
     let cancelled = false;
 
     const fetchSheetRecords = async () => {
@@ -2896,13 +2898,21 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [clients, clientIndex]);
+  }, [canLoadSheetRecords]);
 
   const currentWorker = globalWorker || WORKERS[0];
   const pendingRecordVerification = VERIFIED_RECORD_SOURCE_ACTIONS.some((action) => !verifiedRecordActions.has(action));
   const pendingVerificationLabels = VERIFIED_RECORD_SOURCE_ACTIONS
     .filter((action) => !verifiedRecordActions.has(action))
     .map((action) => RECORD_SOURCE_LABELS[action] || action);
+  useEffect(() => {
+    if (!pendingRecordVerification) {
+      setShowVerificationNotice(false);
+      return undefined;
+    }
+    const timeoutId = window.setTimeout(() => setShowVerificationNotice(true), 10000);
+    return () => window.clearTimeout(timeoutId);
+  }, [pendingRecordVerification]);
   const recordWriteBlockMessage = (record) => {
     const sourceAction = recordSourceAction(record);
     if (!sourceAction || verifiedRecordActions.has(sourceAction)) return '';
@@ -7189,7 +7199,7 @@ ${rawPlanOutput}` }] }],
       </header>
 
       <main className="relative z-[1] mx-auto max-w-7xl px-4 py-6 md:px-6">
-        {pendingRecordVerification && cachedRecordsAtStartup.some((record) => !isLocalOnlyRecord(record)) && (
+        {showVerificationNotice && pendingRecordVerification && cachedRecordsAtStartup.some((record) => !isLocalOnlyRecord(record)) && (
           <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
             Ověřuji aktuální data: {pendingVerificationLabels.join(', ')}. Ověřené oblasti lze normálně používat; zbývající jsou dočasně pouze pro čtení. Ověření se opakuje automaticky.
           </div>

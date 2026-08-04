@@ -21,4 +21,6 @@ test('each writable record area maps to its own verification action', () => {
 test('the interface identifies cached data as read-only while verification is pending', () => {
   assert.match(source, /zbývající jsou dočasně pouze pro čtení/);
   assert.match(source, /Ověření se opakuje automaticky/);
+  assert.match(source, /setShowVerificationNotice\(true\), 10000/);
+  assert.match(source, /showVerificationNotice && pendingRecordVerification/);
 });
