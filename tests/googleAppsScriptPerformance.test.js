@@ -117,6 +117,11 @@ test('dílčí bootstrap načte jen vyžádané oblasti', () => {
   assert.equal('supervision' in payload, false);
 });
 
+test('malý list individuálních plánů obchází poruchovou segmentovanou cache', () => {
+  assert.match(source, /individualPlans: listIndividualPlans_\(\)/);
+  assert.match(source, /action === 'listIndividualPlans'[\s\S]*loader\(sharedSpreadsheet\(\)\)/);
+});
+
 test('Apps Script cache zvládne i datovou sadu větší než limit jednoho klíče', () => {
   const context = createCachedContext();
   const dataset = [{ id: 'VYKON-1', text: 'Příliš žluťoučký kůň '.repeat(7000) }];

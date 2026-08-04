@@ -76,7 +76,9 @@ function doGet(e) {
       return json_({ ok: true, partners: readCachedDataset_('listPartners', () => listPartners_()) });
     }
     if (e.parameter.action === 'listIndividualPlans') {
-      return json_({ ok: true, individualPlans: readCachedDataset_('listIndividualPlans', () => listIndividualPlans_()) });
+      // Tento list je maly, ale obsahuje dlouhe JSON/textove bunky. Prime cteni je
+      // spolehlivejsi nez skladani odpovedi z limitovane CacheService.
+      return json_({ ok: true, individualPlans: listIndividualPlans_() });
     }
     if (e.parameter.action === 'listPerformances') {
       return json_({ ok: true, performances: readCachedDataset_('listPerformances', () => listPerformances_()) });
@@ -1051,7 +1053,9 @@ function buildBootstrapPayload_(requestedActions) {
   const errors = [];
   const load = (action, fallback, loader) => {
     try {
-      return readCachedDataset_(action, () => loader(sharedSpreadsheet()));
+      return action === 'listIndividualPlans'
+        ? loader(sharedSpreadsheet())
+        : readCachedDataset_(action, () => loader(sharedSpreadsheet()));
     } catch (error) {
       errors.push({ action: action, error: String(error.message || error) });
       return fallback;
