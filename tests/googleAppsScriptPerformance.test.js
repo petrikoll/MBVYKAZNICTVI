@@ -117,6 +117,37 @@ test('dílčí bootstrap načte jen vyžádané oblasti', () => {
   assert.equal('supervision' in payload, false);
 });
 
+test('rychly startovni balik neobsahuje individualni plany', () => {
+  assert.match(source, /action === 'bootstrapFast'[\s\S]*?'listPerformances', 'listMeetings', 'listPartners'/);
+  const fastBlock = source.slice(
+    source.indexOf("if (e.parameter.action === 'bootstrapFast')"),
+    source.indexOf("if (e.parameter.action === 'bootstrapCore')")
+  );
+  assert.doesNotMatch(fastBlock, /listIndividualPlans/);
+});
+
+test('lehky adresar klientu vraci jen udaje nutne pro rychly seznam', () => {
+  const context = createContext();
+  const directory = context.buildClientDirectory_([{
+    klient_id: 'KLIENT-0001',
+    jmeno: 'Alena',
+    prijmeni: 'Gaborova',
+    telefon: '123456789',
+    poznamka: 'citlivy text',
+    stav_klienta: 'Aktivni',
+    updated_at: '2026-08-04T10:00:00Z'
+  }]);
+  const plain = JSON.parse(JSON.stringify(directory));
+  assert.deepEqual(plain, [{
+    klient_id: 'KLIENT-0001',
+    jmeno: 'Alena',
+    prijmeni: 'Gaborova',
+    stav_klienta: 'Aktivni',
+    klicovy_pracovnik: '',
+    updated_at: '2026-08-04T10:00:00Z'
+  }]);
+});
+
 test('malý list individuálních plánů obchází poruchovou segmentovanou cache', () => {
   assert.match(source, /individualPlans: listIndividualPlans_\(\)/);
   assert.match(source, /action === 'listIndividualPlans'[\s\S]*loader\(sharedSpreadsheet\(\)\)/);

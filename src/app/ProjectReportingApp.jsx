@@ -110,6 +110,12 @@ import {
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { isBackupStatusActive } from '../lib/backupStatus.js';
 import {
+  readSafeRecordIndex,
+  readSafeStartupRecords,
+  writeSafeClientIndex,
+  writeSafeRecordIndex
+} from '../lib/safeDataCache.js';
+import {
   buildGoalAlertSignature,
   rememberDismissedGoalAlertSignature
 } from '../lib/goalAlertDismissal.js';
@@ -2203,6 +2209,8 @@ async function fetchGoogleSheetAction(action, maxAttempts = 2, timeoutMs = GOOGL
       }
       const json = await response.json();
       if (json?.ok === false) throw new Error(json.error || 'Google Sheet akce ' + action + ' selhala.');
+      const revision = String(response.headers.get('x-data-revision') || json?.revision || '');
+      if (json && typeof json === 'object') json.__dataRevision = revision;
       return json;
     } catch (error) {
       lastError = error?.name === 'AbortError'
@@ -2222,6 +2230,7 @@ function haveSameClientSnapshot(currentClients, nextClients) {
   return currentClients.every((client, index) => {
     const nextClient = nextClients[index];
     if (client?.id !== nextClient?.id) return false;
+    if (Boolean(client?.isDirectoryOnly) !== Boolean(nextClient?.isDirectoryOnly)) return false;
     if (client?.updatedAt || nextClient?.updatedAt) return client.updatedAt === nextClient.updatedAt;
     return JSON.stringify(client) === JSON.stringify(nextClient);
   });
@@ -2254,7 +2263,7 @@ function App() {
   const [mainView, setMainView] = useState('clients');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAllClients, setShowAllClients] = useState(true);
-  const [records, setRecords] = useState([]);
+  const [records, setRecords] = useState(() => readSafeStartupRecords());
   const [clients, setClients] = useState([]);
   const [verifiedRecordActions, setVerifiedRecordActions] = useState(() => new Set());
   const [isLoadingClients, setIsLoadingClients] = useState(false);
@@ -2281,6 +2290,7 @@ function App() {
   const pendingRecordMutationIdsRef = useRef(new Set());
   const pendingClientSaveSignaturesRef = useRef(new Set());
   const prefetchedSheetActionsRef = useRef(new Map());
+  const currentDataRevisionRef = useRef(readSafeRecordIndex().revision);
   const ka01ActorEditVersionRef = useRef('');
   const generatedOutputSaveLockRef = useRef(false);
   const isEsfExportRequestRef = useRef(0);
@@ -2488,22 +2498,88 @@ function App() {
     let retryTimeoutId = null;
     let consecutiveFailures = 0;
 
-    // Datove oblasti se nacitaji soubezne s klientskym registrem. Pomaly registr
-    // tak uz neblokuje aktery, vykony, plany, vzdelavani ani supervize.
-    const bootstrapPrefetch = Promise.all(
-      ['bootstrapCore', 'bootstrapAuxiliary'].map((action) => (
-        fetchGoogleSheetAction(action, 1)
-          .then((result) => ({ action, result }))
-          .catch((error) => ({ action, error }))
-      ))
-    );
-    prefetchedSheetActionsRef.current.set('bootstrapSections', bootstrapPrefetch);
+    // Rychle a pomocne oblasti startuji soubezne. Individualni plany se spusti
+    // az po rychlem baliku, aby jejich dlouhe texty nezadrzely vykony a aktery.
+    const prefetchAction = (action) => fetchGoogleSheetAction(action, 1)
+      .then((result) => ({ action, result }))
+      .catch((error) => ({ action, error }));
+    const corePrefetch = prefetchAction('bootstrapFast');
+    const auxiliaryPrefetch = prefetchAction('bootstrapAuxiliary');
+    const plansPrefetch = corePrefetch.then(() => prefetchAction('listIndividualPlans'));
+    prefetchedSheetActionsRef.current.set('bootstrapFast', corePrefetch);
+    prefetchedSheetActionsRef.current.set('bootstrapAuxiliary', auxiliaryPrefetch);
+    prefetchedSheetActionsRef.current.set('listIndividualPlans', plansPrefetch);
+    void fetchGoogleSheetAction('getDataRevision', 1, 5000).then((result) => {
+      if (result?.__dataRevision || result?.revision) {
+        currentDataRevisionRef.current = result.__dataRevision || result.revision;
+      }
+    }).catch(() => {
+      // Revize pouze urychluje kontrolu. Jeji selhani nesmi zablokovat data.
+    });
+
+    let hasDirectorySnapshot = false;
+    const applyClientSnapshot = (parsed, authoritative) => {
+      if (cancelled) return;
+      if (authoritative) setIsClientRegistryAvailable(true);
+      setClients((current) => (haveSameClientSnapshot(current, parsed) ? current : parsed));
+      const firstClientId = parsed[0]?.id || '';
+      setSelectedClientId((current) => parsed.some((client) => client.id === current) ? current : firstClientId);
+      setGeneratorDraft((previous) => ({
+        ...previous,
+        clientId: parsed.some((client) => client.id === previous.clientId) ? previous.clientId : firstClientId
+      }));
+      setKa01Draft((previous) => ({
+        ...previous,
+        assessmentClientId: parsed.some((client) => client.id === previous.assessmentClientId)
+          ? previous.assessmentClientId
+          : firstClientId
+      }));
+      setKa02Draft((previous) => ({
+        ...previous,
+        selectedClientId: parsed.some((client) => client.id === previous.selectedClientId)
+          ? previous.selectedClientId
+          : firstClientId
+      }));
+      setKa03Draft((previous) => ({
+        ...previous,
+        selectedClientId: parsed.some((client) => client.id === previous.selectedClientId)
+          ? previous.selectedClientId
+          : firstClientId,
+        tpmClientId: parsed.some((client) => client.id === previous.tpmClientId)
+          ? previous.tpmClientId
+          : firstClientId,
+        employmentClientId: parsed.some((client) => client.id === previous.employmentClientId)
+          ? previous.employmentClientId
+          : firstClientId,
+        tpmDate: previous.tpmDate || todayIso(),
+        employmentDate: previous.employmentDate || todayIso()
+      }));
+    };
 
     const fetchClients = async () => {
       setIsLoadingClients(true);
       try {
+        if (!hasDirectorySnapshot) {
+          try {
+            const directory = await fetchGoogleSheetAction('listClientDirectory', 1, 30000);
+            if (cancelled) return;
+            currentDataRevisionRef.current = directory?.__dataRevision || currentDataRevisionRef.current;
+            const directoryRows = Array.isArray(directory?.clients) ? directory.clients : [];
+            const parsedDirectory = directoryRows
+              .map((row, index) => mapSheetRowToClient(row, index))
+              .filter(Boolean)
+              .map((client) => ({ ...client, isDirectoryOnly: true }));
+            if (parsedDirectory.length) {
+              hasDirectorySnapshot = true;
+              applyClientSnapshot(parsedDirectory, false);
+            }
+          } catch (directoryError) {
+            console.warn('Google Sheets client directory skipped:', directoryError);
+          }
+        }
         const json = await fetchGoogleSheetAction('listClients', 1);
         if (cancelled) return;
+        currentDataRevisionRef.current = json?.__dataRevision || currentDataRevisionRef.current;
         consecutiveFailures = 0;
         setSheetError('');
         let rows = [];
@@ -2515,44 +2591,20 @@ function App() {
         const parsed = rows
           .map((row, index) => mapSheetRowToClient(row, index))
           .filter(Boolean);
-        if (parsed.length > 0) {
-          setIsClientRegistryAvailable(true);
-          setClients((current) => (haveSameClientSnapshot(current, parsed) ? current : parsed));
-          setSelectedClientId(parsed[0].id);
-          setGeneratorDraft((prev) => ({ ...prev, clientId: parsed[0].id }));
-          setKa01Draft((prev) => ({ ...prev, assessmentClientId: parsed[0].id }));
-          setKa02Draft((prev) => ({ ...prev, selectedClientId: parsed[0].id }));
-          setKa03Draft((prev) => ({
-            ...prev,
-            selectedClientId: parsed[0].id,
-            tpmClientId: parsed[0].id,
-            employmentClientId: parsed[0].id,
-            tpmDate: prev.tpmDate || todayIso(),
-            employmentDate: prev.employmentDate || todayIso()
-          }));
-        } else {
-          setIsClientRegistryAvailable(true);
-          setClients([]);
-          setSelectedClientId('');
-        }
+        applyClientSnapshot(parsed, true);
+        writeSafeClientIndex(parsed, currentDataRevisionRef.current);
       } catch (error) {
         if (cancelled) return;
         consecutiveFailures += 1;
         console.warn('Google Sheets client load retry:', error);
         setIsClientRegistryAvailable(false);
-        setClients([]);
-        setSelectedClientId('');
-        setGeneratorDraft((prev) => ({ ...prev, clientId: '' }));
-        setKa01Draft((prev) => ({ ...prev, assessmentClientId: '' }));
-        setKa02Draft((prev) => ({ ...prev, selectedClientId: '' }));
-        setKa03Draft((prev) => ({
-          ...prev,
-          selectedClientId: '',
-          tpmClientId: '',
-          employmentClientId: '',
-          tpmDate: prev.tpmDate || todayIso(),
-          employmentDate: prev.employmentDate || todayIso()
-        }));
+        if (!hasDirectorySnapshot) {
+          setClients([]);
+          setSelectedClientId('');
+          setGeneratorDraft((prev) => ({ ...prev, clientId: '' }));
+          setKa01Draft((prev) => ({ ...prev, assessmentClientId: '' }));
+          setKa02Draft((prev) => ({ ...prev, selectedClientId: '' }));
+        }
         if (consecutiveFailures >= 2) {
           setSheetError('Načtení klientského registru se opakovaně nezdařilo. Aplikace připojení dál automaticky ověřuje; ukládání klientských dat zůstává do obnovení spojení zablokované.');
         }
@@ -2596,6 +2648,13 @@ function App() {
     });
   }, [clientIndex, clients.length, isClientRegistryAvailable, records.length]);
 
+  useEffect(() => {
+    // Rewriting a cache-only snapshot would extend its lifetime indefinitely.
+    // Persist only after at least one authoritative record reached memory.
+    if (!records.some((record) => !record?.isSafeCachedIndex)) return;
+    writeSafeRecordIndex(records, currentDataRevisionRef.current);
+  }, [records]);
+
 
   useEffect(() => {
     if (!canLoadSheetRecords || !GOOGLE_SHEET_MACRO_URL) return undefined;
@@ -2606,6 +2665,7 @@ function App() {
       const failedActions = new Set();
       const loadedActions = new Set();
       const acceptLoadedAction = (action, result) => {
+        if (result?.__dataRevision) currentDataRevisionRef.current = result.__dataRevision;
         loadedActions.add(action);
         failedActions.delete(action);
         if (!cancelled && VERIFIED_RECORD_SOURCE_ACTIONS.includes(action)) {
@@ -2724,110 +2784,7 @@ function App() {
         })();
       };
 
-      const bootstrapPrefetched = prefetchedSheetActionsRef.current.get('bootstrapSections');
-      if (bootstrapPrefetched) {
-        prefetchedSheetActionsRef.current.delete('bootstrapSections');
-        const bootstrapOutcomes = await bootstrapPrefetched;
-        const successfulBootstrapOutcomes = bootstrapOutcomes.filter((outcome) => outcome?.result);
-        if (successfulBootstrapOutcomes.length) {
-          const data = Object.assign({}, ...successfulBootstrapOutcomes.map((outcome) => outcome.result));
-          const sectionActions = {
-            bootstrapCore: ['listPerformances', 'listMeetings', 'listIndividualPlans', 'listPartners'],
-            bootstrapAuxiliary: ['listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics']
-          };
-          const bootstrapFailures = new Set(
-            successfulBootstrapOutcomes
-              .flatMap((outcome) => Array.isArray(outcome.result?.errors) ? outcome.result.errors : [])
-              .map((item) => item?.action)
-              .filter(Boolean)
-          );
-          bootstrapOutcomes.forEach((outcome) => {
-            if (outcome?.error) (sectionActions[outcome.action] || []).forEach((action) => bootstrapFailures.add(action));
-          });
-          const bundle = {
-            performances: { performances: data.performances || [] },
-            meetings: { meetings: data.meetings || [] },
-            plans: { individualPlans: data.individualPlans || [] },
-            networkMeetings: { networkMeetings: data.networkMeetings || [] },
-            partners: { partners: data.partners || [] },
-            education: { education: data.education || [] },
-            supervision: { supervision: data.supervision || [] },
-            statistics: { statistics: data.statistics || [] }
-          };
-          const bootstrapSources = [
-            ['listPerformances', 'performances', { performances: [] }],
-            ['listMeetings', 'meetings', { meetings: [] }],
-            ['listIndividualPlans', 'plans', { individualPlans: [] }],
-            ['listNetworkMeetings', 'networkMeetings', { networkMeetings: [] }],
-            ['listPartners', 'partners', { partners: [] }],
-            ['listEducation', 'education', { education: [], educations: [], vzdelavani: [] }],
-            ['listSupervision', 'supervision', { supervision: [], supervisions: [], supervize: [] }],
-            ['listStatistics', 'statistics', { statistics: [] }]
-          ];
-
-          // Potvrzene oblasti odblokujeme ihned. Selhane oblasti overujeme soubezne,
-          // aby jedina pomala odpoved nemohla na nekolik minut zastavit zbytek aplikace.
-          bootstrapSources
-            .filter(([action]) => !bootstrapFailures.has(action))
-            .forEach(([action, bundleKey]) => acceptLoadedAction(action, bundle[bundleKey]));
-
-          const recoveredSources = await Promise.all(
-            bootstrapSources
-              .filter(([action]) => bootstrapFailures.has(action))
-              .map(async ([action, bundleKey, fallback]) => ({
-                bundleKey,
-                result: await loadAction(action, fallback, { retry: false, timeoutMs: 20000 })
-              }))
-          );
-          recoveredSources.forEach(({ bundleKey, result }) => {
-            bundle[bundleKey] = result;
-          });
-
-          if (cancelled) return;
-          if (loadedActions.has('listStatistics')) setStatisticsRows(bundle.statistics.statistics || []);
-          applyLoadedResults(bundle, new Set(loadedActions));
-          const bootstrapActionLabels = {
-            listPerformances: 'výkony KA1',
-            listMeetings: 'zápisy case managementu',
-            listIndividualPlans: 'individuální plány',
-            listNetworkMeetings: 'schůzky sítě',
-            listPartners: 'aktéři sítě',
-            listEducation: 'vzdělávání',
-            listSupervision: 'supervize',
-            listStatistics: 'statistiky KÚ'
-          };
-          setSheetError(failedActions.size
-            ? 'Nepodařilo se načíst: ' + [...failedActions].map((action) => bootstrapActionLabels[action] || action).join(', ') + '. Ostatní data jsou dostupná.'
-            : '');
-          scheduleFailedActionRecovery(bootstrapSources, bundle);
-          return;
-        }
-        console.warn('Google Sheets bootstrap load skipped:', bootstrapOutcomes.map((outcome) => outcome?.error).filter(Boolean));
-      }
-
-      // Záložní cesta pro případ, že dávkový bootstrap selže. Oblasti se načítají
-      // po jedné, aby dočasné zpomalení Apps Scriptu nezablokovalo všechna data.
-      const [performances, meetings, plans] = await Promise.all([
-        loadAction('listPerformances', { performances: [] }, { retry: false, timeoutMs: 20000 }),
-        loadAction('listMeetings', { meetings: [] }, { retry: false, timeoutMs: 20000 }),
-        loadAction('listIndividualPlans', { individualPlans: [] }, { retry: false, timeoutMs: 20000 })
-      ]);
-      const coreActions = new Set(
-        ['listPerformances', 'listMeetings', 'listIndividualPlans'].filter((action) => loadedActions.has(action))
-      );
-      applyLoadedResults({ performances, meetings, plans }, coreActions);
-
-      const [networkMeetings, partners, education, supervision, statistics] = await Promise.all([
-        loadAction('listNetworkMeetings', { networkMeetings: [] }, { retry: false, timeoutMs: 20000 }),
-        loadAction('listPartners', { partners: [] }, { retry: false, timeoutMs: 20000 }),
-        loadAction('listEducation', { education: [], educations: [], vzdelavani: [] }, { retry: false, timeoutMs: 20000 }),
-        loadAction('listSupervision', { supervision: [], supervisions: [], supervize: [] }, { retry: false, timeoutMs: 20000 }),
-        loadAction('listStatistics', { statistics: [] }, { retry: false, timeoutMs: 20000 })
-      ]);
-
-      if (cancelled) return;
-      const fallbackBundle = { performances, meetings, plans, networkMeetings, partners, education, supervision, statistics };
-      const fallbackSources = [
+      const progressiveSources = [
         ['listPerformances', 'performances', { performances: [] }],
         ['listMeetings', 'meetings', { meetings: [] }],
         ['listIndividualPlans', 'plans', { individualPlans: [] }],
@@ -2837,26 +2794,98 @@ function App() {
         ['listSupervision', 'supervision', { supervision: [], supervisions: [], supervize: [] }],
         ['listStatistics', 'statistics', { statistics: [] }]
       ];
-      if (loadedActions.has('listStatistics')) setStatisticsRows(statistics.statistics || []);
-      applyLoadedResults(
-        fallbackBundle,
-        new Set(loadedActions)
-      );
-
-      const actionLabels = {
-        listPerformances: 'výkony KA1',
-        listMeetings: 'zápisy case managementu',
-        listIndividualPlans: 'individuální plány',
-        listNetworkMeetings: 'schůzky sítě',
-        listPartners: 'aktéři sítě',
-        listEducation: 'vzdělávání',
-        listSupervision: 'supervize',
-        listStatistics: 'statistiky KÚ'
+      const progressiveBundle = {
+        performances: { performances: [] },
+        meetings: { meetings: [] },
+        plans: { individualPlans: [] },
+        networkMeetings: { networkMeetings: [] },
+        partners: { partners: [] },
+        education: { education: [] },
+        supervision: { supervision: [] },
+        statistics: { statistics: [] }
       };
+      const bootstrapValue = (bundleKey, data) => {
+        const revision = data.__dataRevision || '';
+        if (bundleKey === 'performances') return { performances: data.performances || [], __dataRevision: revision };
+        if (bundleKey === 'meetings') return { meetings: data.meetings || [], __dataRevision: revision };
+        if (bundleKey === 'partners') return { partners: data.partners || [], __dataRevision: revision };
+        if (bundleKey === 'networkMeetings') return { networkMeetings: data.networkMeetings || [], __dataRevision: revision };
+        if (bundleKey === 'education') return { education: data.education || [], __dataRevision: revision };
+        if (bundleKey === 'supervision') return { supervision: data.supervision || [], __dataRevision: revision };
+        if (bundleKey === 'statistics') return { statistics: data.statistics || [], __dataRevision: revision };
+        return { individualPlans: data.individualPlans || [], __dataRevision: revision };
+      };
+      const applySingleProgressiveSource = (action, bundleKey, result) => {
+        progressiveBundle[bundleKey] = result;
+        if (action === 'listStatistics') setStatisticsRows(result.statistics || []);
+        applyLoadedResults(progressiveBundle, new Set([action]));
+      };
+      const loadSingleProgressiveSource = async ([action, bundleKey, fallback]) => {
+        const result = await loadAction(action, fallback, { retry: false, timeoutMs: 20000 });
+        if (!cancelled && loadedActions.has(action)) {
+          applySingleProgressiveSource(action, bundleKey, result);
+        }
+      };
+      const processProgressiveBootstrap = async (groupAction, sources) => {
+        const prefetched = prefetchedSheetActionsRef.current.get(groupAction);
+        if (prefetched) prefetchedSheetActionsRef.current.delete(groupAction);
+        const outcome = prefetched
+          ? await prefetched
+          : await fetchGoogleSheetAction(groupAction, 1).then(
+            (result) => ({ action: groupAction, result }),
+            (error) => ({ action: groupAction, error })
+          );
+
+        if (!outcome?.result) {
+          console.warn('Google Sheets progressive bootstrap skipped:', groupAction, outcome?.error);
+          await Promise.all(sources.map(loadSingleProgressiveSource));
+          return;
+        }
+
+        currentDataRevisionRef.current = outcome.result.__dataRevision || currentDataRevisionRef.current;
+        const groupFailures = new Set(
+          (Array.isArray(outcome.result.errors) ? outcome.result.errors : [])
+            .map((item) => item?.action)
+            .filter(Boolean)
+        );
+        const successfulActions = new Set();
+        sources.forEach(([action, bundleKey]) => {
+          if (groupFailures.has(action)) return;
+          const result = bootstrapValue(bundleKey, outcome.result);
+          progressiveBundle[bundleKey] = result;
+          acceptLoadedAction(action, result);
+          successfulActions.add(action);
+        });
+        if (successfulActions.has('listStatistics')) {
+          setStatisticsRows(progressiveBundle.statistics.statistics || []);
+        }
+        if (successfulActions.size) applyLoadedResults(progressiveBundle, successfulActions);
+        await Promise.all(
+          sources.filter(([action]) => groupFailures.has(action)).map(loadSingleProgressiveSource)
+        );
+      };
+
+      const coreSources = progressiveSources.filter(([action]) => (
+        ['listPerformances', 'listMeetings', 'listPartners'].includes(action)
+      ));
+      const auxiliarySources = progressiveSources.filter(([action]) => (
+        ['listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'].includes(action)
+      ));
+      const plansSource = progressiveSources.find(([action]) => action === 'listIndividualPlans');
+
+      // Side effects inside each promise publish a completed area immediately.
+      await Promise.all([
+        processProgressiveBootstrap('bootstrapFast', coreSources),
+        processProgressiveBootstrap('bootstrapAuxiliary', auxiliarySources),
+        loadSingleProgressiveSource(plansSource)
+      ]);
+      if (cancelled) return;
       setSheetError(failedActions.size
-        ? 'Nepodařilo se načíst: ' + [...failedActions].map((action) => actionLabels[action] || action).join(', ') + '. Ostatní data jsou dostupná.'
+        ? 'Nepoda\u0159ilo se na\u010d\u00edst: ' + [...failedActions].map((action) => recoveryActionLabels[action] || action).join(', ') + '. Ostatn\u00ed data jsou dostupn\u00e1.'
         : '');
-      scheduleFailedActionRecovery(fallbackSources, fallbackBundle);
+      scheduleFailedActionRecovery(progressiveSources, progressiveBundle);
+      return;
+
     };
 
     fetchSheetRecords();
@@ -4028,7 +4057,11 @@ function App() {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     });
-    return parseGoogleSheetResponse(response);
+    const result = await parseGoogleSheetResponse(response);
+    currentDataRevisionRef.current = String(
+      response.headers.get('x-data-revision') || currentDataRevisionRef.current
+    );
+    return result;
   };
 
   const loadBackupStatus = async () => {

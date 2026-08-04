@@ -90,6 +90,51 @@ test('POST proxy přepíše token v těle serverovým tokenem', async () => {
 test('proxy ceka dele nez puvodnich 45 sekund na pomaly Apps Script', async () => {
   const source = await readFile(new URL('../googleAppsScriptProxy.js', import.meta.url), 'utf8');
   assert.match(source, /DEFAULT_UPSTREAM_TIMEOUT_MS = 60000/);
+  assert.match(source, /DEFAULT_READ_CACHE_TTL_MS = 60000/);
+});
+
+test('rychla revize dat nevola Apps Script', async () => {
+  let upstreamCalls = 0;
+  const response = createResponse();
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=getDataRevision'),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/revision/exec',
+      appsScriptToken: 'server-secret',
+      fetchImpl: async () => {
+        upstreamCalls += 1;
+        return new Response('{}');
+      }
+    }
+  );
+
+  assert.equal(upstreamCalls, 0);
+  assert.equal(response.statusCode, 200);
+  assert.ok(JSON.parse(response.body).revision);
+  assert.ok(response.headers['X-Data-Revision']);
+});
+
+test('zapis zmeni revizi bez ulozeni osobnich dat do proxy', async () => {
+  const overrides = {
+    appsScriptUrl: 'https://example.test/macros/s/revision-write/exec',
+    appsScriptToken: 'server-secret',
+    fetchImpl: async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  };
+  const before = createResponse();
+  await handleGoogleAppsScriptProxy(createRequest('GET', '/api/google-sheets?action=getDataRevision'), before, overrides);
+  const beforeRevision = JSON.parse(before.body).revision;
+  await handleGoogleAppsScriptProxy(
+    createRequest('POST', '/api/google-sheets', JSON.stringify({ action: 'savePerformance' })),
+    createResponse(),
+    overrides
+  );
+  const after = createResponse();
+  await handleGoogleAppsScriptProxy(createRequest('GET', '/api/google-sheets?action=getDataRevision'), after, overrides);
+  assert.notEqual(JSON.parse(after.body).revision, beforeRevision);
 });
 
 test('souběžné stejné GET požadavky sdílejí jedno volání Apps Scriptu a krátkou cache', async () => {

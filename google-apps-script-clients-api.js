@@ -59,9 +59,14 @@ function doGet(e) {
     if (e.parameter.action === 'bootstrap') {
       return json_(buildBootstrapPayload_());
     }
+    if (e.parameter.action === 'bootstrapFast') {
+      return json_(buildBootstrapPayload_([
+        'listPerformances', 'listMeetings', 'listPartners'
+      ]));
+    }
     if (e.parameter.action === 'bootstrapCore') {
       return json_(buildBootstrapPayload_([
-        'listPerformances', 'listMeetings', 'listIndividualPlans', 'listPartners'
+        'listPerformances', 'listMeetings', 'listPartners'
       ]));
     }
     if (e.parameter.action === 'bootstrapAuxiliary') {
@@ -71,6 +76,10 @@ function doGet(e) {
     }
     if (e.parameter.action === 'listClients') {
       return json_({ ok: true, clients: readCachedDataset_('listClients', () => listClients_()) });
+    }
+    if (e.parameter.action === 'listClientDirectory') {
+      const clients = readCachedDataset_('listClients', () => listClients_());
+      return json_({ ok: true, clients: buildClientDirectory_(clients) });
     }
     if (e.parameter.action === 'listPartners') {
       return json_({ ok: true, partners: readCachedDataset_('listPartners', () => listPartners_()) });
@@ -1081,6 +1090,17 @@ function buildBootstrapPayload_(requestedActions) {
     if (selected.has(action)) payload[property] = load(action, [], loader);
   });
   return payload;
+}
+
+function buildClientDirectory_(clients) {
+  return (clients || []).map((client) => ({
+    klient_id: client.klient_id || '',
+    jmeno: client.jmeno || '',
+    prijmeni: client.prijmeni || '',
+    stav_klienta: client.stav_klienta || client.status || '',
+    klicovy_pracovnik: client.klicovy_pracovnik || '',
+    updated_at: client.updated_at || ''
+  }));
 }
 
 // Spustte jednou rucne po vlozeni kodu do samostatneho Apps Script projektu.

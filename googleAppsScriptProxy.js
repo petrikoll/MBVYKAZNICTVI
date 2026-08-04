@@ -1,11 +1,15 @@
+import { randomUUID } from 'node:crypto';
+
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 60000;
-const DEFAULT_READ_CACHE_TTL_MS = 15000;
+const DEFAULT_READ_CACHE_TTL_MS = 60000;
 const CACHEABLE_GET_ACTIONS = new Set([
   'bootstrap',
+  'bootstrapFast',
   'bootstrapCore',
   'bootstrapAuxiliary',
   'listClients',
+  'listClientDirectory',
   'listPartners',
   'listIndividualPlans',
   'listPerformances',
@@ -19,11 +23,18 @@ const CACHEABLE_GET_ACTIONS = new Set([
 const readResponseCache = new Map();
 const inFlightReads = new Map();
 let mutationGeneration = 0;
+const proxyInstanceRevision = randomUUID();
 
-function sendJson(response, statusCode, payload) {
+function getDataRevision() {
+  return `${proxyInstanceRevision}:${mutationGeneration}`;
+}
+
+function sendJson(response, statusCode, payload, headers = {}) {
   response.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store, private'
+    'Cache-Control': 'no-store, private',
+    'X-Data-Revision': getDataRevision(),
+    ...headers
   });
   response.end(JSON.stringify(payload));
 }
@@ -61,10 +72,13 @@ function buildReadCacheKey(upstreamUrl) {
   return safeUrl.toString();
 }
 
-function sendUpstreamSnapshot(response, snapshot) {
+function sendUpstreamSnapshot(response, snapshot, cacheState = 'MISS') {
   response.writeHead(snapshot.status, {
     'Content-Type': snapshot.contentType || 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store, private'
+    'Cache-Control': 'no-store, private',
+    'X-Data-Revision': getDataRevision(),
+    'X-Proxy-Cache': cacheState,
+    'X-Upstream-Duration': String(cacheState === 'HIT' ? 0 : snapshot.durationMs || 0)
   });
   response.end(snapshot.body);
 }
@@ -72,12 +86,14 @@ function sendUpstreamSnapshot(response, snapshot) {
 async function fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, timeoutMs) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
   try {
     const upstreamResponse = await fetchImpl(upstreamUrl, { ...fetchOptions, signal: controller.signal });
     return {
       status: upstreamResponse.status,
       contentType: upstreamResponse.headers.get('content-type') || 'application/json; charset=utf-8',
-      body: await upstreamResponse.text()
+      body: await upstreamResponse.text(),
+      durationMs: Math.max(0, Date.now() - startedAt)
     };
   } finally {
     clearTimeout(timeoutId);
@@ -111,6 +127,10 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
 
   try {
     const incomingUrl = new URL(request.url || '/', 'http://localhost');
+    if (request.method === 'GET' && incomingUrl.searchParams.get('action') === 'getDataRevision') {
+      sendJson(response, 200, { ok: true, revision: getDataRevision() });
+      return;
+    }
     const upstreamUrl = new URL(appsScriptUrl);
     incomingUrl.searchParams.forEach((value, key) => {
       if (key !== 'token') upstreamUrl.searchParams.set(key, value);
@@ -132,13 +152,15 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
       const cacheKey = buildReadCacheKey(upstreamUrl);
       const cached = readResponseCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) {
-        sendUpstreamSnapshot(response, cached.snapshot);
+        sendUpstreamSnapshot(response, cached.snapshot, 'HIT');
         return;
       }
       if (cached) readResponseCache.delete(cacheKey);
 
       let upstreamRequest = inFlightReads.get(cacheKey);
+      let cacheState = 'COALESCED';
       if (!upstreamRequest) {
+        cacheState = 'MISS';
         const generationAtStart = mutationGeneration;
         upstreamRequest = fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs)
           .then((snapshot) => {
@@ -154,7 +176,7 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
         inFlightReads.set(cacheKey, upstreamRequest);
       }
 
-      sendUpstreamSnapshot(response, await upstreamRequest);
+      sendUpstreamSnapshot(response, await upstreamRequest, cacheState);
       return;
     }
 
@@ -163,15 +185,8 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
       readResponseCache.clear();
     }
 
-    try {
-      const snapshot = await fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs);
-      sendUpstreamSnapshot(response, snapshot);
-    } finally {
-      if (request.method === 'POST') {
-        mutationGeneration += 1;
-        readResponseCache.clear();
-      }
-    }
+    const snapshot = await fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs);
+    sendUpstreamSnapshot(response, snapshot);
   } catch (error) {
     console.error('Google Apps Script proxy error:', error);
     const timedOut = error?.name === 'AbortError';
@@ -184,4 +199,4 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
   }
 }
 
-export { handleGoogleAppsScriptProxy };
+export { getDataRevision, handleGoogleAppsScriptProxy };
