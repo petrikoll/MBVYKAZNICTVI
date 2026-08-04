@@ -261,10 +261,19 @@ function doPost(e) {
 
     return json_({ ok: false, error: 'Unknown action' });
   } catch (error) {
+    console.error('doPost ' + (requestedAction || 'unknown') + ' failed: ' + String(error && (error.stack || error.message || error)));
     return json_({ ok: false, code: error && error.code ? String(error.code) : '', error: String(error.message || error) });
   } finally {
-    if (requestedAction) invalidateReadActions_(MUTATION_READ_ACTIONS_[requestedAction] || []);
-    if (lockAcquired && lock) lock.releaseLock();
+    try {
+      if (requestedAction) invalidateReadActions_(MUTATION_READ_ACTIONS_[requestedAction] || []);
+    } catch (invalidationError) {
+      console.error('doPost cache invalidation failed: ' + String(invalidationError.message || invalidationError));
+    }
+    try {
+      if (lockAcquired && lock) lock.releaseLock();
+    } catch (lockError) {
+      console.error('doPost lock release failed: ' + String(lockError.message || lockError));
+    }
   }
 }
 
@@ -2658,12 +2667,22 @@ function writeRecordDocumentStatus_(key, patch) {
 function getRecordDocumentStatus_(recordType, recordId) {
   const key = recordDocumentKey_(recordType, recordId);
   const status = readRecordDocumentStatuses_()[key];
-  return status || {
+  const currentStatus = status || {
     key: key,
     recordType: normalizeRecordDocumentType_(recordType),
     recordId: String(recordId || '').trim(),
     state: 'unknown'
   };
+  if (currentStatus.state !== 'ready') return currentStatus;
+
+  try {
+    const descriptor = getRecordDocumentDescriptor_(recordType);
+    const snapshot = readRecordDocumentRow_(descriptor, recordId);
+    return Object.assign({}, currentStatus, readClientFolderState_(snapshot.record.klient_id));
+  } catch (error) {
+    console.warn('Client folder state could not be attached to document status: ' + String(error.message || error));
+    return currentStatus;
+  }
 }
 
 function readRecordDocumentQueue_() {
@@ -2973,10 +2992,33 @@ function getClientDocumentContext_(klientId) {
   if (!targetRow) throw new Error('Client not found: ' + klientId);
 
   const client = rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
-  const folder = getOrCreateClientFolder_(client, sheet.getRange(targetRow, folderUrlColumn).getValue());
+  const currentFolderUrl = String(sheet.getRange(targetRow, folderUrlColumn).getValue() || '');
+  const folder = getOrCreateClientFolder_(client, currentFolderUrl);
+  const folderUrl = folder.getUrl();
   const refreshedHeaders = getHeaders_(sheet);
-  sheet.getRange(targetRow, refreshedHeaders.indexOf('drive_folder_url') + 1).setValue(folder.getUrl());
+  if (currentFolderUrl !== folderUrl) {
+    sheet.getRange(targetRow, refreshedHeaders.indexOf('drive_folder_url') + 1).setValue(folderUrl);
+    invalidateReadActions_(['listClients']);
+  }
   return { client, folder };
+}
+
+function readClientFolderState_(klientId) {
+  const clientId = String(klientId || '').trim();
+  if (!clientId) return { clientId: '', clientFolderUrl: '', monitoringListUrl: '' };
+
+  const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
+  const headers = getHeaders_(sheet);
+  const klientIdColumn = headers.indexOf('klient_id') + 1;
+  if (!klientIdColumn) throw new Error('Missing klient_id column');
+  const targetRow = findClientRow_(sheet, klientIdColumn, clientId);
+  if (!targetRow) throw new Error('Client not found: ' + clientId);
+  const client = rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
+  return {
+    clientId: clientId,
+    clientFolderUrl: String(client.drive_folder_url || ''),
+    monitoringListUrl: String(client.monitoring_list_url || '')
+  };
 }
 
 function buildRecordDocumentTitle_(record, activityName, recordType) {

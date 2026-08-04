@@ -166,3 +166,24 @@ test('deleteClient invalidates every affected cached dataset', () => {
   assert.match(appsScriptSource, /deleteClient:\s*\['listClients', 'listIndividualPlans', 'listPerformances', 'listMeetings', 'listStatistics'\]/);
   assert.match(appsScriptSource, /payload\.action === 'deleteClient'/);
 });
+
+test('outdated Apps Script deployment produces an actionable client deletion message', () => {
+  assert.match(appSource, /unknown action\|nezn\[aá\]m\[aá\] akce/);
+  assert.match(appSource, /vytvořte novou verzi nasazení webové aplikace/);
+});
+
+test('ambiguous deletion response is verified against the authoritative client registry', () => {
+  const handlerStart = appSource.indexOf('const handleClientDelete = async');
+  const handlerEnd = appSource.indexOf('const handleGenerateText = async', handlerStart);
+  const handler = appSource.slice(handlerStart, handlerEnd);
+  assert.match(handler, /platnou JSON odpověď\|uložení nelze potvrdit/);
+  assert.match(handler, /fetchGoogleSheetAction\('listClients', 1\)/);
+  assert.match(handler, /normalizeDuplicateText\(targetRow\.status\)\.startsWith\('smaz'\)/);
+  assert.match(handler, /applyConfirmedDeletion\(\{ deleted: true, archive_warning: '' \}, true\)/);
+});
+
+test('doPost cleanup cannot replace a JSON response with an uncaught cleanup error', () => {
+  assert.match(appsScriptSource, /doPost cache invalidation failed/);
+  assert.match(appsScriptSource, /doPost lock release failed/);
+  assert.match(appsScriptSource, /console\.error\('doPost ' \+ \(requestedAction \|\| 'unknown'\) \+ ' failed:/);
+});

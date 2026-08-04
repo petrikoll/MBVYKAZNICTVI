@@ -92,3 +92,13 @@ test('serverová fronta sloučí opakovaný požadavek a uchová stav bez osobn�
   assert.equal(status.recordId, 'VYKON-0001');
   assert.equal(triggers.length, 1);
 });
+
+test('folder created by a document job is reflected in the open client card', () => {
+  const statusBody = functionBody(appsScriptSource, 'getRecordDocumentStatus_', 'readRecordDocumentQueue_');
+  const clientContextBody = functionBody(appsScriptSource, 'getClientDocumentContext_', 'readClientFolderState_');
+  assert.match(statusBody, /readClientFolderState_\(snapshot\.record\.klient_id\)/);
+  assert.match(clientContextBody, /invalidateReadActions_\(\['listClients'\]\)/);
+  assert.match(appSource, /const applyClientFolderState = \(status\) =>/);
+  assert.match(appSource, /driveFolderUrl: clientFolderUrl \|\| client\.driveFolderUrl \|\| ''/);
+  assert.match(appSource, /if \(status\.state === 'ready'\) \{\s*applyClientFolderState\(status\)/);
+});

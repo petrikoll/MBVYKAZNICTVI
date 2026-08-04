@@ -239,6 +239,13 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
     }
 
     const snapshot = await fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs);
+    if (request.method === 'GET' && action === 'getRecordDocumentStatus') {
+      const payload = parseJsonSnapshot(snapshot);
+      if (payload?.document?.state === 'ready' && payload.document.clientFolderUrl) {
+        mutationGeneration += 1;
+        readResponseCache.clear();
+      }
+    }
     sendUpstreamSnapshot(response, snapshot);
   } catch (error) {
     console.error('Google Apps Script proxy error:', error);

@@ -3848,6 +3848,9 @@ function App() {
       return `${fallback}: záznam mezitím změnil jiný uživatel. Obnovte data a změnu proveďte znovu.`;
     }
     const detail = String(error?.message || '').trim();
+    if (/unknown action|nezn[aá]m[aá] akce/i.test(detail)) {
+      return `${fallback}: nasazená verze Google Apps Scriptu tuto operaci ještě nepodporuje. V Apps Scriptu vytvořte novou verzi nasazení webové aplikace.`;
+    }
     return detail ? `${fallback}: ${detail}` : fallback;
   };
 
@@ -4125,6 +4128,22 @@ function App() {
     )));
   };
 
+  const applyClientFolderState = (status) => {
+    const clientId = String(status?.clientId || '').trim();
+    const clientFolderUrl = String(status?.clientFolderUrl || '').trim();
+    const monitoringListUrl = String(status?.monitoringListUrl || '').trim();
+    if (!clientId || (!clientFolderUrl && !monitoringListUrl)) return;
+    setClients((previousClients) => previousClients.map((client) => (
+      client.id === clientId
+        ? {
+          ...client,
+          driveFolderUrl: clientFolderUrl || client.driveFolderUrl || '',
+          monitoringListUrl: monitoringListUrl || client.monitoringListUrl || ''
+        }
+        : client
+    )));
+  };
+
   const monitorRecordDocument = async (record, descriptor, { noticeKey = '', successText = 'Uloženo' } = {}) => {
     const showStatus = (tone, text) => {
       if (noticeKey) setSaveButtonNotice(noticeKey, tone, text);
@@ -4147,6 +4166,7 @@ function App() {
       if (!status) continue;
       applyRecordDocumentStatus(record.id, status);
       if (status.state === 'ready') {
+        applyClientFolderState(status);
         showStatus('success', `${successText}. Dokument je připraven.`);
         return;
       }
@@ -4951,6 +4971,22 @@ function App() {
     setIsSaving(true);
     setSaveButtonNotice(noticeKey, 'progress', 'Mažu klienta a navázané záznamy…');
     setSaveButtonNotice('client-delete', 'progress', `Mažu klienta ${client.fullName}…`);
+    const applyConfirmedDeletion = (deletion, verifiedAfterResponseFailure = false) => {
+      setClients((previous) => previous.filter((item) => item.id !== client.id));
+      setRecords((previous) => previous.filter((record) => (
+        record.clientId !== client.id && !(Array.isArray(record.clientIds) && record.clientIds.includes(client.id))
+      )));
+      if (selectedClientId === client.id) {
+        setSelectedClientId('');
+        setShowClientEditForm(false);
+        setClientEditDraft(emptyClientDraft);
+      }
+      const summary = verifiedAfterResponseFailure
+        ? 'Klient a jeho navázané záznamy byly podle následné kontroly v Google Sheetu vyřazeny. Stav složky doporučujeme zkontrolovat v archivu.'
+        : `Klient smazán. Vyřazeno: ${deletion.performances || 0} výkonů, ${deletion.meetings || 0} záznamů case managementu a ${deletion.individual_plans || 0} individuálních plánů.`;
+      setSaveButtonNotice('client-delete', deletion.archive_warning ? 'error' : 'success', deletion.archive_warning || summary);
+      setFlash(deletion.archive_warning ? `${summary} ${deletion.archive_warning}` : summary);
+    };
     try {
       const result = await postGoogleSheetAction({
         action: 'deleteClient',
@@ -4961,23 +4997,25 @@ function App() {
         requested_by_name: currentWorker
       });
       if (!result?.deletion?.deleted) throw new Error('Google Sheet nepotvrdil smazání klienta.');
-
-      setClients((previous) => previous.filter((item) => item.id !== client.id));
-      setRecords((previous) => previous.filter((record) => (
-        record.clientId !== client.id && !(Array.isArray(record.clientIds) && record.clientIds.includes(client.id))
-      )));
-      if (selectedClientId === client.id) {
-        setSelectedClientId('');
-        setShowClientEditForm(false);
-        setClientEditDraft(emptyClientDraft);
-      }
-      const deletion = result.deletion;
-      const summary = `Klient smazán. Vyřazeno: ${deletion.performances || 0} výkonů, ${deletion.meetings || 0} záznamů case managementu a ${deletion.individual_plans || 0} individuálních plánů.`;
-      setSaveButtonNotice('client-delete', deletion.archive_warning ? 'error' : 'success', deletion.archive_warning || summary);
-      setFlash(deletion.archive_warning ? `${summary} ${deletion.archive_warning}` : summary);
+      applyConfirmedDeletion(result.deletion);
     } catch (error) {
       console.error('Google Sheets client delete error:', error);
-      const message = saveErrorMessage('Klient nebyl smazĂˇn', error);
+      const ambiguousResponse = /platnou JSON odpověď|uložení nelze potvrdit/i.test(String(error?.message || ''));
+      if (ambiguousResponse) {
+        try {
+          const verification = await fetchGoogleSheetAction('listClients', 1);
+          const rows = Array.isArray(verification?.clients) ? verification.clients : [];
+          const targetRow = rows.find((row) => String(row?.klient_id || '').trim() === client.id);
+          const deletionConfirmed = !targetRow || normalizeDuplicateText(targetRow.status).startsWith('smaz');
+          if (deletionConfirmed) {
+            applyConfirmedDeletion({ deleted: true, archive_warning: '' }, true);
+            return;
+          }
+        } catch (verificationError) {
+          console.warn('Client deletion verification failed:', verificationError);
+        }
+      }
+      const message = saveErrorMessage('Klient nebyl smazán', error);
       setSaveButtonNotice(noticeKey, 'error', message);
       setSaveButtonNotice('client-delete', 'error', message);
       setFlash(message);

@@ -312,3 +312,52 @@ test('proxy ukončí zaseknutý Apps Script časovým limitem', async () => {
   assert.equal(response.statusCode, 504);
   assert.equal(JSON.parse(response.body).ok, false);
 });
+
+test('ready document with a new folder invalidates the proxied client cache', async () => {
+  let clientReads = 0;
+  const fetchImpl = async (url) => {
+    const action = new URL(url).searchParams.get('action');
+    if (action === 'listClients') {
+      clientReads += 1;
+      return new Response(JSON.stringify({ ok: true, clients: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    return new Response(JSON.stringify({
+      ok: true,
+      document: {
+        state: 'ready',
+        clientId: 'KLIENT-0001',
+        clientFolderUrl: 'https://drive.google.com/drive/folders/folder-1'
+      }
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  };
+  const overrides = {
+    appsScriptUrl: 'https://example.test/macros/s/document-folder-cache/exec',
+    appsScriptToken: 'server-secret',
+    fetchImpl,
+    readCacheTtlMs: 60000
+  };
+
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listClients'),
+    createResponse(),
+    overrides
+  );
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=getRecordDocumentStatus&record_type=performance&record_id=VYKON-0001'),
+    createResponse(),
+    overrides
+  );
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listClients'),
+    createResponse(),
+    overrides
+  );
+
+  assert.equal(clientReads, 2);
+});
