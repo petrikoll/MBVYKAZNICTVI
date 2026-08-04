@@ -4,15 +4,15 @@ import test from 'node:test';
 
 const source = readFileSync(new URL('../src/app/ProjectReportingApp.jsx', import.meta.url), 'utf8');
 
-test('clients and performances load without the slow full bootstrap request', () => {
+test('clients load first and records prefer one cached bootstrap with a sequential fallback', () => {
   const clientsStart = source.indexOf('const fetchClients = async () => {');
   const clientsEnd = source.indexOf('const clientIndex = useMemo', clientsStart);
   const clientsBlock = source.slice(clientsStart, clientsEnd);
 
   assert.ok(clientsStart >= 0 && clientsEnd > clientsStart);
   assert.match(clientsBlock, /fetchGoogleSheetAction\('listClients'\)/);
-  assert.match(clientsBlock, /fetchGoogleSheetAction\('listPerformances'\)/);
-  assert.doesNotMatch(clientsBlock, /fetchGoogleSheetAction\('bootstrap'\)/);
+  assert.match(clientsBlock, /fetchGoogleSheetAction\('bootstrap', 1\)/);
+  assert.doesNotMatch(clientsBlock, /fetchGoogleSheetAction\('listPerformances'\)/);
 
   const recordsStart = source.indexOf('const fetchSheetRecords = async () => {');
   const recordsEnd = source.indexOf('fetchSheetRecords();', recordsStart);
@@ -28,5 +28,6 @@ test('clients and performances load without the slow full bootstrap request', ()
   assert.ok(supervisionAwait > plansAwait);
   assert.doesNotMatch(recordsBlock, /Promise\.all/);
   assert.match(recordsBlock, /fetchGoogleSheetAction\(action, 1\)/);
-  assert.doesNotMatch(recordsBlock, /fetchGoogleSheetAction\('bootstrap'\)/);
+  assert.match(recordsBlock, /const bootstrapSources = \[/);
+  assert.match(recordsBlock, /const bootstrapPrefetched = prefetchedSheetActionsRef\.current\.get\('bootstrap'\)/);
 });

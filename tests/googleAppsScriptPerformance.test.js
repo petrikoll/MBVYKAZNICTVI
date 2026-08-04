@@ -11,6 +11,33 @@ function createContext() {
   return context;
 }
 
+function createCachedContext() {
+  const values = new Map();
+  const cache = {
+    get: (key) => values.has(key) ? values.get(key) : null,
+    getAll: (keys) => Object.fromEntries(keys.filter((key) => values.has(key)).map((key) => [key, values.get(key)])),
+    put: (key, value) => values.set(key, String(value)),
+    putAll: (entries) => Object.entries(entries).forEach(([key, value]) => values.set(key, String(value))),
+    removeAll: (keys) => keys.forEach((key) => values.delete(key))
+  };
+  let uuid = 0;
+  const Utilities = {
+    newBlob: (input) => {
+      const bytes = Array.isArray(input) ? Buffer.from(input) : Buffer.from(String(input), 'utf8');
+      return {
+        getBytes: () => [...bytes],
+        getDataAsString: () => bytes.toString('utf8')
+      };
+    },
+    base64EncodeWebSafe: (bytes) => Buffer.from(bytes).toString('base64url'),
+    base64DecodeWebSafe: (encoded) => [...Buffer.from(encoded, 'base64url')],
+    getUuid: () => `uuid-${++uuid}`
+  };
+  const context = vm.createContext({ CacheService: { getScriptCache: () => cache }, Utilities });
+  vm.runInContext(source, context);
+  return context;
+}
+
 test('doplnění hlaviček používá jedno čtení a jeden dávkový zápis', () => {
   const context = createContext();
   let headerReads = 0;
@@ -69,6 +96,52 @@ test('bootstrap používá jednu otevřenou tabulku pro všechny datové sady', 
   Object.values(loaders).forEach((resultKey) => {
     assert.equal(payload[resultKey][0].source, resultKey);
   });
+});
+
+test('Apps Script cache zvládne i datovou sadu větší než limit jednoho klíče', () => {
+  const context = createCachedContext();
+  const dataset = [{ id: 'VYKON-1', text: 'Příliš žluťoučký kůň '.repeat(7000) }];
+  let loads = 0;
+  const load = () => {
+    loads += 1;
+    return dataset;
+  };
+
+  const first = context.readCachedDataset_('listPerformances', load);
+  const second = context.readCachedDataset_('listPerformances', load);
+
+  assert.equal(loads, 1);
+  assert.equal(first[0].text, dataset[0].text);
+  assert.equal(second[0].text, dataset[0].text);
+});
+
+test('zápisová invalidace vynutí nové načtení pouze dotčené oblasti', () => {
+  const context = createCachedContext();
+  let loads = 0;
+  const load = () => [{ version: ++loads }];
+
+  assert.equal(context.readCachedDataset_('listPartners', load)[0].version, 1);
+  assert.equal(context.readCachedDataset_('listPartners', load)[0].version, 1);
+  context.invalidateReadActions_(['listPartners']);
+  assert.equal(context.readCachedDataset_('listPartners', load)[0].version, 2);
+});
+
+test('výsledek načtený souběžně se zápisem se nevrátí zpět do cache', () => {
+  const context = createCachedContext();
+  let loads = 0;
+  const first = context.readCachedDataset_('listPerformances', () => {
+    loads += 1;
+    context.invalidateReadActions_(['listPerformances']);
+    return [{ version: 'stará' }];
+  });
+  const second = context.readCachedDataset_('listPerformances', () => {
+    loads += 1;
+    return [{ version: 'nová' }];
+  });
+
+  assert.equal(first[0].version, 'stará');
+  assert.equal(second[0].version, 'nová');
+  assert.equal(loads, 2);
 });
 
 test('čtecí akce nemění strukturu listů', () => {

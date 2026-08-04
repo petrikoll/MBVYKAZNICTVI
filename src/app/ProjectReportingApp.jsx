@@ -2527,12 +2527,12 @@ function App() {
     const fetchClients = async () => {
       setIsLoadingClients(true);
       setSheetError('');
-      const performancePrefetch = fetchGoogleSheetAction('listPerformances')
-        .then((result) => ({ result }))
-        .catch((error) => ({ error }));
-      prefetchedSheetActionsRef.current.set('listPerformances', performancePrefetch);
       try {
         const json = await fetchGoogleSheetAction('listClients');
+        const bootstrapPrefetch = fetchGoogleSheetAction('bootstrap', 1)
+          .then((result) => ({ result }))
+          .catch((error) => ({ error }));
+        prefetchedSheetActionsRef.current.set('bootstrap', bootstrapPrefetch);
         let rows = [];
         if (Array.isArray(json)) rows = json;
         else if (json && Array.isArray(json.clients)) rows = json.clients;
@@ -2687,9 +2687,67 @@ function App() {
         });
       };
 
-      // Výkony se načítají už souběžně s klienty. Další skupiny se načítají
-      // po menších dávkách. Jeden velký bootstrap požadavek byl pomalý, duplikoval výkony
-      // a při zpomalení Apps Scriptu mohl zablokovat celou aktualizaci.
+      const bootstrapPrefetched = prefetchedSheetActionsRef.current.get('bootstrap');
+      if (bootstrapPrefetched) {
+        prefetchedSheetActionsRef.current.delete('bootstrap');
+        const bootstrapOutcome = await bootstrapPrefetched;
+        if (bootstrapOutcome?.result) {
+          const data = bootstrapOutcome.result;
+          const bootstrapFailures = new Set(
+            (Array.isArray(data.errors) ? data.errors : []).map((item) => item?.action).filter(Boolean)
+          );
+          const bundle = {
+            performances: { performances: data.performances || [] },
+            meetings: { meetings: data.meetings || [] },
+            plans: { individualPlans: data.individualPlans || [] },
+            networkMeetings: { networkMeetings: data.networkMeetings || [] },
+            partners: { partners: data.partners || [] },
+            education: { education: data.education || [] },
+            supervision: { supervision: data.supervision || [] },
+            statistics: { statistics: data.statistics || [] }
+          };
+          const bootstrapSources = [
+            ['listPerformances', 'performances', { performances: [] }],
+            ['listMeetings', 'meetings', { meetings: [] }],
+            ['listIndividualPlans', 'plans', { individualPlans: [] }],
+            ['listNetworkMeetings', 'networkMeetings', { networkMeetings: [] }],
+            ['listPartners', 'partners', { partners: [] }],
+            ['listEducation', 'education', { education: [], educations: [], vzdelavani: [] }],
+            ['listSupervision', 'supervision', { supervision: [], supervisions: [], supervize: [] }],
+            ['listStatistics', 'statistics', { statistics: [] }]
+          ];
+
+          for (const [action, bundleKey, fallback] of bootstrapSources) {
+            if (bootstrapFailures.has(action)) {
+              bundle[bundleKey] = await loadAction(action, fallback);
+            } else {
+              acceptLoadedAction(action, bundle[bundleKey]);
+            }
+          }
+
+          if (cancelled) return;
+          if (loadedActions.has('listStatistics')) setStatisticsRows(bundle.statistics.statistics || []);
+          applyLoadedResults(bundle, new Set(loadedActions));
+          const bootstrapActionLabels = {
+            listPerformances: 'výkony KA1',
+            listMeetings: 'zápisy case managementu',
+            listIndividualPlans: 'individuální plány',
+            listNetworkMeetings: 'schůzky sítě',
+            listPartners: 'aktéři sítě',
+            listEducation: 'vzdělávání',
+            listSupervision: 'supervize',
+            listStatistics: 'statistiky KÚ'
+          };
+          setSheetError(failedActions.size
+            ? 'Nepodařilo se načíst: ' + [...failedActions].map((action) => bootstrapActionLabels[action] || action).join(', ') + '. Ostatní data jsou dostupná.'
+            : '');
+          return;
+        }
+        console.warn('Google Sheets bootstrap load skipped:', bootstrapOutcome?.error);
+      }
+
+      // Záložní cesta pro případ, že dávkový bootstrap selže. Oblasti se načítají
+      // po jedné, aby dočasné zpomalení Apps Scriptu nezablokovalo všechna data.
       const performancesPromise = loadAction('listPerformances', { performances: [] });
       const performances = await performancesPromise;
       applyLoadedResults(

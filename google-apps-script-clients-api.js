@@ -21,6 +21,38 @@ const CONFIG = {
   beneficiaryName: 'Město Moravský Beroun'
 };
 
+const READ_CACHE_VERSION_ = 'read-v1';
+const READ_CACHE_TTL_SECONDS_ = 21600;
+const READ_CACHE_CHUNK_SIZE_ = 85000;
+const MUTATION_READ_ACTIONS_ = {
+  saveClient: ['listClients'],
+  ensureClientFolder: ['listClients'],
+  savePartner: ['listPartners'],
+  deletePartner: ['listPartners'],
+  saveIndividualPlan: ['listIndividualPlans'],
+  deleteIndividualPlan: ['listIndividualPlans'],
+  savePerformance: ['listPerformances', 'listStatistics'],
+  deletePerformance: ['listPerformances', 'listStatistics'],
+  saveMeeting: ['listMeetings'],
+  deleteMeeting: ['listMeetings'],
+  saveNetworkMeeting: ['listNetworkMeetings'],
+  deleteNetworkMeeting: ['listNetworkMeetings'],
+  saveEducation: ['listEducation'],
+  deleteEducation: ['listEducation'],
+  saveSupervision: ['listSupervision'],
+  deleteSupervision: ['listSupervision']
+};
+const SHEET_READ_ACTIONS_ = {};
+SHEET_READ_ACTIONS_[CONFIG.sheetName] = ['listClients'];
+SHEET_READ_ACTIONS_[CONFIG.partnerSheetName] = ['listPartners'];
+SHEET_READ_ACTIONS_[CONFIG.individualPlanSheetName] = ['listIndividualPlans'];
+SHEET_READ_ACTIONS_[CONFIG.performanceSheetName] = ['listPerformances', 'listStatistics'];
+SHEET_READ_ACTIONS_[CONFIG.meetingSheetName] = ['listMeetings'];
+SHEET_READ_ACTIONS_[CONFIG.networkMeetingSheetName] = ['listNetworkMeetings'];
+SHEET_READ_ACTIONS_[CONFIG.educationSheetName] = ['listEducation'];
+SHEET_READ_ACTIONS_[CONFIG.supervisionSheetName] = ['listSupervision'];
+SHEET_READ_ACTIONS_[CONFIG.statisticsSheetName] = ['listStatistics'];
+
 function doGet(e) {
   try {
     assertToken_(e.parameter.token);
@@ -28,31 +60,31 @@ function doGet(e) {
       return json_(buildBootstrapPayload_());
     }
     if (e.parameter.action === 'listClients') {
-      return json_({ ok: true, clients: listClients_() });
+      return json_({ ok: true, clients: readCachedDataset_('listClients', () => listClients_()) });
     }
     if (e.parameter.action === 'listPartners') {
-      return json_({ ok: true, partners: listPartners_() });
+      return json_({ ok: true, partners: readCachedDataset_('listPartners', () => listPartners_()) });
     }
     if (e.parameter.action === 'listIndividualPlans') {
-      return json_({ ok: true, individualPlans: listIndividualPlans_() });
+      return json_({ ok: true, individualPlans: readCachedDataset_('listIndividualPlans', () => listIndividualPlans_()) });
     }
     if (e.parameter.action === 'listPerformances') {
-      return json_({ ok: true, performances: listPerformances_() });
+      return json_({ ok: true, performances: readCachedDataset_('listPerformances', () => listPerformances_()) });
     }
     if (e.parameter.action === 'listMeetings') {
-      return json_({ ok: true, meetings: listMeetings_() });
+      return json_({ ok: true, meetings: readCachedDataset_('listMeetings', () => listMeetings_()) });
     }
     if (e.parameter.action === 'listNetworkMeetings') {
-      return json_({ ok: true, networkMeetings: listNetworkMeetings_() });
+      return json_({ ok: true, networkMeetings: readCachedDataset_('listNetworkMeetings', () => listNetworkMeetings_()) });
     }
     if (e.parameter.action === 'listEducation') {
-      return json_({ ok: true, education: listEducation_() });
+      return json_({ ok: true, education: readCachedDataset_('listEducation', () => listEducation_()) });
     }
     if (e.parameter.action === 'listSupervision') {
-      return json_({ ok: true, supervision: listSupervision_() });
+      return json_({ ok: true, supervision: readCachedDataset_('listSupervision', () => listSupervision_()) });
     }
     if (e.parameter.action === 'listStatistics') {
-      return json_({ ok: true, statistics: listStatistics_() });
+      return json_({ ok: true, statistics: readCachedDataset_('listStatistics', () => listStatistics_()) });
     }
     if (e.parameter.action === 'getBackupStatus') {
       return json_({ ok: true, backup: getBackupStatus_() });
@@ -66,9 +98,11 @@ function doGet(e) {
 function doPost(e) {
   let lock = null;
   let lockAcquired = false;
+  let requestedAction = '';
   try {
     const payload = JSON.parse(e.postData.contents || '{}');
     assertToken_(payload.token);
+    requestedAction = String(payload.action || '');
     lock = LockService.getScriptLock();
     lock.waitLock(30000);
     lockAcquired = true;
@@ -169,6 +203,7 @@ function doPost(e) {
   } catch (error) {
     return json_({ ok: false, code: error && error.code ? String(error.code) : '', error: String(error.message || error) });
   } finally {
+    if (requestedAction) invalidateReadActions_(MUTATION_READ_ACTIONS_[requestedAction] || []);
     if (lockAcquired && lock) lock.releaseLock();
   }
 }
@@ -206,6 +241,108 @@ function getSpreadsheet_() {
 
 function getSheetForRead_(sheetName, spreadsheet) {
   return (spreadsheet || getSpreadsheet_()).getSheetByName(sheetName);
+}
+
+function readCacheBaseKey_(action) {
+  return READ_CACHE_VERSION_ + ':' + action;
+}
+
+function readCacheGeneration_(cache, action) {
+  return cache.get(readCacheBaseKey_(action) + ':generation') || '';
+}
+
+function getCachedDataset_(action) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const baseKey = readCacheBaseKey_(action);
+    const metaRaw = cache.get(baseKey + ':meta');
+    if (!metaRaw) return null;
+    const meta = JSON.parse(metaRaw);
+    if (String(meta.generation || '') !== readCacheGeneration_(cache, action)) return null;
+    const count = Number(meta && meta.count);
+    if (!Number.isInteger(count) || count < 1) return null;
+    const keys = Array.from({ length: count }, (_, index) => baseKey + ':' + index);
+    const chunks = cache.getAll(keys);
+    if (!chunks || keys.some((key) => typeof chunks[key] !== 'string')) return null;
+    const encoded = keys.map((key) => chunks[key]).join('');
+    const json = Utilities.newBlob(Utilities.base64DecodeWebSafe(encoded)).getDataAsString('UTF-8');
+    return JSON.parse(json);
+  } catch (error) {
+    console.warn('Read cache miss for ' + action + ': ' + String(error.message || error));
+    return null;
+  }
+}
+
+function putCachedDataset_(action, value, generation) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const baseKey = readCacheBaseKey_(action);
+    const encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(JSON.stringify(value)).getBytes());
+    const chunks = [];
+    for (let offset = 0; offset < encoded.length; offset += READ_CACHE_CHUNK_SIZE_) {
+      chunks.push(encoded.slice(offset, offset + READ_CACHE_CHUNK_SIZE_));
+    }
+    if (chunks.length === 0) chunks.push('');
+    const entries = {};
+    chunks.forEach((chunk, index) => {
+      entries[baseKey + ':' + index] = chunk;
+    });
+    entries[baseKey + ':meta'] = JSON.stringify({
+      count: chunks.length,
+      cachedAt: Date.now(),
+      generation: generation || ''
+    });
+    cache.putAll(entries, READ_CACHE_TTL_SECONDS_);
+  } catch (error) {
+    console.warn('Read cache write skipped for ' + action + ': ' + String(error.message || error));
+  }
+}
+
+function readCachedDataset_(action, loader) {
+  const cached = getCachedDataset_(action);
+  if (cached !== null) return cached;
+  let generationBefore = '';
+  try {
+    generationBefore = readCacheGeneration_(CacheService.getScriptCache(), action);
+  } catch {
+    // Bez cache pokračuje načtení přímo ze Sheetu.
+  }
+  const value = loader();
+  let generationAfter = generationBefore;
+  try {
+    generationAfter = readCacheGeneration_(CacheService.getScriptCache(), action);
+  } catch {
+    // Bez cache se výsledek pouze vrátí volajícímu.
+  }
+  if (generationBefore === generationAfter) putCachedDataset_(action, value, generationAfter);
+  return value;
+}
+
+function invalidateReadActions_(actions) {
+  if (!actions || actions.length === 0) return;
+  try {
+    const cache = CacheService.getScriptCache();
+    const keysToRemove = [];
+    actions.forEach((action) => {
+      const baseKey = readCacheBaseKey_(action);
+      cache.put(baseKey + ':generation', Utilities.getUuid(), READ_CACHE_TTL_SECONDS_);
+      const metaKey = baseKey + ':meta';
+      keysToRemove.push(metaKey);
+      const metaRaw = cache.get(metaKey);
+      if (!metaRaw) return;
+      try {
+        const count = Number(JSON.parse(metaRaw).count);
+        if (Number.isInteger(count) && count > 0) {
+          for (let index = 0; index < count; index += 1) keysToRemove.push(baseKey + ':' + index);
+        }
+      } catch {
+        // Poškozená metadata stačí odstranit; osiřelé bloky samy vyprší.
+      }
+    });
+    cache.removeAll(keysToRemove);
+  } catch (error) {
+    console.warn('Read cache invalidation skipped: ' + String(error.message || error));
+  }
 }
 
 const INDIVIDUAL_PLAN_HEADERS_ = [
@@ -869,9 +1006,11 @@ function onEdit(e) {
     CONFIG.meetingSheetName,
     CONFIG.networkMeetingSheetName,
     CONFIG.educationSheetName,
-    CONFIG.supervisionSheetName
+    CONFIG.supervisionSheetName,
+    CONFIG.statisticsSheetName
   ];
   if (!watchedSheets.includes(sheet.getName())) return;
+  invalidateReadActions_(SHEET_READ_ACTIONS_[sheet.getName()] || []);
   if (e.range.getRow() <= CONFIG.headerRow) return;
 
   const headers = getHeaders_(sheet);
@@ -894,11 +1033,15 @@ function onEdit(e) {
 }
 
 function buildBootstrapPayload_() {
-  const spreadsheet = getSpreadsheet_();
+  let spreadsheet = null;
+  const sharedSpreadsheet = () => {
+    if (!spreadsheet) spreadsheet = getSpreadsheet_();
+    return spreadsheet;
+  };
   const errors = [];
   const load = (action, fallback, loader) => {
     try {
-      return loader();
+      return readCachedDataset_(action, () => loader(sharedSpreadsheet()));
     } catch (error) {
       errors.push({ action: action, error: String(error.message || error) });
       return fallback;
@@ -907,15 +1050,15 @@ function buildBootstrapPayload_() {
 
   return {
     ok: true,
-    clients: load('listClients', [], () => listClients_(spreadsheet)),
-    performances: load('listPerformances', [], () => listPerformances_(spreadsheet)),
-    meetings: load('listMeetings', [], () => listMeetings_(spreadsheet)),
-    individualPlans: load('listIndividualPlans', [], () => listIndividualPlans_(spreadsheet)),
-    networkMeetings: load('listNetworkMeetings', [], () => listNetworkMeetings_(spreadsheet)),
-    partners: load('listPartners', [], () => listPartners_(spreadsheet)),
-    education: load('listEducation', [], () => listEducation_(spreadsheet)),
-    supervision: load('listSupervision', [], () => listSupervision_(spreadsheet)),
-    statistics: load('listStatistics', [], () => listStatistics_(spreadsheet)),
+    clients: load('listClients', [], (book) => listClients_(book)),
+    performances: load('listPerformances', [], (book) => listPerformances_(book)),
+    meetings: load('listMeetings', [], (book) => listMeetings_(book)),
+    individualPlans: load('listIndividualPlans', [], (book) => listIndividualPlans_(book)),
+    networkMeetings: load('listNetworkMeetings', [], (book) => listNetworkMeetings_(book)),
+    partners: load('listPartners', [], (book) => listPartners_(book)),
+    education: load('listEducation', [], (book) => listEducation_(book)),
+    supervision: load('listSupervision', [], (book) => listSupervision_(book)),
+    statistics: load('listStatistics', [], (book) => listStatistics_(book)),
     errors: errors
   };
 }

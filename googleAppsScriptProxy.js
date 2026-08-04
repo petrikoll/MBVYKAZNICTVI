@@ -2,6 +2,7 @@ const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 45000;
 const DEFAULT_READ_CACHE_TTL_MS = 15000;
 const CACHEABLE_GET_ACTIONS = new Set([
+  'bootstrap',
   'listClients',
   'listPartners',
   'listIndividualPlans',

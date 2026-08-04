@@ -73,6 +73,12 @@ test('aplikace při startu použije celou lokální kopii záznamů', () => {
   assert.match(appSource, /const preservedPendingRemote = prev\.filter/);
 });
 
+test('aplikace ověřuje záznamy jedním dávkovým požadavkem a zachovává záložní načtení', () => {
+  assert.match(appSource, /fetchGoogleSheetAction\('bootstrap', 1\)/);
+  assert.match(appSource, /const bootstrapSources = \[/);
+  assert.match(appSource, /Záložní cesta pro případ, že dávkový bootstrap selže/);
+});
+
 test('vymazání lokální kopie nezasahuje jiná nastavení aplikace', () => {
   const storage = createStorage({
     'projectReporting.clients.v1': '{}',
