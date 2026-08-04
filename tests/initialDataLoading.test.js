@@ -18,9 +18,15 @@ test('clients and performances load without the slow full bootstrap request', ()
   const recordsEnd = source.indexOf('fetchSheetRecords();', recordsStart);
   const recordsBlock = source.slice(recordsStart, recordsEnd);
   const performanceAwait = recordsBlock.indexOf('const performances = await performancesPromise;');
-  const secondaryDataAwait = recordsBlock.indexOf('const [meetings, plans] = await Promise.all');
+  const meetingsAwait = recordsBlock.indexOf("const meetings = await loadAction('listMeetings'");
+  const plansAwait = recordsBlock.indexOf("const plans = await loadAction('listIndividualPlans'");
+  const supervisionAwait = recordsBlock.indexOf("const supervision = await loadAction('listSupervision'");
 
   assert.ok(performanceAwait >= 0);
-  assert.ok(secondaryDataAwait > performanceAwait);
+  assert.ok(meetingsAwait > performanceAwait);
+  assert.ok(plansAwait > meetingsAwait);
+  assert.ok(supervisionAwait > plansAwait);
+  assert.doesNotMatch(recordsBlock, /Promise\.all/);
+  assert.match(recordsBlock, /fetchGoogleSheetAction\(action, 1\)/);
   assert.doesNotMatch(recordsBlock, /fetchGoogleSheetAction\('bootstrap'\)/);
 });

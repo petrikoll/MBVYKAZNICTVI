@@ -204,6 +204,10 @@ function getSpreadsheet_() {
     : SpreadsheetApp.getActive();
 }
 
+function getSheetForRead_(sheetName, spreadsheet) {
+  return (spreadsheet || getSpreadsheet_()).getSheetByName(sheetName);
+}
+
 const INDIVIDUAL_PLAN_HEADERS_ = [
   'plan_id', 'klient_id', 'popis_situace',
   'cile_json', 'zaverecne_vyhodnoceni', 'accepted_plan_text', 'pocet_minut', 'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
@@ -365,9 +369,9 @@ function setClientDateFormats_(sheet, headers) {
 }
 
 function listClients_(spreadsheet) {
-  const sheet = (spreadsheet || getSpreadsheet_()).getSheetByName(CONFIG.sheetName);
+  const sheet = getSheetForRead_(CONFIG.sheetName, spreadsheet);
   if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
-  const headers = ensureHeaders_(sheet, ['klicovy_pracovnik', 'rodina']);
+  const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
 
@@ -539,7 +543,8 @@ function getIndividualPlanSheet_(spreadsheetOverride) {
 }
 
 function listIndividualPlans_(spreadsheet) {
-  const sheet = getIndividualPlanSheet_(spreadsheet);
+  const sheet = getSheetForRead_(CONFIG.individualPlanSheetName, spreadsheet);
+  if (!sheet) return [];
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -596,7 +601,8 @@ function saveIndividualPlan_(individualPlan) {
 }
 
 function listPerformances_(spreadsheet) {
-  const sheet = getOrCreateSheet_(CONFIG.performanceSheetName, PERFORMANCE_HEADERS_, spreadsheet);
+  const sheet = getSheetForRead_(CONFIG.performanceSheetName, spreadsheet);
+  if (!sheet) return [];
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -654,7 +660,8 @@ function savePerformance_(performance) {
 }
 
 function listStatistics_(spreadsheet) {
-  const sheet = getOrCreateSheet_(CONFIG.statisticsSheetName, STATISTICS_HEADERS_, spreadsheet);
+  const sheet = getSheetForRead_(CONFIG.statisticsSheetName, spreadsheet);
+  if (!sheet) return [];
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -810,7 +817,8 @@ function getClientNameById_(clientId) {
 }
 
 function listMeetings_(spreadsheet) {
-  const sheet = getOrCreateSheet_(CONFIG.meetingSheetName, MEETING_HEADERS_, spreadsheet);
+  const sheet = getSheetForRead_(CONFIG.meetingSheetName, spreadsheet);
+  if (!sheet) return [];
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -965,7 +973,8 @@ function saveMeeting_(meeting) {
 }
 
 function listNetworkMeetings_(spreadsheet) {
-  const sheet = getOrCreateSheet_(CONFIG.networkMeetingSheetName, NETWORK_MEETING_HEADERS_, spreadsheet);
+  const sheet = getSheetForRead_(CONFIG.networkMeetingSheetName, spreadsheet);
+  if (!sheet) return [];
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -1016,7 +1025,8 @@ function saveNetworkMeeting_(networkMeeting) {
 }
 
 function listEducation_(spreadsheet) {
-  const sheet = getOrCreateSheet_(CONFIG.educationSheetName, EDUCATION_HEADERS_, spreadsheet);
+  const sheet = getSheetForRead_(CONFIG.educationSheetName, spreadsheet);
+  if (!sheet) return [];
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];
@@ -1072,7 +1082,8 @@ function saveEducation_(education) {
 }
 
 function listSupervision_(spreadsheet) {
-  const sheet = getOrCreateSheet_(CONFIG.supervisionSheetName, SUPERVISION_HEADERS_, spreadsheet);
+  const sheet = getSheetForRead_(CONFIG.supervisionSheetName, spreadsheet);
+  if (!sheet) return [];
   const headers = getHeaders_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow <= CONFIG.headerRow) return [];

@@ -2208,11 +2208,11 @@ function actorSheetRowMatchesPayload(row, partner) {
   return JSON.stringify(comparableContacts(row)) === JSON.stringify(comparableContacts(partner));
 }
 
-const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 30000;
+const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 50000;
 
-async function fetchGoogleSheetAction(action) {
+async function fetchGoogleSheetAction(action, maxAttempts = 2) {
   let lastError = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), GOOGLE_SHEET_REQUEST_TIMEOUT_MS);
     try {
@@ -2236,7 +2236,7 @@ async function fetchGoogleSheetAction(action) {
       lastError = error?.name === 'AbortError'
         ? new Error('Načítání dat z Google Sheetu trvá příliš dlouho.')
         : error;
-      if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 350));
+      if (attempt + 1 < maxAttempts) await new Promise((resolve) => window.setTimeout(resolve, 350));
     } finally {
       window.clearTimeout(timeoutId);
     }
@@ -2612,8 +2612,16 @@ function App() {
 
     const fetchSheetRecords = async () => {
       setVerifiedRecordActions(new Set());
-      const failedActions = [];
+      const failedActions = new Set();
       const loadedActions = new Set();
+      const acceptLoadedAction = (action, result) => {
+        loadedActions.add(action);
+        failedActions.delete(action);
+        if (!cancelled && VERIFIED_RECORD_SOURCE_ACTIONS.includes(action)) {
+          setVerifiedRecordActions((previous) => new Set([...previous, action]));
+        }
+        return result;
+      };
       const loadAction = async (action, fallback) => {
         try {
           const prefetched = prefetchedSheetActionsRef.current.get(action);
@@ -2621,15 +2629,19 @@ function App() {
           const outcome = prefetched ? await prefetched : null;
           if (outcome?.error) throw outcome.error;
           const result = outcome?.result || await fetchGoogleSheetAction(action);
-          loadedActions.add(action);
-          if (!cancelled && VERIFIED_RECORD_SOURCE_ACTIONS.includes(action)) {
-            setVerifiedRecordActions((previous) => new Set([...previous, action]));
+          return acceptLoadedAction(action, result);
+        } catch (firstError) {
+          console.warn('Google Sheets action load retry:', action, firstError);
+          if (cancelled) return fallback;
+          await new Promise((resolve) => window.setTimeout(resolve, 1500));
+          try {
+            const result = await fetchGoogleSheetAction(action, 1);
+            return acceptLoadedAction(action, result);
+          } catch (retryError) {
+            console.warn('Google Sheets action load skipped:', action, retryError);
+            failedActions.add(action);
+            return fallback;
           }
-          return result;
-        } catch (error) {
-          console.warn('Google Sheets action load skipped:', action, error);
-          failedActions.push(action);
-          return fallback;
         }
       };
 
@@ -2685,24 +2697,18 @@ function App() {
         new Set(loadedActions.has('listPerformances') ? ['listPerformances'] : [])
       );
 
-      const meetingsPromise = loadAction('listMeetings', { meetings: [] });
-      const plansPromise = loadAction('listIndividualPlans', { individualPlans: [] });
-
-      const [meetings, plans] = await Promise.all([meetingsPromise, plansPromise]);
+      const meetings = await loadAction('listMeetings', { meetings: [] });
+      const plans = await loadAction('listIndividualPlans', { individualPlans: [] });
       const coreActions = new Set(
         ['listPerformances', 'listMeetings', 'listIndividualPlans'].filter((action) => loadedActions.has(action))
       );
       applyLoadedResults({ performances, meetings, plans }, coreActions);
 
-      const [networkMeetings, partners, education] = await Promise.all([
-        loadAction('listNetworkMeetings', { networkMeetings: [] }),
-        loadAction('listPartners', { partners: [] }),
-        loadAction('listEducation', { education: [], educations: [], vzdelavani: [] })
-      ]);
-      const [supervision, statistics] = await Promise.all([
-        loadAction('listSupervision', { supervision: [], supervisions: [], supervize: [] }),
-        loadAction('listStatistics', { statistics: [] })
-      ]);
+      const networkMeetings = await loadAction('listNetworkMeetings', { networkMeetings: [] });
+      const partners = await loadAction('listPartners', { partners: [] });
+      const education = await loadAction('listEducation', { education: [], educations: [], vzdelavani: [] });
+      const supervision = await loadAction('listSupervision', { supervision: [], supervisions: [], supervize: [] });
+      const statistics = await loadAction('listStatistics', { statistics: [] });
 
       if (cancelled) return;
       if (loadedActions.has('listStatistics')) setStatisticsRows(statistics.statistics || []);
@@ -2721,8 +2727,8 @@ function App() {
         listSupervision: 'supervize',
         listStatistics: 'statistiky KÚ'
       };
-      setSheetError(failedActions.length
-        ? 'Nepodařilo se načíst: ' + failedActions.map((action) => actionLabels[action] || action).join(', ') + '. Ostatní data jsou dostupná.'
+      setSheetError(failedActions.size
+        ? 'Nepodařilo se načíst: ' + [...failedActions].map((action) => actionLabels[action] || action).join(', ') + '. Ostatní data jsou dostupná.'
         : '');
     };
 

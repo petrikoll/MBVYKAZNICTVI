@@ -70,3 +70,22 @@ test('bootstrap používá jednu otevřenou tabulku pro všechny datové sady', 
     assert.equal(payload[resultKey][0].source, resultKey);
   });
 });
+
+test('čtecí akce nemění strukturu listů', () => {
+  [
+    'listClients_',
+    'listIndividualPlans_',
+    'listPerformances_',
+    'listStatistics_',
+    'listMeetings_',
+    'listNetworkMeetings_',
+    'listEducation_',
+    'listSupervision_'
+  ].forEach((functionName) => {
+    const start = source.indexOf(`function ${functionName}(spreadsheet)`);
+    const end = source.indexOf('\nfunction ', start + 1);
+    const body = source.slice(start, end === -1 ? source.length : end);
+    assert.ok(start >= 0, `${functionName} musí existovat`);
+    assert.doesNotMatch(body, /getOrCreateSheet_|ensureHeaders_|getIndividualPlanSheet_/);
+  });
+});
