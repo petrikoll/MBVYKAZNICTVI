@@ -115,6 +115,89 @@ test('rychla revize dat nevola Apps Script', async () => {
   assert.ok(response.headers['X-Data-Revision']);
 });
 
+test('novy rychly bootstrap pouzije starsi bootstrapCore bez laviny dilcich pozadavku', async () => {
+  const requestedActions = [];
+  const response = createResponse();
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=bootstrapFast'),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/legacy-bootstrap/exec',
+      appsScriptToken: 'server-secret',
+      readCacheTtlMs: 1000,
+      fetchImpl: async (url) => {
+        const action = new URL(url).searchParams.get('action');
+        requestedActions.push(action);
+        if (action === 'bootstrapFast') {
+          return new Response('Not Found', { status: 404 });
+        }
+        return new Response(JSON.stringify({
+          ok: true,
+          performances: [{ vykon_id: 'VYKON-0001' }],
+          meetings: [],
+          partners: [],
+          individualPlans: [{ plan_id: 'PLAN-0001' }]
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+  );
+
+  assert.deepEqual(requestedActions, ['bootstrapFast', 'bootstrapCore']);
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.body).performances[0].vykon_id, 'VYKON-0001');
+});
+
+test('adresar klientu ze starsiho Apps Scriptu neposle do prohlizece plne zaznamy', async () => {
+  const requestedActions = [];
+  const response = createResponse();
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listClientDirectory'),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/legacy-clients/exec',
+      appsScriptToken: 'server-secret',
+      readCacheTtlMs: 1000,
+      fetchImpl: async (url) => {
+        const action = new URL(url).searchParams.get('action');
+        requestedActions.push(action);
+        if (action === 'listClientDirectory') {
+          return new Response(JSON.stringify({ ok: false, error: 'Unknown action' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        return new Response(JSON.stringify({
+          ok: true,
+          clients: [{
+            klient_id: 'KLIENT-0001',
+            jmeno: 'Alena',
+            prijmeni: 'Gaborova',
+            stav_klienta: 'aktivni',
+            klicovy_pracovnik: 'Pracovnik',
+            updated_at: '2026-08-04T10:00:00Z',
+            telefon: '123456789',
+            poznamka: 'citlivy text'
+          }]
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+  );
+
+  const payload = JSON.parse(response.body);
+  assert.deepEqual(requestedActions, ['listClientDirectory', 'listClients']);
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(Object.keys(payload.clients[0]).sort(), [
+    'jmeno', 'klicovy_pracovnik', 'klient_id', 'prijmeni', 'stav_klienta', 'updated_at'
+  ]);
+  assert.doesNotMatch(response.body, /123456789|citlivy text/);
+});
+
 test('zapis zmeni revizi bez ulozeni osobnich dat do proxy', async () => {
   const overrides = {
     appsScriptUrl: 'https://example.test/macros/s/revision-write/exec',

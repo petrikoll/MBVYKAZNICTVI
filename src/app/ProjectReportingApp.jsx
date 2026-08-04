@@ -2205,7 +2205,10 @@ async function fetchGoogleSheetAction(action, maxAttempts = 2, timeoutMs = GOOGL
         } catch {
           // Odpoved bez JSON tela - pouzije se obecna hlaska nize.
         }
-        throw new Error(detail || 'Google Sheet akce ' + action + ' selhala (HTTP ' + response.status + ').');
+        const requestError = new Error(detail || 'Google Sheet akce ' + action + ' selhala (HTTP ' + response.status + ').');
+        requestError.httpStatus = response.status;
+        requestError.sheetAction = action;
+        throw requestError;
       }
       const json = await response.json();
       if (json?.ok === false) throw new Error(json.error || 'Google Sheet akce ' + action + ' selhala.');
@@ -2505,7 +2508,19 @@ function App() {
       .catch((error) => ({ action, error }));
     const corePrefetch = prefetchAction('bootstrapFast');
     const auxiliaryPrefetch = prefetchAction('bootstrapAuxiliary');
-    const plansPrefetch = corePrefetch.then(() => prefetchAction('listIndividualPlans'));
+    const plansPrefetch = corePrefetch.then((outcome) => {
+      if (Array.isArray(outcome?.result?.individualPlans)) {
+        return {
+          action: 'listIndividualPlans',
+          result: {
+            ok: true,
+            individualPlans: outcome.result.individualPlans,
+            __dataRevision: outcome.result.__dataRevision || ''
+          }
+        };
+      }
+      return prefetchAction('listIndividualPlans');
+    });
     prefetchedSheetActionsRef.current.set('bootstrapFast', corePrefetch);
     prefetchedSheetActionsRef.current.set('bootstrapAuxiliary', auxiliaryPrefetch);
     prefetchedSheetActionsRef.current.set('listIndividualPlans', plansPrefetch);
@@ -2574,7 +2589,9 @@ function App() {
               applyClientSnapshot(parsedDirectory, false);
             }
           } catch (directoryError) {
-            console.warn('Google Sheets client directory skipped:', directoryError);
+            if (directoryError?.httpStatus !== 404) {
+              console.warn('Google Sheets client directory skipped:', directoryError);
+            }
           }
         }
         const json = await fetchGoogleSheetAction('listClients', 1);

@@ -15,7 +15,9 @@ test('clients and record batches start concurrently with bounded retries', () =>
   assert.match(clientsBlock, /fetchGoogleSheetAction\('listClients', 1\)/);
   assert.match(clientsBlock, /window\.setTimeout\(fetchClients, consecutiveFailures === 1 \? 1000 : 8000\)/);
   assert.match(source.slice(bootstrapStart, clientsStart), /prefetchAction\('bootstrapAuxiliary'\)/);
-  assert.match(source.slice(bootstrapStart, clientsStart), /corePrefetch\.then\(\(\) => prefetchAction\('listIndividualPlans'\)\)/);
+  assert.match(source.slice(bootstrapStart, clientsStart), /corePrefetch\.then\(\(outcome\) =>/);
+  assert.match(source.slice(bootstrapStart, clientsStart), /Array\.isArray\(outcome\?\.result\?\.individualPlans\)/);
+  assert.match(source.slice(bootstrapStart, clientsStart), /return prefetchAction\('listIndividualPlans'\)/);
   assert.doesNotMatch(clientsBlock, /fetchGoogleSheetAction\('listPerformances'\)/);
 
   const recordsStart = source.indexOf('const fetchSheetRecords = async () => {');

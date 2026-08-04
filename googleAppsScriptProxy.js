@@ -19,6 +19,10 @@ const CACHEABLE_GET_ACTIONS = new Set([
   'listSupervision',
   'listStatistics'
 ]);
+const LEGACY_READ_ACTIONS = new Map([
+  ['bootstrapFast', 'bootstrapCore'],
+  ['listClientDirectory', 'listClients']
+]);
 
 const readResponseCache = new Map();
 const inFlightReads = new Map();
@@ -109,6 +113,49 @@ function isSuccessfulJsonSnapshot(snapshot) {
   }
 }
 
+function parseJsonSnapshot(snapshot) {
+  try {
+    return JSON.parse(snapshot.body);
+  } catch {
+    return null;
+  }
+}
+
+function isUnsupportedActionSnapshot(snapshot) {
+  if (snapshot.status === 404) return true;
+  const payload = parseJsonSnapshot(snapshot);
+  return payload?.ok === false && /unknown action|nezn[aá]m[aá] akce/i.test(String(payload.error || ''));
+}
+
+function buildClientDirectorySnapshot(snapshot) {
+  const payload = parseJsonSnapshot(snapshot);
+  if (!isSuccessfulJsonSnapshot(snapshot) || !Array.isArray(payload?.clients)) return snapshot;
+  const clients = payload.clients.map((client) => ({
+    klient_id: client?.klient_id || '',
+    jmeno: client?.jmeno || '',
+    prijmeni: client?.prijmeni || '',
+    stav_klienta: client?.stav_klienta || client?.status || '',
+    klicovy_pracovnik: client?.klicovy_pracovnik || '',
+    updated_at: client?.updated_at || ''
+  }));
+  return {
+    ...snapshot,
+    body: JSON.stringify({ ok: true, clients })
+  };
+}
+
+async function fetchCompatibleReadSnapshot(fetchImpl, upstreamUrl, fetchOptions, timeoutMs, action) {
+  const snapshot = await fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, timeoutMs);
+  const legacyAction = LEGACY_READ_ACTIONS.get(action);
+  if (!legacyAction || !isUnsupportedActionSnapshot(snapshot)) return snapshot;
+
+  const legacyUrl = new URL(upstreamUrl);
+  legacyUrl.searchParams.set('action', legacyAction);
+  const legacySnapshot = await fetchUpstreamSnapshot(fetchImpl, legacyUrl, fetchOptions, timeoutMs);
+  if (action === 'listClientDirectory') return buildClientDirectorySnapshot(legacySnapshot);
+  return legacySnapshot;
+}
+
 async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
   const { appsScriptUrl, appsScriptToken } = getProxyConfig(overrides);
   const fetchImpl = overrides.fetchImpl || fetch;
@@ -162,7 +209,13 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
       if (!upstreamRequest) {
         cacheState = 'MISS';
         const generationAtStart = mutationGeneration;
-        upstreamRequest = fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs)
+        upstreamRequest = fetchCompatibleReadSnapshot(
+          fetchImpl,
+          upstreamUrl,
+          fetchOptions,
+          upstreamTimeoutMs,
+          action
+        )
           .then((snapshot) => {
             if (generationAtStart === mutationGeneration && isSuccessfulJsonSnapshot(snapshot)) {
               readResponseCache.set(cacheKey, {
