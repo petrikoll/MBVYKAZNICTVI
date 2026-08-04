@@ -84,7 +84,8 @@ function mapSheetRowToClient(row, index) {
     columns = row.slice(1, 19);
   } else if (row && typeof row === 'object' && ('klient_id' in row || 'jmeno' in row || 'prijmeni' in row)) {
     const status = String(row.stav_klienta || row.status || 'Aktivn?').trim().toLowerCase();
-    if (status && status.startsWith('neaktiv')) return null;
+    const deletionStatus = String(row.status || '').trim().toLowerCase();
+    if ((status && status.startsWith('neaktiv')) || deletionStatus.startsWith('smaz')) return null;
     return enrichClient({
       id: row.klient_id || buildManualClientId({ jmeno: row.jmeno || '', prijmeni: row.prijmeni || '' }),
       source: 'google-apps-script',

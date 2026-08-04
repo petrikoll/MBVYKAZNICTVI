@@ -33,6 +33,7 @@ import {
   Search,
   Sparkles,
   Target,
+  Trash2,
   TrendingUp,
   User,
   Users,
@@ -4917,6 +4918,75 @@ function App() {
     }
   };
 
+  const handleClientDelete = async (client, event) => {
+    event?.stopPropagation?.();
+    const noticeKey = `client-delete:${client?.id || ''}`;
+    if (!client?.id) return;
+    if (!isGarantWorker(currentWorker)) {
+      setSaveButtonNotice(noticeKey, 'error', 'Celého klienta může smazat pouze Mgr. Radka Vysloužilová.');
+      return;
+    }
+    if (!isClientRegistryAvailable) {
+      setSaveButtonNotice(noticeKey, 'error', 'Klientský registr není dostupný. Smazání bylo zablokováno.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Opravdu smazat celého klienta „${client.fullName}“?\n\n` +
+      'Z aplikace budou vyřazeny také jeho výkony, case management a individuální plány. Dokumenty se zachovají v archivu.'
+    );
+    if (!confirmed) return;
+    const typedId = window.prompt(`Pro potvrzení napište ID klienta: ${client.id}`, '');
+    if (String(typedId || '').trim() !== client.id) {
+      setSaveButtonNotice(noticeKey, 'error', 'Smazání zrušeno: ID klienta nebylo zadáno přesně.');
+      return;
+    }
+
+    const mutationKey = `client:${client.id}`;
+    if (pendingRecordMutationIdsRef.current.has(mutationKey)) {
+      setSaveButtonNotice(noticeKey, 'progress', 'Tento klient se právě mění. Vyčkejte na dokončení.');
+      return;
+    }
+    pendingRecordMutationIdsRef.current.add(mutationKey);
+    setIsSaving(true);
+    setSaveButtonNotice(noticeKey, 'progress', 'Mažu klienta a navázané záznamy…');
+    setSaveButtonNotice('client-delete', 'progress', `Mažu klienta ${client.fullName}…`);
+    try {
+      const result = await postGoogleSheetAction({
+        action: 'deleteClient',
+        client: {
+          klient_id: client.id,
+          expected_updated_at: client.expectedUpdatedAt || client.updatedAt || ''
+        },
+        requested_by_name: currentWorker
+      });
+      if (!result?.deletion?.deleted) throw new Error('Google Sheet nepotvrdil smazání klienta.');
+
+      setClients((previous) => previous.filter((item) => item.id !== client.id));
+      setRecords((previous) => previous.filter((record) => (
+        record.clientId !== client.id && !(Array.isArray(record.clientIds) && record.clientIds.includes(client.id))
+      )));
+      if (selectedClientId === client.id) {
+        setSelectedClientId('');
+        setShowClientEditForm(false);
+        setClientEditDraft(emptyClientDraft);
+      }
+      const deletion = result.deletion;
+      const summary = `Klient smazán. Vyřazeno: ${deletion.performances || 0} výkonů, ${deletion.meetings || 0} záznamů case managementu a ${deletion.individual_plans || 0} individuálních plánů.`;
+      setSaveButtonNotice('client-delete', deletion.archive_warning ? 'error' : 'success', deletion.archive_warning || summary);
+      setFlash(deletion.archive_warning ? `${summary} ${deletion.archive_warning}` : summary);
+    } catch (error) {
+      console.error('Google Sheets client delete error:', error);
+      const message = saveErrorMessage('Klient nebyl smazĂˇn', error);
+      setSaveButtonNotice(noticeKey, 'error', message);
+      setSaveButtonNotice('client-delete', 'error', message);
+      setFlash(message);
+    } finally {
+      pendingRecordMutationIdsRef.current.delete(mutationKey);
+      setIsSaving(false);
+    }
+  };
+
   const handleGenerateText = async () => {
     if (!generatorClient) {
       setFlash('Vyber klienta, pro kterého chceš výstup připravit.');
@@ -7434,6 +7504,12 @@ ${rawPlanOutput}` }] }],
                   </div>
                 </div>
 
+                {saveButtonNotices['client-delete'] && (
+                  <div className="mb-3">
+                    <SaveInlineNotice notice={saveButtonNotices['client-delete']} />
+                  </div>
+                )}
+
                 {isLoadingClients && clients.length > 0 && (
                   <div className="mb-3 inline-flex items-center gap-2 text-xs font-medium text-slate-500" role="status">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -7495,7 +7571,23 @@ ${rawPlanOutput}` }] }],
                             <div className="min-w-0">
                               <div className="truncate text-sm font-bold text-slate-900">{client.fullName}</div>
                             </div>
-                            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              {isGarantWorker(currentWorker) && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => handleClientDelete(client, event)}
+                                  onKeyDown={(event) => event.stopPropagation()}
+                                  disabled={isSaving || pendingRecordMutationIdsRef.current.has(`client:${client.id}`)}
+                                  className="inline-flex h-6 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-1.5 text-[10px] font-bold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                  title={`Smazat celého klienta ${client.fullName}`}
+                                  aria-label={`Smazat celého klienta ${client.fullName}`}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                  Smazat
+                                </button>
+                              )}
+                              <ChevronRight className="h-4 w-4 text-slate-400" />
+                            </div>
                           </div>
                           <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-xs">
                             {client.rodina
@@ -7530,6 +7622,11 @@ ${rawPlanOutput}` }] }],
                             {saveButtonNotices[`client-worker:${client.id}`] && (
                               <div className="col-span-2">
                                 <SaveInlineNotice notice={saveButtonNotices[`client-worker:${client.id}`]} />
+                              </div>
+                            )}
+                            {saveButtonNotices[`client-delete:${client.id}`] && (
+                              <div className="col-span-2">
+                                <SaveInlineNotice notice={saveButtonNotices[`client-delete:${client.id}`]} />
                               </div>
                             )}
                           </div>

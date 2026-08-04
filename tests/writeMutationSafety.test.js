@@ -18,9 +18,9 @@ test('delete uses the exact Sheet version and never restores a stale full list',
   assert.doesNotMatch(source, /setRecords\(previousRecords\)/);
 });
 
-test('both client editing paths reject a second in-flight mutation', () => {
+test('all client mutation paths reject a second in-flight mutation', () => {
   const clientMutationKeys = source.match(/const mutationKey = `client:\$\{(?:client\.id|targetClientId)\}`;/g) || [];
-  assert.equal(clientMutationKeys.length, 2);
+  assert.equal(clientMutationKeys.length, 3);
   assert.match(source, /expected_updated_at: klientId \? draft\.expectedUpdatedAt \|\| draft\.updatedAt \|\| '' : ''/);
 });
 

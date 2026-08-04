@@ -11,6 +11,7 @@ const CONFIG = {
   individualPlanSheetName: 'Individualni_plany',
   headerRow: 1,
   clientFoldersRootId: '1ZmYVNPm_ckRLCgWxpU2LXDkAYK1pM9ZX',
+  deletedClientsArchiveName: 'SMAZANI KLIENTI - ARCHIV',
   clientFoldersRootName: 'Klientské složky - Moravský Beroun',
   backupFolderId: '',
   backupFolderName: 'Zálohy - Moravský Beroun',
@@ -29,8 +30,16 @@ const RECORD_DOCUMENT_STATUS_PROPERTY_ = 'record-document-status-v1';
 const RECORD_DOCUMENT_TRIGGER_HANDLER_ = 'runQueuedRecordDocuments';
 const RECORD_DOCUMENT_MAX_ATTEMPTS_ = 3;
 const RECORD_DOCUMENT_BATCH_SIZE_ = 4;
+const DRIVE_AUDIT_SHEET_NAME_ = 'Audit_Drive';
+const DRIVE_REPAIR_LOG_SHEET_NAME_ = 'Drive_Repair_Log';
+const DRIVE_REPAIR_BACKUP_MAX_AGE_MS_ = 24 * 60 * 60 * 1000;
+const DRIVE_AUDIT_HEADERS_ = [
+  'zavaznost', 'kod', 'typ_objektu', 'objekt_id', 'klient_id',
+  'doporuceny_postup', 'referencni_url', 'nalezene_url', 'podrobnosti'
+];
 const MUTATION_READ_ACTIONS_ = {
   saveClient: ['listClients'],
+  deleteClient: ['listClients', 'listIndividualPlans', 'listPerformances', 'listMeetings', 'listStatistics'],
   updateClientKeyWorker: ['listClients'],
   ensureClientFolder: ['listClients'],
   savePartner: ['listPartners'],
@@ -144,6 +153,11 @@ function doPost(e) {
     if (payload.action === 'saveClient') {
       const client = saveClient_(payload.client || {});
       return json_({ ok: true, client });
+    }
+
+    if (payload.action === 'deleteClient') {
+      const deletion = deleteClient_(payload.client || {}, payload.requested_by_name || payload.requested_by || '');
+      return json_({ ok: true, deletion });
     }
 
     if (payload.action === 'updateClientKeyWorker') {
@@ -285,6 +299,758 @@ function getSpreadsheet_() {
   return CONFIG.spreadsheetId
     ? SpreadsheetApp.openById(CONFIG.spreadsheetId)
     : SpreadsheetApp.getActive();
+}
+
+// Bezpecny audit klientskych slozek a dokumentu. Funkce pouze cte zdrojove
+// listy a Google Drive; vysledek zapisuje do pomocneho listu Audit_Drive.
+// Zadny soubor ani slozku nemaze, nepresouva ani neprejmenovava.
+function auditDriveConsistency() {
+  const spreadsheet = getSpreadsheet_();
+  const clients = readDriveAuditRows_(spreadsheet, CONFIG.sheetName)
+    .filter(function(client) { return !isDriveAuditDeleted_(client.status); });
+  const performances = readDriveAuditRows_(spreadsheet, CONFIG.performanceSheetName);
+  const meetings = readDriveAuditRows_(spreadsheet, CONFIG.meetingSheetName);
+  const records = buildDriveAuditRecords_(performances, meetings);
+  const inventory = collectDriveAuditInventory_(clients, records);
+  const report = analyzeDriveConsistency_(clients, records, inventory);
+  writeDriveAuditReport_(spreadsheet, report);
+  Logger.log(JSON.stringify(report.summary, null, 2));
+  return report.summary;
+}
+
+function readDriveAuditRows_(spreadsheet, sheetName) {
+  const sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet) return [];
+  const headers = getHeaders_(sheet);
+  const rowCount = Math.max(sheet.getLastRow() - CONFIG.headerRow, 0);
+  if (!headers.length || !rowCount) return [];
+  return sheet
+    .getRange(CONFIG.headerRow + 1, 1, rowCount, headers.length)
+    .getValues()
+    .map(function(row) { return rowToObject_(headers, row); });
+}
+
+function buildDriveAuditRecords_(performances, meetings) {
+  const records = [];
+  (performances || []).forEach(function(record) {
+    const id = String(record.vykon_id || '').trim();
+    if (!id) return;
+    records.push(Object.assign({}, record, {
+      entity_type: 'vykon',
+      record_id: id
+    }));
+  });
+  (meetings || []).forEach(function(record) {
+    const id = String(record.meeting_id || '').trim();
+    if (!id) return;
+    records.push(Object.assign({}, record, {
+      entity_type: 'case_management',
+      record_id: id
+    }));
+  });
+  return records;
+}
+
+function collectDriveAuditInventory_(clients, records) {
+  const root = getClientFolderParent_();
+  const rootId = root.getId();
+  const foldersById = {};
+  const filesById = {};
+  const folderAccess = {};
+  const fileAccess = {};
+  const folderErrors = {};
+  const fileErrors = {};
+
+  function rememberFile(file, parentId) {
+    const id = file.getId();
+    if (!filesById[id]) {
+      filesById[id] = {
+        id,
+        url: file.getUrl(),
+        name: file.getName(),
+        mime_type: file.getMimeType(),
+        parent_ids: []
+      };
+    }
+    if (parentId && filesById[id].parent_ids.indexOf(parentId) === -1) {
+      filesById[id].parent_ids.push(parentId);
+    }
+    fileAccess[id] = true;
+    return filesById[id];
+  }
+
+  function rememberFolder(folder, isDirectRootChild) {
+    const id = folder.getId();
+    if (!foldersById[id]) {
+      foldersById[id] = {
+        id,
+        url: folder.getUrl(),
+        name: folder.getName(),
+        parent_ids: getDriveParentIds_(folder),
+        direct_root_child: Boolean(isDirectRootChild)
+      };
+    } else if (isDirectRootChild) {
+      foldersById[id].direct_root_child = true;
+    }
+    folderAccess[id] = true;
+
+    if (!foldersById[id].files_scanned) {
+      foldersById[id].files_scanned = true;
+      try {
+        const files = folder.getFiles();
+        while (files.hasNext()) rememberFile(files.next(), id);
+      } catch (error) {
+        foldersById[id].scan_error = String(error.message || error);
+      }
+    }
+    return foldersById[id];
+  }
+
+  const rootFolders = root.getFolders();
+  while (rootFolders.hasNext()) rememberFolder(rootFolders.next(), true);
+
+  (clients || []).forEach(function(client) {
+    const id = extractDriveId_(client.drive_folder_url);
+    if (!id || foldersById[id] || folderAccess[id] === false) return;
+    try {
+      rememberFolder(DriveApp.getFolderById(id), false);
+    } catch (error) {
+      folderAccess[id] = false;
+      folderErrors[id] = String(error.message || error);
+    }
+  });
+
+  (records || []).forEach(function(record) {
+    const id = extractDriveId_(record.document_url);
+    if (!id || filesById[id] || fileAccess[id] === false) return;
+    try {
+      const file = DriveApp.getFileById(id);
+      const parentIds = getDriveParentIds_(file);
+      rememberFile(file, '');
+      filesById[id].parent_ids = parentIds;
+    } catch (error) {
+      fileAccess[id] = false;
+      fileErrors[id] = String(error.message || error);
+    }
+  });
+
+  return {
+    root_folder_id: rootId,
+    folders: Object.keys(foldersById).map(function(id) { return foldersById[id]; }),
+    files: Object.keys(filesById).map(function(id) { return filesById[id]; }),
+    folder_access: folderAccess,
+    file_access: fileAccess,
+    folder_errors: folderErrors,
+    file_errors: fileErrors
+  };
+}
+
+function getDriveParentIds_(item) {
+  const ids = [];
+  try {
+    const parents = item.getParents();
+    while (parents.hasNext()) ids.push(parents.next().getId());
+  } catch (error) {
+    return ids;
+  }
+  return ids;
+}
+
+function analyzeDriveConsistency_(clients, records, inventory) {
+  const issues = [];
+  const clientById = {};
+  const recordById = {};
+  const folderById = {};
+  const fileById = {};
+  const rootFoldersByClientId = {};
+  const expectedRecords = [];
+
+  function addIssue(severity, code, entityType, entityId, clientId, action, referenceUrl, foundUrl, details) {
+    issues.push({
+      severity,
+      code,
+      entity_type: entityType || '',
+      entity_id: entityId || '',
+      client_id: clientId || '',
+      recommended_action: action || '',
+      reference_url: referenceUrl || '',
+      found_url: foundUrl || '',
+      details: details || ''
+    });
+  }
+
+  (clients || []).forEach(function(client) {
+    const id = String(client.klient_id || '').trim();
+    if (id && !isDriveAuditDeleted_(client.status)) clientById[id] = client;
+  });
+  (records || []).forEach(function(record) {
+    const id = String(record.record_id || '').trim();
+    if (id) recordById[id] = record;
+    if (id && record.klient_id && String(record.dokument_text || '').trim() && !isDriveAuditDeleted_(record.status)) {
+      expectedRecords.push(record);
+    }
+  });
+  (inventory.folders || []).forEach(function(folder) { folderById[folder.id] = folder; });
+  (inventory.files || []).forEach(function(file) { fileById[file.id] = file; });
+
+  (inventory.folders || []).filter(function(folder) {
+    return folder.direct_root_child;
+  }).forEach(function(folder) {
+    const detectedId = extractAuditEntityId_(folder.name, 'KLIENT');
+    if (!detectedId || !clientById[detectedId]) {
+      addIssue(
+        'VAROVANI', 'CLIENT_FOLDER_ORPHAN', 'slozka_klienta', folder.id, detectedId,
+        'Po rucni kontrole presunout do karanteny; zatim nemazat.', '', folder.url,
+        'Slozka v korenove slozce nema odpovidajiciho klienta v listu Klienti. Nazev: ' + folder.name
+      );
+      return;
+    }
+    rootFoldersByClientId[detectedId] = rootFoldersByClientId[detectedId] || [];
+    rootFoldersByClientId[detectedId].push(folder);
+  });
+
+  Object.keys(clientById).forEach(function(clientId) {
+    const client = clientById[clientId];
+    const folderUrl = String(client.drive_folder_url || '').trim();
+    const canonicalId = extractDriveId_(folderUrl);
+    const candidates = rootFoldersByClientId[clientId] || [];
+
+    if (!canonicalId) {
+      addIssue(
+        'CHYBA', 'CLIENT_FOLDER_LINK_MISSING', 'klient', clientId, clientId,
+        candidates.length === 1
+          ? 'Zapsat URL nalezene slozky ke klientovi.'
+          : 'Vytvorit slozku funkci ensureClientFolder az po kontrole auditu.',
+        '', candidates.length === 1 ? candidates[0].url : '',
+        candidates.length ? 'Pocet slozek se shodnym klient ID: ' + candidates.length : 'Klient nema ulozeny odkaz na slozku.'
+      );
+    } else if (inventory.folder_access[canonicalId] === false || !folderById[canonicalId]) {
+      addIssue(
+        'CHYBA', 'CLIENT_FOLDER_UNAVAILABLE', 'klient', clientId, clientId,
+        'Overit kos a opravneni. Novou slozku vytvorit az po vylouceni existujici kopie.',
+        folderUrl, candidates.length === 1 ? candidates[0].url : '',
+        inventory.folder_errors[canonicalId] || 'Slozku nelze otevrit.'
+      );
+    } else {
+      const canonical = folderById[canonicalId];
+      if (canonical.parent_ids.indexOf(inventory.root_folder_id) === -1) {
+        addIssue(
+          'VAROVANI', 'CLIENT_FOLDER_OUTSIDE_ROOT', 'klient', clientId, clientId,
+          'Po kontrole presunout kanonickou slozku do korenove klientské slozky.',
+          folderUrl, canonical.url, 'Kanonicka slozka neni primo v nastavenem koreni.'
+        );
+      }
+      const detectedId = extractAuditEntityId_(canonical.name, 'KLIENT');
+      if (detectedId && detectedId !== clientId) {
+        addIssue(
+          'CHYBA', 'CLIENT_FOLDER_ID_MISMATCH', 'klient', clientId, clientId,
+          'Neupravovat automaticky; overit, komu slozka patri.', folderUrl, canonical.url,
+          'Nazev odkazovane slozky obsahuje klient ID ' + detectedId + '.'
+        );
+      }
+    }
+
+    if (candidates.length > 1) {
+      addIssue(
+        'CHYBA', 'CLIENT_FOLDER_DUPLICATE', 'klient', clientId, clientId,
+        'Ponechat slozku z drive_folder_url; ostatni po kontrole presunout do karanteny.',
+        folderUrl, candidates.map(function(folder) { return folder.url; }).join('\n'),
+        'Nalezeno klientskych slozek: ' + candidates.length
+      );
+    }
+  });
+
+  expectedRecords.forEach(function(record) {
+    const recordId = String(record.record_id);
+    const clientId = String(record.klient_id || '').trim();
+    const documentUrl = String(record.document_url || '').trim();
+    const documentId = extractDriveId_(documentUrl);
+    const clientFolderId = extractDriveId_(clientById[clientId] && clientById[clientId].drive_folder_url);
+    const candidates = (inventory.files || []).filter(function(file) {
+      return auditNameContainsId_(file.name, recordId);
+    });
+
+    if (!clientById[clientId]) {
+      addIssue(
+        'CHYBA', 'RECORD_CLIENT_MISSING', record.entity_type, recordId, clientId,
+        'Neopravovat dokument; nejprve obnovit nebo spravne priradit klienta.',
+        documentUrl, '', 'Zaznam odkazuje na klienta, ktery neni v listu Klienti.'
+      );
+      return;
+    }
+
+    if (!documentId) {
+      if (candidates.length === 1) {
+        addIssue(
+          'CHYBA', 'DOCUMENT_LINK_MISSING_RECOVERABLE', record.entity_type, recordId, clientId,
+          'Po kontrole zapsat URL nalezeneho dokumentu do document_url.',
+          '', candidates[0].url, 'Dokument existuje, ale zaznam na nej neodkazuje.'
+        );
+      } else {
+        addIssue(
+          'CHYBA', 'DOCUMENT_MISSING', record.entity_type, recordId, clientId,
+          'Po kontrole znovu zaradit zaznam do fronty dokumentu.',
+          '', candidates.map(function(file) { return file.url; }).join('\n'),
+          candidates.length ? 'Odkaz chybi a nalezeno je vice moznych dokumentu.' : 'Odkaz i dokument chybi.'
+        );
+      }
+    } else if (inventory.file_access[documentId] === false || !fileById[documentId]) {
+      addIssue(
+        'CHYBA', candidates.length ? 'DOCUMENT_LINK_STALE_RECOVERABLE' : 'DOCUMENT_MISSING',
+        record.entity_type, recordId, clientId,
+        candidates.length === 1
+          ? 'Po kontrole nahradit nefunkcni odkaz URL nalezeneho dokumentu.'
+          : 'Overit kos a opravneni; pote dokument znovu zaradit do fronty.',
+        documentUrl, candidates.map(function(file) { return file.url; }).join('\n'),
+        inventory.file_errors[documentId] || 'Dokument z odkazu nelze otevrit.'
+      );
+    } else {
+      const canonicalFile = fileById[documentId];
+      if (clientFolderId && canonicalFile.parent_ids.indexOf(clientFolderId) === -1) {
+        addIssue(
+          'VAROVANI', 'DOCUMENT_WRONG_FOLDER', record.entity_type, recordId, clientId,
+          'Po kontrole presunout dokument do kanonicke slozky klienta.',
+          documentUrl, canonicalFile.url, 'Dokument neni ulozen v klientske slozce z drive_folder_url.'
+        );
+      }
+    }
+
+    if (candidates.length > 1) {
+      addIssue(
+        'CHYBA', 'DOCUMENT_DUPLICATE', record.entity_type, recordId, clientId,
+        'Ponechat dokument z document_url; ostatni po kontrole presunout do karanteny.',
+        documentUrl, candidates.map(function(file) { return file.url; }).join('\n'),
+        'Pocet dokumentu obsahujicich stejne ID zaznamu: ' + candidates.length
+      );
+    }
+  });
+
+  const orphanDocumentKeys = {};
+  (inventory.files || []).forEach(function(file) {
+    extractAuditRecordIds_(file.name).forEach(function(recordId) {
+      const key = file.id + ':' + recordId;
+      if (recordById[recordId] || orphanDocumentKeys[key]) return;
+      orphanDocumentKeys[key] = true;
+      addIssue(
+        'VAROVANI', 'DOCUMENT_WITHOUT_RECORD', 'dokument', recordId, '',
+        'Overit historii zaznamu; pokud byl smazan, presunout dokument do karanteny.',
+        '', file.url, 'Nazev dokumentu obsahuje ID, ktere neni ve zdrojovych listech.'
+      );
+    });
+  });
+
+  const byCode = {};
+  issues.forEach(function(issue) { byCode[issue.code] = (byCode[issue.code] || 0) + 1; });
+  return {
+    generated_at: new Date(),
+    issues,
+    summary: {
+      generated_at: new Date().toISOString(),
+      clients: Object.keys(clientById).length,
+      expected_documents: expectedRecords.length,
+      scanned_folders: (inventory.folders || []).length,
+      scanned_files: (inventory.files || []).length,
+      issue_count: issues.length,
+      by_code: byCode,
+      report_sheet: DRIVE_AUDIT_SHEET_NAME_,
+      destructive_changes: false
+    }
+  };
+}
+
+function isDriveAuditDeleted_(status) {
+  return normalizeDuplicateText_(status).indexOf('smaz') === 0;
+}
+
+function extractAuditEntityId_(name, prefix) {
+  const safePrefix = String(prefix || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = String(name || '').match(new RegExp('(?:^|[^A-Z0-9])(' + safePrefix + '-\\d+)(?=$|[^A-Z0-9])', 'i'));
+  return match ? match[1].toUpperCase() : '';
+}
+
+function extractAuditRecordIds_(name) {
+  const matches = String(name || '').toUpperCase().match(/(?:VYKON|SETKANI)-\d+/g) || [];
+  return matches.filter(function(id, index) { return matches.indexOf(id) === index; });
+}
+
+function auditNameContainsId_(name, id) {
+  const escaped = String(id || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!escaped) return false;
+  return new RegExp('(?:^|[^A-Z0-9])' + escaped + '(?=$|[^A-Z0-9])', 'i').test(String(name || ''));
+}
+
+function writeDriveAuditReport_(spreadsheet, report) {
+  let sheet = spreadsheet.getSheetByName(DRIVE_AUDIT_SHEET_NAME_);
+  if (!sheet) sheet = spreadsheet.insertSheet(DRIVE_AUDIT_SHEET_NAME_);
+  sheet.clear();
+
+  const generated = Utilities.formatDate(report.generated_at, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  sheet.getRange(1, 1, 1, 4).setValues([[
+    'AUDIT GOOGLE DRIVE - POUZE NAHLED',
+    'Vytvoreno', generated,
+    'Nalezeno problemu: ' + report.issues.length
+  ]]);
+  sheet.getRange(2, 1).setValue('Tento list nic nemaze ani nepresouva. Opravy se musi spustit samostatne az po kontrole.');
+  sheet.getRange(4, 1, 1, DRIVE_AUDIT_HEADERS_.length).setValues([DRIVE_AUDIT_HEADERS_]);
+
+  const rows = report.issues.map(function(issue) {
+    return [
+      issue.severity,
+      issue.code,
+      issue.entity_type,
+      issue.entity_id,
+      issue.client_id,
+      issue.recommended_action,
+      issue.reference_url,
+      issue.found_url,
+      issue.details
+    ];
+  });
+  if (!rows.length) {
+    rows.push(['INFO', 'BEZ_PROBLEMU', '', '', '', 'Neni potreba zasah.', '', '', 'Audit nenalezl nesrovnalosti.']);
+  }
+  sheet.getRange(5, 1, rows.length, DRIVE_AUDIT_HEADERS_.length).setValues(rows);
+  sheet.setFrozenRows(4);
+  sheet.getRange(1, 1, 1, 4).setFontWeight('bold');
+  sheet.getRange(4, 1, 1, DRIVE_AUDIT_HEADERS_.length).setFontWeight('bold');
+  sheet.autoResizeColumns(1, DRIVE_AUDIT_HEADERS_.length);
+  sheet.setColumnWidth(6, 360);
+  sheet.setColumnWidth(7, 280);
+  sheet.setColumnWidth(8, 280);
+  sheet.setColumnWidth(9, 420);
+}
+
+// Kontrolovana oprava po schvalenem auditu. Funkce nic nemaze. Vsechny
+// nadbytecne polozky presouva do nove karanteny vedle klientskych slozek a
+// kazdy krok zapisuje do Drive_Repair_Log. Vyžaduje uspesnou zalohu max. 24 h.
+function repairDriveConsistencyAfterBackup() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  const spreadsheet = getSpreadsheet_();
+  const runId = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss');
+  const logger = createDriveRepairLogger_(spreadsheet, runId);
+
+  try {
+    const backup = assertRecentSuccessfulBackupForDriveRepair_();
+    logger('START', 'repair', 'oprava', runId, backup.fileUrl || '', '', 'Zahajena oprava po overene zaloze.');
+
+    let clients = readDriveAuditRows_(spreadsheet, CONFIG.sheetName)
+      .filter(function(client) { return !isDriveAuditDeleted_(client.status); });
+    const performances = readDriveAuditRows_(spreadsheet, CONFIG.performanceSheetName);
+    const meetings = readDriveAuditRows_(spreadsheet, CONFIG.meetingSheetName);
+    const records = buildDriveAuditRecords_(performances, meetings);
+    let inventory = collectDriveAuditInventory_(clients, records);
+    const beforeReport = analyzeDriveConsistency_(clients, records, inventory);
+    assertDriveRepairReportIsSafe_(beforeReport, clients, records, inventory);
+
+    const quarantine = createDriveRepairQuarantine_(runId);
+    logger('OK', 'create_quarantine', 'karantena', runId, '', quarantine.root.getUrl(), 'Karantena byla vytvorena.');
+
+    repairClientFolderLinks_(spreadsheet, clients, inventory, logger);
+    clients = readDriveAuditRows_(spreadsheet, CONFIG.sheetName)
+      .filter(function(client) { return !isDriveAuditDeleted_(client.status); });
+
+    repairRecordDocuments_(spreadsheet, clients, records, inventory, quarantine.documents, logger);
+    quarantineNonCanonicalClientFolders_(clients, inventory, quarantine.folders, logger);
+
+    invalidateReadActions_(['listClients', 'listPerformances', 'listMeetings']);
+
+    const freshClients = readDriveAuditRows_(spreadsheet, CONFIG.sheetName)
+      .filter(function(client) { return !isDriveAuditDeleted_(client.status); });
+    const freshPerformances = readDriveAuditRows_(spreadsheet, CONFIG.performanceSheetName);
+    const freshMeetings = readDriveAuditRows_(spreadsheet, CONFIG.meetingSheetName);
+    const freshRecords = buildDriveAuditRecords_(freshPerformances, freshMeetings);
+    inventory = collectDriveAuditInventory_(freshClients, freshRecords);
+    const afterReport = analyzeDriveConsistency_(freshClients, freshRecords, inventory);
+    writeDriveAuditReport_(spreadsheet, afterReport);
+
+    logger(
+      'DONE', 'repair', 'oprava', runId, '', '',
+      'Oprava dokoncena. Pocet nalezu pred/po: ' + beforeReport.summary.issue_count + '/' + afterReport.summary.issue_count + '.'
+    );
+    return {
+      ok: true,
+      run_id: runId,
+      quarantine_url: quarantine.root.getUrl(),
+      issues_before: beforeReport.summary.issue_count,
+      issues_after: afterReport.summary.issue_count,
+      log_sheet: DRIVE_REPAIR_LOG_SHEET_NAME_,
+      deleted_items: 0
+    };
+  } catch (error) {
+    logger('ERROR', 'repair', 'oprava', runId, '', '', String(error.message || error));
+    throw error;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function assertRecentSuccessfulBackupForDriveRepair_() {
+  const status = normalizeBackupStatus_(readBackupStatus_(), new Date());
+  const finishedAt = new Date(status.finishedAt || '').getTime();
+  const age = Date.now() - finishedAt;
+  if (status.state !== 'success' || !Number.isFinite(finishedAt) || age < 0 || age > DRIVE_REPAIR_BACKUP_MAX_AGE_MS_) {
+    throw new Error('OPRAVA ZASTAVENA: Nejdrive vytvorte uspesnou kompletni zalohu. Zaloha nesmi byt starsi nez 24 hodin.');
+  }
+  if (!status.fileId) throw new Error('OPRAVA ZASTAVENA: Posledni zaloha nema ulozene ID souboru. Vytvorte novou kompletni zalohu.');
+  try {
+    DriveApp.getFileById(status.fileId).getName();
+  } catch (error) {
+    throw new Error('OPRAVA ZASTAVENA: Soubor posledni zalohy neni dostupny. Vytvorte novou kompletni zalohu.');
+  }
+  return status;
+}
+
+function assertDriveRepairReportIsSafe_(report, clients, records, inventory) {
+  const allowedCodes = {
+    CLIENT_FOLDER_ORPHAN: true,
+    CLIENT_FOLDER_DUPLICATE: true,
+    CLIENT_FOLDER_LINK_MISSING: true,
+    CLIENT_FOLDER_ID_MISMATCH: true,
+    CLIENT_FOLDER_OUTSIDE_ROOT: true,
+    DOCUMENT_DUPLICATE: true,
+    DOCUMENT_WRONG_FOLDER: true,
+    DOCUMENT_WITHOUT_RECORD: true,
+    DOCUMENT_LINK_MISSING_RECOVERABLE: true,
+    DOCUMENT_LINK_STALE_RECOVERABLE: true
+  };
+  const blocked = (report.issues || []).filter(function(issue) { return !allowedCodes[issue.code]; });
+  if (blocked.length) {
+    throw new Error('OPRAVA ZASTAVENA: Audit obsahuje nejednoznacne nalezy: ' + blocked.map(function(issue) {
+      return issue.code + (issue.entity_id ? ' ' + issue.entity_id : '');
+    }).join(', '));
+  }
+
+  const clientIds = {};
+  (clients || []).forEach(function(client) {
+    const id = String(client.klient_id || '').trim();
+    if (id) clientIds[id] = true;
+  });
+  (records || []).filter(function(record) {
+    return record.record_id && record.klient_id && String(record.dokument_text || '').trim() && !isDriveAuditDeleted_(record.status);
+  }).forEach(function(record) {
+    if (!clientIds[String(record.klient_id)]) {
+      throw new Error('OPRAVA ZASTAVENA: Zaznam ' + record.record_id + ' nema platneho klienta.');
+    }
+    const documentId = extractDriveId_(record.document_url);
+    const candidates = (inventory.files || []).filter(function(file) {
+      return auditNameContainsId_(file.name, record.record_id);
+    });
+    const canonicalAvailable = documentId && inventory.file_access[documentId] !== false
+      && (inventory.files || []).some(function(file) { return file.id === documentId; });
+    if (!canonicalAvailable && candidates.length !== 1) {
+      throw new Error('OPRAVA ZASTAVENA: Pro ' + record.record_id + ' nelze jednoznacne urcit spravny dokument.');
+    }
+  });
+}
+
+function createDriveRepairQuarantine_(runId) {
+  const clientRoot = getClientFolderParent_();
+  const parents = clientRoot.getParents();
+  const parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+  const root = parent.createFolder('KARANTENA - oprava Drive ' + runId);
+  return {
+    root,
+    folders: root.createFolder('Klientske slozky'),
+    documents: root.createFolder('Dokumenty')
+  };
+}
+
+function createDriveRepairLogger_(spreadsheet, runId) {
+  let sheet = spreadsheet.getSheetByName(DRIVE_REPAIR_LOG_SHEET_NAME_);
+  const headers = [
+    'run_id', 'cas', 'stav', 'akce', 'typ_objektu', 'objekt_id', 'klient_id',
+    'puvodni_url', 'nove_url', 'podrobnosti'
+  ];
+  if (!sheet) sheet = spreadsheet.insertSheet(DRIVE_REPAIR_LOG_SHEET_NAME_);
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+  }
+  return function(status, action, entityType, entityId, sourceUrl, targetUrl, details, clientId) {
+    const row = [[
+      runId,
+      new Date(),
+      status || '',
+      action || '',
+      entityType || '',
+      entityId || '',
+      clientId || '',
+      sourceUrl || '',
+      targetUrl || '',
+      details || ''
+    ]];
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length).setValues(row);
+  };
+}
+
+function repairClientFolderLinks_(spreadsheet, clients, inventory, logger) {
+  const root = getClientFolderParent_();
+  const foldersById = {};
+  const rootCandidates = {};
+  (inventory.folders || []).forEach(function(folder) {
+    foldersById[folder.id] = folder;
+    if (!folder.direct_root_child) return;
+    const clientId = extractAuditEntityId_(folder.name, 'KLIENT');
+    if (!clientId) return;
+    rootCandidates[clientId] = rootCandidates[clientId] || [];
+    rootCandidates[clientId].push(folder);
+  });
+
+  (clients || []).forEach(function(client) {
+    const clientId = String(client.klient_id || '').trim();
+    if (!clientId) return;
+    const currentUrl = String(client.drive_folder_url || '').trim();
+    const currentId = extractDriveId_(currentUrl);
+    const currentFolder = currentId && foldersById[currentId];
+    const detectedId = currentFolder ? extractAuditEntityId_(currentFolder.name, 'KLIENT') : '';
+    const exactCandidates = rootCandidates[clientId] || [];
+    let targetFolder = null;
+    let reason = '';
+
+    if (!currentId) {
+      if (exactCandidates.length > 1) {
+        throw new Error('OPRAVA ZASTAVENA: Klient ' + clientId + ' nema odkaz a ma vice moznych slozek.');
+      }
+      if (exactCandidates.length === 1) {
+        targetFolder = DriveApp.getFolderById(exactCandidates[0].id);
+        reason = 'Doplnen existujici odkaz na slozku.';
+      } else {
+        targetFolder = root.createFolder(buildClientFolderName_(client));
+        reason = 'Vytvorena chybejici klientska slozka.';
+      }
+    } else if (currentFolder && detectedId && detectedId !== clientId) {
+      if (exactCandidates.length > 1) {
+        throw new Error('OPRAVA ZASTAVENA: Klient ' + clientId + ' ma chybny odkaz a vice moznych spravnych slozek.');
+      }
+      targetFolder = exactCandidates.length === 1
+        ? DriveApp.getFolderById(exactCandidates[0].id)
+        : root.createFolder(buildClientFolderName_(client));
+      reason = exactCandidates.length === 1
+        ? 'Chybny odkaz nahrazen existujici spravnou slozkou.'
+        : 'Chybny odkaz nahrazen novou spravnou slozkou.';
+    } else if (currentFolder && currentFolder.parent_ids.indexOf(inventory.root_folder_id) === -1) {
+      targetFolder = DriveApp.getFolderById(currentId);
+      targetFolder.moveTo(root);
+      reason = 'Kanonicka slozka presunuta do nastaveneho korene.';
+    }
+
+    if (!targetFolder) return;
+    const targetUrl = targetFolder.getUrl();
+    updateDriveRepairUrl_(spreadsheet, CONFIG.sheetName, 'klient_id', clientId, 'drive_folder_url', targetUrl);
+    client.drive_folder_url = targetUrl;
+    logger('OK', 'repair_client_folder_link', 'klient', clientId, currentUrl, targetUrl, reason, clientId);
+  });
+}
+
+function repairRecordDocuments_(spreadsheet, clients, records, inventory, quarantineFolder, logger) {
+  const clientById = {};
+  const recordById = {};
+  const filesById = {};
+  const movedFileIds = {};
+  (clients || []).forEach(function(client) {
+    const id = String(client.klient_id || '').trim();
+    if (id) clientById[id] = client;
+  });
+  (records || []).forEach(function(record) {
+    if (record.record_id) recordById[String(record.record_id)] = record;
+  });
+  (inventory.files || []).forEach(function(file) { filesById[file.id] = file; });
+
+  (records || []).filter(function(record) {
+    return record.record_id && record.klient_id && String(record.dokument_text || '').trim() && !isDriveAuditDeleted_(record.status);
+  }).forEach(function(record) {
+    const recordId = String(record.record_id);
+    const clientId = String(record.klient_id);
+    const currentUrl = String(record.document_url || '').trim();
+    const currentId = extractDriveId_(currentUrl);
+    const candidates = (inventory.files || []).filter(function(file) {
+      return auditNameContainsId_(file.name, recordId);
+    });
+    let canonical = currentId && filesById[currentId] && inventory.file_access[currentId] !== false
+      ? filesById[currentId]
+      : null;
+
+    if (!canonical) {
+      if (candidates.length !== 1) throw new Error('OPRAVA ZASTAVENA: Dokument ' + recordId + ' neni jednoznacny.');
+      canonical = candidates[0];
+      updateDriveRepairUrl_(
+        spreadsheet,
+        record.entity_type === 'vykon' ? CONFIG.performanceSheetName : CONFIG.meetingSheetName,
+        record.entity_type === 'vykon' ? 'vykon_id' : 'meeting_id',
+        recordId,
+        'document_url',
+        canonical.url
+      );
+      record.document_url = canonical.url;
+      logger('OK', 'repair_document_link', record.entity_type, recordId, currentUrl, canonical.url, 'Opraven chybejici nebo nefunkcni odkaz.', clientId);
+    }
+
+    const clientFolderId = extractDriveId_(clientById[clientId] && clientById[clientId].drive_folder_url);
+    if (!clientFolderId) throw new Error('OPRAVA ZASTAVENA: Klient ' + clientId + ' nema cilovou slozku.');
+    if (canonical.parent_ids.indexOf(clientFolderId) === -1) {
+      const file = DriveApp.getFileById(canonical.id);
+      const sourceParents = canonical.parent_ids.join(',');
+      file.moveTo(DriveApp.getFolderById(clientFolderId));
+      canonical.parent_ids = [clientFolderId];
+      logger('OK', 'move_document_to_client', record.entity_type, recordId, sourceParents, file.getUrl(), 'Dokument presunut do kanonicke slozky klienta.', clientId);
+    }
+
+    candidates.forEach(function(candidate) {
+      if (candidate.id === canonical.id || movedFileIds[candidate.id]) return;
+      const file = DriveApp.getFileById(candidate.id);
+      file.moveTo(quarantineFolder);
+      movedFileIds[candidate.id] = true;
+      logger('OK', 'quarantine_duplicate_document', record.entity_type, recordId, candidate.url, file.getUrl(), 'Nadbytecna kopie presunuta do karanteny.', clientId);
+    });
+  });
+
+  (inventory.files || []).forEach(function(fileInfo) {
+    if (movedFileIds[fileInfo.id]) return;
+    const orphanIds = extractAuditRecordIds_(fileInfo.name).filter(function(recordId) { return !recordById[recordId]; });
+    if (!orphanIds.length) return;
+    const file = DriveApp.getFileById(fileInfo.id);
+    file.moveTo(quarantineFolder);
+    movedFileIds[fileInfo.id] = true;
+    logger('OK', 'quarantine_document_without_record', 'dokument', orphanIds.join(';'), fileInfo.url, file.getUrl(), 'Dokument bez zdrojoveho zaznamu presunut do karanteny.');
+  });
+}
+
+function quarantineNonCanonicalClientFolders_(clients, inventory, quarantineFolder, logger) {
+  const activeClientIds = {};
+  const canonicalFolderIds = {};
+  (clients || []).forEach(function(client) {
+    const clientId = String(client.klient_id || '').trim();
+    if (clientId) activeClientIds[clientId] = true;
+    const folderId = extractDriveId_(client.drive_folder_url);
+    if (folderId) canonicalFolderIds[folderId] = clientId;
+  });
+
+  (inventory.folders || []).filter(function(folder) {
+    return folder.direct_root_child && !canonicalFolderIds[folder.id];
+  }).forEach(function(folderInfo) {
+    const detectedClientId = extractAuditEntityId_(folderInfo.name, 'KLIENT');
+    if (!detectedClientId && !/^KLIENT-/i.test(String(folderInfo.name || ''))) return;
+    const reason = activeClientIds[detectedClientId]
+      ? 'Nadbytecna klientska slozka presunuta do karanteny.'
+      : 'Slozka bez existujiciho klienta presunuta do karanteny.';
+    const folder = DriveApp.getFolderById(folderInfo.id);
+    folder.moveTo(quarantineFolder);
+    logger('OK', 'quarantine_client_folder', 'slozka_klienta', folderInfo.id, folderInfo.url, folder.getUrl(), reason, detectedClientId);
+  });
+}
+
+function updateDriveRepairUrl_(spreadsheet, sheetName, idHeader, id, urlHeader, url) {
+  const sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet) throw new Error('Chybi list ' + sheetName + '.');
+  const headers = getHeaders_(sheet);
+  const idColumn = headers.indexOf(idHeader) + 1;
+  const urlColumn = headers.indexOf(urlHeader) + 1;
+  if (!idColumn || !urlColumn) throw new Error('Chybi sloupec ' + idHeader + ' nebo ' + urlHeader + ' v listu ' + sheetName + '.');
+  const row = findRowById_(sheet, idColumn, id);
+  if (!row) throw new Error('Nelze najit ' + id + ' v listu ' + sheetName + '.');
+  sheet.getRange(row, urlColumn).setValue(url);
 }
 
 function getSheetForRead_(sheetName, spreadsheet) {
@@ -594,7 +1360,8 @@ function listClients_(spreadsheet) {
     .getRange(CONFIG.headerRow + 1, 1, lastRow - CONFIG.headerRow, headers.length)
     .getValues()
     .filter((row) => row.some((cell) => cell !== ''))
-    .map((row) => rowToObject_(headers, row));
+    .map((row) => rowToObject_(headers, row))
+    .filter((client) => !normalizeDuplicateText_(client.status).startsWith('smaz'));
 }
 
 function saveClient_(client) {
@@ -626,6 +1393,7 @@ function saveClient_(client) {
   const existing = existingRow
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
+  if (existingRow) assertRecordCanBeUpdated_(incoming.klient_id, existingRow, existing, 'Klient');
   assertExpectedVersion_(existing, incoming.expected_updated_at, 'Klienta ' + incoming.klient_id);
   delete incoming.expected_updated_at;
   const normalized = Object.assign({}, existing, incoming);
@@ -665,6 +1433,7 @@ function updateClientKeyWorker_(client) {
   const targetRow = matchingRows[0];
   const values = sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0];
   const existing = rowToObject_(headers, values);
+  assertRecordCanBeUpdated_(clientId, targetRow, existing, 'Klient');
   assertExpectedVersion_(existing, client.expected_updated_at, 'Klienta ' + clientId);
 
   const nextWorker = String(client.klicovy_pracovnik || '').trim();
@@ -1116,6 +1885,148 @@ function deleteRecord_(sheetName, idHeader, id, expectedUpdatedAt, updatedBy) {
   sheet.getRange(targetRow, headers.indexOf('updated_at') + 1).setValue(updated.updated_at);
   sheet.getRange(targetRow, headers.indexOf('updated_by') + 1).setValue(updated.updated_by);
   return updated;
+}
+
+function deleteClient_(request, requestedBy) {
+  assertClientDeletionManager_(requestedBy);
+  const spreadsheet = getSpreadsheet_();
+  const sheet = spreadsheet.getSheetByName(CONFIG.sheetName);
+  if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
+
+  let headers = ensureHeaders_(sheet, [
+    'status', 'stav_pred_smazanim', 'deleted_at', 'deleted_by', 'updated_at', 'updated_by'
+  ]);
+  const idColumn = headers.indexOf('klient_id') + 1;
+  if (!idColumn) throw new Error('Missing klient_id column');
+  const clientId = String(request.klient_id || request.id || '').trim();
+  if (!clientId) throw new Error('Missing klient_id');
+  const matchingRows = findClientRows_(sheet, idColumn, clientId);
+  if (matchingRows.length !== 1) {
+    const error = new Error(matchingRows.length
+      ? 'V listu Klienti existuje duplicitni klient_id ' + clientId + '.'
+      : 'Klienta s ID ' + clientId + ' nelze najit.');
+    error.code = matchingRows.length ? 'DUPLICATE' : 'NOT_FOUND';
+    throw error;
+  }
+
+  const targetRow = matchingRows[0];
+  const clientValues = sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0];
+  const existing = rowToObject_(headers, clientValues);
+  const alreadyDeleted = normalizeDuplicateText_(existing.status).startsWith('smaz');
+  if (!alreadyDeleted) assertExpectedVersion_(existing, request.expected_updated_at, 'Klienta ' + clientId);
+
+  const now = new Date();
+  const actor = String(requestedBy || '').trim();
+  const performances = softDeleteClientRows_(
+    spreadsheet, CONFIG.performanceSheetName, 'vykon_id', clientId, now, actor
+  );
+  const meetings = softDeleteClientRows_(
+    spreadsheet, CONFIG.meetingSheetName, 'meeting_id', clientId, now, actor
+  );
+  const plans = softDeleteClientRows_(
+    spreadsheet, CONFIG.individualPlanSheetName, 'plan_id', clientId, now, actor
+  );
+
+  performances.ids.forEach(function(id) {
+    deactivatePerformanceStatistics_(id);
+    cancelRecordDocument_('performance', id);
+  });
+  meetings.ids.forEach(function(id) { cancelRecordDocument_('meeting', id); });
+
+  if (!alreadyDeleted) {
+    const previousStatusColumn = headers.indexOf('stav_pred_smazanim');
+    const clientStatusColumn = headers.indexOf('stav_klienta');
+    const statusColumn = headers.indexOf('status');
+    const deletedAtColumn = headers.indexOf('deleted_at');
+    const deletedByColumn = headers.indexOf('deleted_by');
+    const updatedAtColumn = headers.indexOf('updated_at');
+    const updatedByColumn = headers.indexOf('updated_by');
+    if (previousStatusColumn !== -1 && !clientValues[previousStatusColumn]) {
+      clientValues[previousStatusColumn] = existing.stav_klienta || '';
+    }
+    if (clientStatusColumn !== -1) clientValues[clientStatusColumn] = 'Neaktivn\u00ed';
+    if (statusColumn !== -1) clientValues[statusColumn] = 'Smazan\u00fd';
+    if (deletedAtColumn !== -1) clientValues[deletedAtColumn] = now;
+    if (deletedByColumn !== -1) clientValues[deletedByColumn] = actor;
+    if (updatedAtColumn !== -1) clientValues[updatedAtColumn] = now;
+    if (updatedByColumn !== -1) clientValues[updatedByColumn] = actor;
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([clientValues]);
+  }
+
+  const archive = archiveDeletedClientFolder_(existing.drive_folder_url);
+  return {
+    klient_id: clientId,
+    deleted: true,
+    already_deleted: alreadyDeleted,
+    performances: performances.count,
+    meetings: meetings.count,
+    individual_plans: plans.count,
+    archived_folder_url: archive.url || '',
+    archive_warning: archive.warning || ''
+  };
+}
+
+function assertClientDeletionManager_(worker) {
+  if (normalizeDuplicateText_(worker) !== normalizeDuplicateText_('Mgr. Radka Vyslou\u017eilov\u00e1')) {
+    const error = new Error('Smazat celeho klienta muze pouze Mgr. Radka Vyslouzilova.');
+    error.code = 'FORBIDDEN';
+    throw error;
+  }
+}
+
+function softDeleteClientRows_(spreadsheet, sheetName, idHeader, clientId, now, updatedBy) {
+  const sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet) return { count: 0, ids: [] };
+  let headers = ensureHeaders_(sheet, ['status', 'deleted_at', 'deleted_by', 'updated_at', 'updated_by']);
+  const clientColumn = headers.indexOf('klient_id') + 1;
+  const idColumn = headers.indexOf(idHeader) + 1;
+  if (!clientColumn || !idColumn) return { count: 0, ids: [] };
+  const rowCount = Math.max(sheet.getLastRow() - CONFIG.headerRow, 0);
+  if (!rowCount) return { count: 0, ids: [] };
+  const rows = sheet.getRange(CONFIG.headerRow + 1, 1, rowCount, headers.length).getValues();
+  const ids = [];
+  let count = 0;
+
+  rows.forEach(function(values, index) {
+    if (String(values[clientColumn - 1] || '').trim() !== clientId) return;
+    const id = String(values[idColumn - 1] || '').trim();
+    if (id) ids.push(id);
+    const statusIndex = headers.indexOf('status');
+    if (normalizeDuplicateText_(values[statusIndex]).startsWith('smaz')) return;
+    values[statusIndex] = 'Smazan\u00fd';
+    values[headers.indexOf('deleted_at')] = now;
+    values[headers.indexOf('deleted_by')] = updatedBy || '';
+    values[headers.indexOf('updated_at')] = now;
+    values[headers.indexOf('updated_by')] = updatedBy || '';
+    sheet.getRange(CONFIG.headerRow + 1 + index, 1, 1, headers.length).setValues([values]);
+    count += 1;
+  });
+
+  return { count, ids };
+}
+
+function archiveDeletedClientFolder_(folderUrl) {
+  const folderId = extractDriveId_(folderUrl);
+  if (!folderId) return { url: '', warning: '' };
+  try {
+    const folder = DriveApp.getFolderById(folderId);
+    const archive = getDeletedClientsArchiveFolder_();
+    folder.moveTo(archive);
+    return { url: folder.getUrl(), warning: '' };
+  } catch (error) {
+    return {
+      url: String(folderUrl || ''),
+      warning: 'Klient byl vyrazen z aplikace, ale jeho slozku se nepodarilo presunout do archivu: ' + String(error.message || error)
+    };
+  }
+}
+
+function getDeletedClientsArchiveFolder_() {
+  const clientRoot = getClientFolderParent_();
+  const parents = clientRoot.getParents();
+  const parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+  const existing = parent.getFoldersByName(CONFIG.deletedClientsArchiveName);
+  return existing.hasNext() ? existing.next() : parent.createFolder(CONFIG.deletedClientsArchiveName);
 }
 
 // Rucni uprava v Google Sheetu take zmeni verzi radku. Programove zapisy z API
@@ -1752,12 +2663,33 @@ function upsertClientRecordDocument_(record, activityName, recordType, currentUr
   }
 
   if (!doc) {
+    const existing = findRecordDocumentsInFolder_(clientContext.folder, record.vykon_id || record.meeting_id);
+    if (existing.length > 1) {
+      throw new Error('DUPLICATE_DOCUMENT: Pro zaznam ' + (record.vykon_id || record.meeting_id) + ' existuje vice dokumentu. Spustte audit Drive.');
+    }
+    if (existing.length === 1) doc = DocumentApp.openById(existing[0].getId());
+  }
+
+  if (!doc) {
     doc = DocumentApp.create(title);
     DriveApp.getFileById(doc.getId()).moveTo(clientContext.folder);
   }
 
   fillRecordDocument_(doc, clientContext.client, record, activityName, recordType);
   return doc.getUrl();
+}
+
+function findRecordDocumentsInFolder_(folder, recordId) {
+  const id = String(recordId || '').trim();
+  if (!id) return [];
+  const matches = [];
+  const files = folder.getFiles();
+  while (files.hasNext()) {
+    const file = files.next();
+    if (file.getMimeType() !== 'application/vnd.google-apps.document') continue;
+    if (auditNameContainsId_(file.getName(), id)) matches.push(file);
+  }
+  return matches;
 }
 
 function getClientDocumentContext_(klientId) {
@@ -2492,6 +3424,7 @@ function findDuplicateClientRow_(sheet, headers, incoming, excludedRow) {
     const sheetRow = CONFIG.headerRow + 1 + index;
     if (excludedRow && sheetRow === excludedRow) return false;
     const existing = rowToObject_(headers, row);
+    if (normalizeDuplicateText_(existing.status).startsWith('smaz')) return false;
     if (normalizeDuplicateText_(existing.jmeno) !== incomingFirstName) return false;
     if (normalizeDuplicateText_(existing.prijmeni) !== incomingLastName) return false;
 

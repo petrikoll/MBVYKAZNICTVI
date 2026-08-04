@@ -9,7 +9,9 @@ function todayIso() {
 }
 
 const GOOGLE_SHEET_MACRO_URL = '/api/google-sheets';
-const GOOGLE_DRIVE_UPLOAD_URL = import.meta.env?.VITE_GOOGLE_DRIVE_UPLOAD_URL || '';
+// Dokumenty vytvari vyhradne zabezpecena fronta hlavniho Apps Scriptu.
+// Puvodni druhy endpoint mohl pri opakovani pozadavku vytvaret kopie.
+const GOOGLE_DRIVE_UPLOAD_URL = '';
 
 const TARGETS = {
   ka01Meetings: 0,
