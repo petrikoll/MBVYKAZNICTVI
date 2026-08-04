@@ -24,6 +24,14 @@ test('both client editing paths reject a second in-flight mutation', () => {
   assert.match(source, /expected_updated_at: klientId \? draft\.expectedUpdatedAt \|\| draft\.updatedAt \|\| '' : ''/);
 });
 
+test('open client detail locks the duplicate key-worker control in the client list', () => {
+  assert.match(source, /const workerEditLocked = active && showClientEditForm/);
+  assert.match(source, /disabled=\{isSaving \|\| workerEditLocked\}/);
+  assert.match(source, /if \(showClientEditForm && selectedClientId === client\.id\)/);
+  assert.match(source, /Změnu proveďte v otevřeném detailu klienta\./);
+  assert.match(source, /const mutationKey = `client:\$\{selectedClient\.id\}`;[\s\S]*pendingRecordMutationIdsRef\.current\.has\(mutationKey\)/);
+});
+
 test('new records never send a browser-generated id as an existing Sheet row', () => {
   assert.match(source, /const persistedSheetId = hasExplicitExpectedVersion \? record\.id \|\| '' : ''/);
   const persistedIdAssignments = source.match(/(?:partner_id|schuzka_site_id|vzdelavani_id|sepervize_id|plan_id|meeting_id|vykon_id): persistedSheetId/g) || [];

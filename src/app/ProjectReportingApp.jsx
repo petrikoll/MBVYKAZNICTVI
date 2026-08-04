@@ -4752,6 +4752,11 @@ function App() {
 
   const openClientEditForm = () => {
     if (!selectedClient) return;
+    const mutationKey = `client:${selectedClient.id}`;
+    if (pendingRecordMutationIdsRef.current.has(mutationKey)) {
+      setSaveButtonNotice('client-update', 'progress', 'Tento klient se právě ukládá. Vyčkejte na dokončení.');
+      return;
+    }
     clearSaveButtonNotice('client-update');
     setClientEditDraft({
       ...emptyClientDraft,
@@ -4763,6 +4768,10 @@ function App() {
   const handleClientKeyWorkerQuickChange = async (client, nextKeyWorker) => {
     if (!client) return;
     const noticeKey = `client-worker:${client.id}`;
+    if (showClientEditForm && selectedClientId === client.id) {
+      setSaveButtonNotice(noticeKey, 'error', 'Změnu proveďte v otevřeném detailu klienta.');
+      return;
+    }
     if (!isClientRegistryAvailable) {
       setSaveButtonNotice(noticeKey, 'error', 'Klientský registr není dostupný. Změna byla zablokována.');
       return;
@@ -7462,6 +7471,7 @@ ${rawPlanOutput}` }] }],
                     ) : filteredClientList.map((client) => {
                       const stats = getClientStats(client.id, records);
                       const active = client.id === selectedClientId;
+                      const workerEditLocked = active && showClientEditForm;
                       const showCaseManagementBadge = hasCaseManagementNeed(client) && !handlesCaseManagementDirectly(client.keyWorker);
                       return (
                         <div
@@ -7492,16 +7502,21 @@ ${rawPlanOutput}` }] }],
                               ? <MiniBadge icon={Users} label="Rodina" tone="emerald" />
                               : <MiniBadge icon={Database} label={`ID ${client.id}`} tone="slate" />}
                             <label
-                              className="flex min-w-0 items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-1 text-indigo-700"
+                              className={`flex min-w-0 items-center gap-1 rounded-full border px-2 py-1 ${
+                                workerEditLocked
+                                  ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                  : 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                              }`}
                               onClick={(event) => event.stopPropagation()}
+                              title={workerEditLocked ? 'Klíčového pracovníka změňte v otevřeném detailu klienta.' : ''}
                             >
                               <User className="h-3.5 w-3.5 shrink-0" />
                               <select
                                 value={client.keyWorker || ''}
                                 onChange={(event) => handleClientKeyWorkerQuickChange(client, event.target.value)}
                                 onClick={(event) => event.stopPropagation()}
-                                disabled={isSaving}
-                                className="min-w-0 flex-1 bg-transparent text-xs font-semibold outline-none"
+                                disabled={isSaving || workerEditLocked}
+                                className="min-w-0 flex-1 bg-transparent text-xs font-semibold outline-none disabled:cursor-not-allowed"
                                 aria-label={`Klíčový pracovník klienta ${client.fullName}`}
                               >
                                 <option value="">Bez klíč. prac.</option>
@@ -7555,7 +7570,8 @@ ${rawPlanOutput}` }] }],
                         <HelpIcon help={HELP.clientsDriveFolder} />
                         <button
                           onClick={openClientEditForm}
-                          className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+                          disabled={isSaving}
+                          className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           <User className="h-4 w-4" />
                           Upravit klienta
