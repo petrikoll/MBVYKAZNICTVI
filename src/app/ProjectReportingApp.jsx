@@ -2178,7 +2178,9 @@ function actorSheetRowMatchesPayload(row, partner) {
   return JSON.stringify(comparableContacts(row)) === JSON.stringify(comparableContacts(partner));
 }
 
-const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 30000;
+// Prohlizec musi cekat o neco dele nez Render proxy. Jinak ukonci pozadavek,
+// ktery na serveru stale uspesne probiha, a uzivatel uvidi falesnou chybu.
+const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 65000;
 
 async function fetchGoogleSheetAction(action, maxAttempts = 2, timeoutMs = GOOGLE_SHEET_REQUEST_TIMEOUT_MS) {
   let lastError = null;
@@ -2484,20 +2486,26 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     let retryTimeoutId = null;
+    let consecutiveFailures = 0;
+
+    // Datove oblasti se nacitaji soubezne s klientskym registrem. Pomaly registr
+    // tak uz neblokuje aktery, vykony, plany, vzdelavani ani supervize.
+    const bootstrapPrefetch = Promise.all(
+      ['bootstrapCore', 'bootstrapAuxiliary'].map((action) => (
+        fetchGoogleSheetAction(action, 1)
+          .then((result) => ({ action, result }))
+          .catch((error) => ({ action, error }))
+      ))
+    );
+    prefetchedSheetActionsRef.current.set('bootstrapSections', bootstrapPrefetch);
+
     const fetchClients = async () => {
       setIsLoadingClients(true);
-      setSheetError('');
       try {
         const json = await fetchGoogleSheetAction('listClients', 1);
         if (cancelled) return;
-        const bootstrapPrefetch = Promise.all(
-          ['bootstrapCore', 'bootstrapAuxiliary'].map((action) => (
-            fetchGoogleSheetAction(action, 1)
-              .then((result) => ({ action, result }))
-              .catch((error) => ({ action, error }))
-          ))
-        );
-        prefetchedSheetActionsRef.current.set('bootstrapSections', bootstrapPrefetch);
+        consecutiveFailures = 0;
+        setSheetError('');
         let rows = [];
         if (Array.isArray(json)) rows = json;
         else if (json && Array.isArray(json.clients)) rows = json.clients;
@@ -2529,7 +2537,8 @@ function App() {
         }
       } catch (error) {
         if (cancelled) return;
-        console.error('Google Sheets load error:', error);
+        consecutiveFailures += 1;
+        console.warn('Google Sheets client load retry:', error);
         setIsClientRegistryAvailable(false);
         setClients([]);
         setSelectedClientId('');
@@ -2544,8 +2553,10 @@ function App() {
           tpmDate: prev.tpmDate || todayIso(),
           employmentDate: prev.employmentDate || todayIso()
         }));
-        setSheetError('Načtení klientského registru selhalo. Ukládání klientských dat je zablokováno, aby nevznikly chybně přiřazené záznamy.');
-        retryTimeoutId = window.setTimeout(fetchClients, 8000);
+        if (consecutiveFailures >= 2) {
+          setSheetError('Načtení klientského registru se opakovaně nezdařilo. Aplikace připojení dál automaticky ověřuje; ukládání klientských dat zůstává do obnovení spojení zablokované.');
+        }
+        retryTimeoutId = window.setTimeout(fetchClients, consecutiveFailures === 1 ? 1000 : 8000);
       } finally {
         if (!cancelled) setIsLoadingClients(false);
       }
@@ -2565,7 +2576,25 @@ function App() {
     });
     return map;
   }, [clients]);
-  const canLoadSheetRecords = isClientRegistryAvailable;
+  const canLoadSheetRecords = Boolean(GOOGLE_SHEET_MACRO_URL);
+
+  useEffect(() => {
+    if (!isClientRegistryAvailable || clients.length === 0 || records.length === 0) return;
+    setRecords((previous) => {
+      let changed = false;
+      const enriched = previous.map((record) => {
+        const client = record.clientId ?clientIndex[record.clientId] : null;
+        if (!client?.fullName || record.clientName === client.fullName) return record;
+        changed = true;
+        const clientId = String(record.clientId || '');
+        const title = clientId && String(record.title || '').endsWith(clientId)
+          ? String(record.title).slice(0, -clientId.length) + client.fullName
+          : record.title;
+        return { ...record, clientName: client.fullName, title };
+      });
+      return changed ? enriched : previous;
+    });
+  }, [clientIndex, clients.length, isClientRegistryAvailable, records.length]);
 
 
   useEffect(() => {

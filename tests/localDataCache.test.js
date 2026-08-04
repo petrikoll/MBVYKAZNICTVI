@@ -67,5 +67,5 @@ test('klienti, zaznamy a vykazy prace zustavaji pouze v React stavu', async () =
 
 test('pomocne oblasti se nactou i pri prazdnem registru klientu', async () => {
   const appSource = await readFile(new URL('../src/app/ProjectReportingApp.jsx', import.meta.url), 'utf8');
-  assert.match(appSource, /const canLoadSheetRecords = isClientRegistryAvailable;/);
+  assert.match(appSource, /const canLoadSheetRecords = Boolean\(GOOGLE_SHEET_MACRO_URL\);/);
 });

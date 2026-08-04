@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import test from 'node:test';
 import { handleGoogleAppsScriptProxy } from '../googleAppsScriptProxy.js';
+import { readFile } from 'node:fs/promises';
 
 function createRequest(method, url, body = '') {
   const request = Readable.from(body ? [body] : []);
@@ -84,6 +85,11 @@ test('POST proxy přepíše token v těle serverovým tokenem', async () => {
   assert.equal(forwardedBody.action, 'saveClient');
   assert.equal(forwardedBody.token, 'server-secret');
   assert.equal(response.statusCode, 200);
+});
+
+test('proxy ceka dele nez puvodnich 45 sekund na pomaly Apps Script', async () => {
+  const source = await readFile(new URL('../googleAppsScriptProxy.js', import.meta.url), 'utf8');
+  assert.match(source, /DEFAULT_UPSTREAM_TIMEOUT_MS = 60000/);
 });
 
 test('souběžné stejné GET požadavky sdílejí jedno volání Apps Scriptu a krátkou cache', async () => {

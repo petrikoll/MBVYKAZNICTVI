@@ -4,16 +4,17 @@ import test from 'node:test';
 
 const source = readFileSync(new URL('../src/app/ProjectReportingApp.jsx', import.meta.url), 'utf8');
 
-test('clients load first and record fallbacks run concurrently with bounded retries', () => {
+test('clients and record batches start concurrently with bounded retries', () => {
+  const bootstrapStart = source.indexOf('const bootstrapPrefetch = Promise.all(');
   const clientsStart = source.indexOf('const fetchClients = async () => {');
   const clientsEnd = source.indexOf('const clientIndex = useMemo', clientsStart);
   const clientsBlock = source.slice(clientsStart, clientsEnd);
 
-  assert.ok(clientsStart >= 0 && clientsEnd > clientsStart);
+  assert.ok(bootstrapStart >= 0 && clientsStart > bootstrapStart && clientsEnd > clientsStart);
   assert.match(clientsBlock, /fetchGoogleSheetAction\('listClients', 1\)/);
-  assert.match(clientsBlock, /window\.setTimeout\(fetchClients, 8000\)/);
-  assert.match(clientsBlock, /\['bootstrapCore', 'bootstrapAuxiliary'\]/);
-  assert.match(clientsBlock, /fetchGoogleSheetAction\(action, 1\)/);
+  assert.match(clientsBlock, /window\.setTimeout\(fetchClients, consecutiveFailures === 1 \? 1000 : 8000\)/);
+  assert.match(source.slice(bootstrapStart, clientsStart), /\['bootstrapCore', 'bootstrapAuxiliary'\]/);
+  assert.match(source.slice(bootstrapStart, clientsStart), /fetchGoogleSheetAction\(action, 1\)/);
   assert.doesNotMatch(clientsBlock, /fetchGoogleSheetAction\('listPerformances'\)/);
 
   const recordsStart = source.indexOf('const fetchSheetRecords = async () => {');
@@ -26,8 +27,9 @@ test('clients load first and record fallbacks run concurrently with bounded retr
   assert.match(recordsBlock, /fetchGoogleSheetAction\(action, 1, timeoutMs\)/);
   assert.match(recordsBlock, /const bootstrapSources = \[/);
   assert.match(recordsBlock, /const bootstrapPrefetched = prefetchedSheetActionsRef\.current\.get\('bootstrapSections'\)/);
-  assert.match(source, /const canLoadSheetRecords = isClientRegistryAvailable;/);
+  assert.match(source, /const canLoadSheetRecords = Boolean\(GOOGLE_SHEET_MACRO_URL\);/);
   assert.match(source, /if \(!canLoadSheetRecords \|\| !GOOGLE_SHEET_MACRO_URL/);
   assert.match(source, /\}, \[canLoadSheetRecords\]\);/);
   assert.doesNotMatch(source, /\}, \[clients, clientIndex\]\);/);
+  assert.match(source, /const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 65000;/);
 });
