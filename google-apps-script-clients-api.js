@@ -24,8 +24,14 @@ const CONFIG = {
 const READ_CACHE_VERSION_ = 'read-v1';
 const READ_CACHE_TTL_SECONDS_ = 21600;
 const READ_CACHE_CHUNK_SIZE_ = 85000;
+const RECORD_DOCUMENT_QUEUE_PROPERTY_ = 'record-document-queue-v1';
+const RECORD_DOCUMENT_STATUS_PROPERTY_ = 'record-document-status-v1';
+const RECORD_DOCUMENT_TRIGGER_HANDLER_ = 'runQueuedRecordDocuments';
+const RECORD_DOCUMENT_MAX_ATTEMPTS_ = 3;
+const RECORD_DOCUMENT_BATCH_SIZE_ = 4;
 const MUTATION_READ_ACTIONS_ = {
   saveClient: ['listClients'],
+  updateClientKeyWorker: ['listClients'],
   ensureClientFolder: ['listClients'],
   savePartner: ['listPartners'],
   deletePartner: ['listPartners'],
@@ -40,7 +46,8 @@ const MUTATION_READ_ACTIONS_ = {
   saveEducation: ['listEducation'],
   deleteEducation: ['listEducation'],
   saveSupervision: ['listSupervision'],
-  deleteSupervision: ['listSupervision']
+  deleteSupervision: ['listSupervision'],
+  retryRecordDocument: ['listPerformances', 'listMeetings']
 };
 const SHEET_READ_ACTIONS_ = {};
 SHEET_READ_ACTIONS_[CONFIG.sheetName] = ['listClients'];
@@ -110,6 +117,12 @@ function doGet(e) {
     if (e.parameter.action === 'getBackupStatus') {
       return json_({ ok: true, backup: getBackupStatus_() });
     }
+    if (e.parameter.action === 'getRecordDocumentStatus') {
+      return json_({
+        ok: true,
+        document: getRecordDocumentStatus_(e.parameter.record_type, e.parameter.record_id)
+      });
+    }
     return json_({ ok: false, error: 'Unknown action' });
   } catch (error) {
     return json_({ ok: false, error: String(error.message || error) });
@@ -130,6 +143,11 @@ function doPost(e) {
 
     if (payload.action === 'saveClient') {
       const client = saveClient_(payload.client || {});
+      return json_({ ok: true, client });
+    }
+
+    if (payload.action === 'updateClientKeyWorker') {
+      const client = updateClientKeyWorker_(payload.client || {});
       return json_({ ok: true, client });
     }
 
@@ -161,11 +179,13 @@ function doPost(e) {
     if (payload.action === 'deletePerformance') {
       deleteRecord_(CONFIG.performanceSheetName, 'vykon_id', payload.id, payload.expected_updated_at, payload.updated_by);
       deactivatePerformanceStatistics_(payload.id);
+      cancelRecordDocument_('performance', payload.id);
       return json_({ ok: true });
     }
 
     if (payload.action === 'deleteMeeting') {
       deleteRecord_(CONFIG.meetingSheetName, 'meeting_id', payload.id, payload.expected_updated_at, payload.updated_by);
+      cancelRecordDocument_('meeting', payload.id);
       return json_({ ok: true });
     }
 
@@ -209,6 +229,11 @@ function doPost(e) {
       return json_({ ok: true, client });
     }
 
+    if (payload.action === 'retryRecordDocument') {
+      const document = queueRecordDocument_(payload.record_type, payload.record_id, { resetAttempts: true });
+      return json_({ ok: true, document });
+    }
+
     if (payload.action === 'startFullBackup') {
       const requestedBy = payload.requested_by_name || payload.requested_by;
       assertBackupManager_(requestedBy);
@@ -231,7 +256,9 @@ function doPost(e) {
 
 function authorizeOnce() {
   authorizeBackupTriggers();
-  SpreadsheetApp.openById(CONFIG.spreadsheetId).getName();
+  const spreadsheet = SpreadsheetApp.openById(CONFIG.spreadsheetId);
+  spreadsheet.getName();
+  configureWriteSheetFormats_(spreadsheet);
   if (CONFIG.monitoringTemplateFileId) DriveApp.getFileById(CONFIG.monitoringTemplateFileId).getName();
   const parent = getClientFolderParent_();
   const testFolder = parent.createFolder('__opravneni_test__');
@@ -475,6 +502,36 @@ function setColumnListValidation_(sheet, headers, header, values) {
     .build();
   sheet.getRange(CONFIG.headerRow + 1, column, rowCount, 1).setDataValidation(rule);
 }
+
+// Formaty a validace patri do jednorazove udrzby struktury, ne do kazdeho zapisu.
+// Funkci lze po nasazeni spustit rucne; authorizeOnce ji vola automaticky.
+function configureWriteSheetFormats() {
+  return configureWriteSheetFormats_(getSpreadsheet_());
+}
+
+function configureWriteSheetFormats_(spreadsheet) {
+  const clientSheet = spreadsheet.getSheetByName(CONFIG.sheetName);
+  if (!clientSheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
+  const clientHeaders = ensureHeaders_(clientSheet, ['klicovy_pracovnik', 'rodina']);
+  setColumnListValidation_(clientSheet, clientHeaders, 'klicovy_pracovnik', WORKER_OPTIONS_);
+  setColumnListValidation_(clientSheet, clientHeaders, 'rodina', YES_NO_OPTIONS_);
+  setClientDateFormats_(clientSheet, clientHeaders);
+
+  const educationSheet = getOrCreateSheet_(CONFIG.educationSheetName, EDUCATION_HEADERS_, spreadsheet);
+  const educationHeaders = getHeaders_(educationSheet);
+  ['jmeno_pracovnika', 'jmeno_pracovnika1', 'jmeno_pracovnika2', 'jmeno_pracovnika3'].forEach((header) => {
+    setColumnListValidation_(educationSheet, educationHeaders, header, WORKER_OPTIONS_);
+  });
+
+  const supervisionSheet = getOrCreateSheet_(CONFIG.supervisionSheetName, SUPERVISION_HEADERS_, spreadsheet);
+  const supervisionHeaders = getHeaders_(supervisionSheet);
+  setColumnListValidation_(supervisionSheet, supervisionHeaders, 'typ_supervize', SUPERVISION_TYPE_OPTIONS_);
+
+  return {
+    ok: true,
+    sheets: [clientSheet.getName(), educationSheet.getName(), supervisionSheet.getName()]
+  };
+}
 const MEETING_HEADERS_ = [
   'meeting_id', 'klient_id', 'case_management_id', 'datum', 'cas_od', 'cas_do', 'pocet_hodin', 'pracovnik',
   'typ_podpory', 'tema_podpory', 'forma_poskytovani', 'cil_ip_id', 'cil_ip', 'partner_ids', 'partneri', 'ucastnici', 'pocet_akteru',
@@ -544,8 +601,6 @@ function saveClient_(client) {
   const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
   if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
   const headers = ensureHeaders_(sheet, ['klicovy_pracovnik', 'rodina']);
-  setColumnListValidation_(sheet, headers, 'klicovy_pracovnik', WORKER_OPTIONS_);
-  setColumnListValidation_(sheet, headers, 'rodina', YES_NO_OPTIONS_);
   const klientIdColumn = headers.indexOf('klient_id') + 1;
   if (!klientIdColumn) throw new Error('Missing klient_id column');
 
@@ -584,9 +639,48 @@ function saveClient_(client) {
     ? toSheetDateValue_(normalized[header])
     : normalized[header] ?? '');
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
-  setClientDateFormats_(sheet, headers);
 
-  return rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
+  return rowToObject_(headers, values);
+}
+
+function updateClientKeyWorker_(client) {
+  const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
+  if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
+  const headers = getHeaders_(sheet);
+  const idColumn = headers.indexOf('klient_id') + 1;
+  const workerColumn = headers.indexOf('klicovy_pracovnik') + 1;
+  if (!idColumn || !workerColumn) throw new Error('Chybi sloupec klient_id nebo klicovy_pracovnik.');
+
+  const clientId = String(client.klient_id || '').trim();
+  if (!clientId) throw new Error('Missing klient_id');
+  const matchingRows = findClientRows_(sheet, idColumn, clientId);
+  if (matchingRows.length !== 1) {
+    const error = new Error(matchingRows.length
+      ? 'V listu Klienti existuje duplicitni klient_id ' + clientId + '.'
+      : 'Klienta s ID ' + clientId + ' nelze najit.');
+    error.code = matchingRows.length ? 'DUPLICATE' : 'NOT_FOUND';
+    throw error;
+  }
+
+  const targetRow = matchingRows[0];
+  const values = sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0];
+  const existing = rowToObject_(headers, values);
+  assertExpectedVersion_(existing, client.expected_updated_at, 'Klienta ' + clientId);
+
+  const nextWorker = String(client.klicovy_pracovnik || '').trim();
+  if (nextWorker && WORKER_OPTIONS_.indexOf(nextWorker) === -1) {
+    const error = new Error('Neznamy klicovy pracovnik: ' + nextWorker);
+    error.code = 'VALIDATION';
+    throw error;
+  }
+
+  values[workerColumn - 1] = nextWorker;
+  const updatedAtColumn = headers.indexOf('updated_at') + 1;
+  const updatedByColumn = headers.indexOf('updated_by') + 1;
+  if (updatedAtColumn) values[updatedAtColumn - 1] = new Date();
+  if (updatedByColumn) values[updatedByColumn - 1] = client.updated_by || existing.updated_by || '';
+  sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
+  return rowToObject_(headers, values);
 }
 
 function listPartners_(spreadsheet) {
@@ -671,7 +765,7 @@ function savePartner_(partner) {
   const values = headers.map((header) => normalized[header] ?? '');
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
 
-  return rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
+  return rowToObject_(headers, values);
 }
 
 
@@ -721,7 +815,7 @@ function saveIndividualPlan_(individualPlan) {
   if (!idColumn) throw new Error('Missing plan_id column');
 
   const now = new Date();
-  const normalized = Object.assign({}, individualPlan);
+  let normalized = Object.assign({}, individualPlan);
   const incomingPlanId = String(normalized.plan_id || '').trim();
   const clientId = String(normalized.klient_id || '').trim();
   if (!clientId) throw new Error('Individualni plan musi byt prirazen ke klientovi.');
@@ -730,8 +824,10 @@ function saveIndividualPlan_(individualPlan) {
   const existing = existingRow
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
+  assertRecordCanBeUpdated_(incomingPlanId, existingRow, existing, 'Individualni plan');
   assertExpectedVersion_(existing, normalized.expected_updated_at, 'Individualni plan ' + incomingPlanId);
   delete normalized.expected_updated_at;
+  normalized = Object.assign({}, existing, normalized);
   if (!existingRow) {
     const exactDuplicateRow = findDuplicateRecordRow_(sheet, headers, normalized, 'plan_id');
     if (exactDuplicateRow) {
@@ -755,7 +851,7 @@ function saveIndividualPlan_(individualPlan) {
   const values = headers.map((header) => normalized[header] ?? '');
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
 
-  return rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
+  return rowToObject_(headers, values);
 }
 
 function listPerformances_(spreadsheet) {
@@ -779,7 +875,8 @@ function savePerformance_(performance) {
   if (!idColumn) throw new Error('Missing vykon_id column');
 
   const now = new Date();
-  const normalized = Object.assign({}, performance);
+  let normalized = Object.assign({}, performance);
+  const incomingPerformanceId = String(normalized.vykon_id || '').trim();
   normalized.vykon_id = normalized.vykon_id || nextPrefixedId_(sheet, idColumn, 'VYKON');
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
@@ -790,8 +887,10 @@ function savePerformance_(performance) {
   const existing = existingRow
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
+  assertRecordCanBeUpdated_(incomingPerformanceId, existingRow, existing, 'Vykon');
   assertExpectedVersion_(existing, normalized.expected_updated_at, 'Vykon ' + normalized.vykon_id);
   delete normalized.expected_updated_at;
+  normalized = Object.assign({}, existing, normalized);
   normalized.created_at = existing.created_at || normalized.created_at || now;
   normalized.created_by = existing.created_by || normalized.created_by || '';
   const duplicateRow = existingRow ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'vykon_id');
@@ -803,18 +902,23 @@ function savePerformance_(performance) {
     return duplicate;
   }
 
-  try {
-    normalized.document_url = upsertClientRecordDocument_(normalized, 'KA1-Individu\u00e1ln\u00ed podpora', normalized.typ_podpory || 'Z\u00e1pis v\u00fdkonu', normalized.document_url);
-  } catch (error) {
-    normalized.document_error = String(error.message || error);
-  }
+  // Technicke sloupce dokumentu nesmi prazdny formular prepsat.
+  normalized.document_url = normalized.document_url || existing.document_url || '';
+  normalized.document_error = '';
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
   const values = headers.map((header) => normalized[header] ?? '');
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
   upsertPerformanceStatistics_(normalized);
+  let documentPending = false;
+  if (normalized.klient_id && normalized.dokument_text) {
+    queueRecordDocument_('performance', normalized.vykon_id);
+    documentPending = true;
+  }
 
-  return rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
+  const saved = rowToObject_(headers, values);
+  saved.document_pending = documentPending;
+  return saved;
 }
 
 function listStatistics_(spreadsheet) {
@@ -1126,7 +1230,8 @@ function saveMeeting_(meeting) {
   if (!idColumn) throw new Error('Missing meeting_id column');
 
   const now = new Date();
-  const normalized = Object.assign({}, meeting);
+  let normalized = Object.assign({}, meeting);
+  const incomingMeetingId = String(normalized.meeting_id || '').trim();
   normalized.meeting_id = normalized.meeting_id || nextPrefixedId_(sheet, idColumn, 'SETKANI');
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
@@ -1135,24 +1240,30 @@ function saveMeeting_(meeting) {
   const existing = existingRow
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
+  assertRecordCanBeUpdated_(incomingMeetingId, existingRow, existing, 'Setkani');
   assertExpectedVersion_(existing, normalized.expected_updated_at, 'Setkani ' + normalized.meeting_id);
   delete normalized.expected_updated_at;
+  normalized = Object.assign({}, existing, normalized);
   normalized.created_at = existing.created_at || normalized.created_at || now;
   normalized.created_by = existing.created_by || normalized.created_by || '';
   const duplicateRow = existingRow ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'meeting_id');
   if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
 
-  try {
-    normalized.document_url = upsertClientRecordDocument_(normalized, 'KA2-Case management', normalized.typ_podpory || 'Z\u00e1pis case managementu', normalized.document_url);
-  } catch (error) {
-    normalized.document_error = String(error.message || error);
-  }
+  normalized.document_url = normalized.document_url || existing.document_url || '';
+  normalized.document_error = '';
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
   const values = headers.map((header) => normalized[header] ?? '');
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
+  let documentPending = false;
+  if (normalized.klient_id && normalized.dokument_text) {
+    queueRecordDocument_('meeting', normalized.meeting_id);
+    documentPending = true;
+  }
 
-  return rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
+  const saved = rowToObject_(headers, values);
+  saved.document_pending = documentPending;
+  return saved;
 }
 
 function listNetworkMeetings_(spreadsheet) {
@@ -1178,21 +1289,23 @@ function saveNetworkMeeting_(networkMeeting) {
   if (!meetingIdColumn) throw new Error('Missing schuzka_site_id column');
 
   const now = new Date();
-  const normalized = Object.assign({}, networkMeeting);
+  let normalized = Object.assign({}, networkMeeting);
   const incomingMeetingId = String(normalized.schuzka_site_id || '').trim();
   const existingRow = incomingMeetingId ? findNetworkMeetingRow_(sheet, meetingIdColumn, incomingMeetingId) : null;
-  if (!existingRow) {
+  const existing = existingRow
+    ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
+    : {};
+  assertRecordCanBeUpdated_(incomingMeetingId, existingRow, existing, 'Schuzka site');
+  if (!incomingMeetingId) {
     const duplicateRow = findDuplicateRecordRow_(sheet, headers, normalized, 'schuzka_site_id');
     if (duplicateRow) {
       const duplicateRange = sheet.getRange(duplicateRow, 1, 1, headers.length);
       return rowToObject_(headers, duplicateRange.getValues()[0], duplicateRange.getDisplayValues()[0]);
     }
   }
-  const existing = existingRow
-    ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
-    : {};
   assertExpectedVersion_(existing, normalized.expected_updated_at, 'Schuzku site ' + incomingMeetingId);
   delete normalized.expected_updated_at;
+  normalized = Object.assign({}, existing, normalized);
   normalized.schuzka_site_id = normalized.schuzka_site_id || nextNetworkMeetingId_(sheet, meetingIdColumn);
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
@@ -1204,7 +1317,7 @@ function saveNetworkMeeting_(networkMeeting) {
   const savedRange = sheet.getRange(targetRow, 1, 1, headers.length);
   savedRange.setValues([values]);
 
-  return rowToObject_(headers, savedRange.getValues()[0], savedRange.getDisplayValues()[0]);
+  return rowToObject_(headers, values);
 }
 
 function listEducation_(spreadsheet) {
@@ -1226,15 +1339,11 @@ function listEducation_(spreadsheet) {
 function saveEducation_(education) {
   const sheet = getOrCreateSheet_(CONFIG.educationSheetName, EDUCATION_HEADERS_);
   const headers = getHeaders_(sheet);
-  setColumnListValidation_(sheet, headers, 'jmeno_pracovnika', WORKER_OPTIONS_);
-  setColumnListValidation_(sheet, headers, 'jmeno_pracovnika1', WORKER_OPTIONS_);
-  setColumnListValidation_(sheet, headers, 'jmeno_pracovnika2', WORKER_OPTIONS_);
-  setColumnListValidation_(sheet, headers, 'jmeno_pracovnika3', WORKER_OPTIONS_);
   const educationIdColumn = headers.indexOf('vzdelavani_id') + 1;
   if (!educationIdColumn) throw new Error('Missing vzdelavani_id column');
 
   const now = new Date();
-  const normalized = Object.assign({}, education);
+  let normalized = Object.assign({}, education);
   const incomingEducationId = String(normalized.vzdelavani_id || '').trim();
   normalized.vzdelavani_id = normalized.vzdelavani_id || nextPrefixedId_(sheet, educationIdColumn, 'VZDELAVANI');
   normalized.jmeno_pracovnika = normalized.jmeno_pracovnika || normalized.jmeno_pracovnika1 || '';
@@ -1249,8 +1358,10 @@ function saveEducation_(education) {
   const existing = existingRow
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
+  assertRecordCanBeUpdated_(incomingEducationId, existingRow, existing, 'Vzdelavani');
   assertExpectedVersion_(existing, normalized.expected_updated_at, 'Vzdelavani ' + normalized.vzdelavani_id);
   delete normalized.expected_updated_at;
+  normalized = Object.assign({}, existing, normalized);
   normalized.created_at = existing.created_at || normalized.created_at || now;
   normalized.created_by = existing.created_by || normalized.created_by || '';
   const duplicateRow = incomingEducationId ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'vzdelavani_id');
@@ -1261,7 +1372,7 @@ function saveEducation_(education) {
   const savedRange = sheet.getRange(targetRow, 1, 1, headers.length);
   savedRange.setValues([values]);
 
-  return rowToObject_(headers, savedRange.getValues()[0], savedRange.getDisplayValues()[0]);
+  return rowToObject_(headers, values);
 }
 
 function listSupervision_(spreadsheet) {
@@ -1283,12 +1394,11 @@ function listSupervision_(spreadsheet) {
 function saveSupervision_(supervision) {
   const sheet = getOrCreateSheet_(CONFIG.supervisionSheetName, SUPERVISION_HEADERS_);
   const headers = getHeaders_(sheet);
-  setColumnListValidation_(sheet, headers, 'typ_supervize', SUPERVISION_TYPE_OPTIONS_);
   const supervisionIdColumn = headers.indexOf('sepervize_id') + 1;
   if (!supervisionIdColumn) throw new Error('Missing sepervize_id column');
 
   const now = new Date();
-  const normalized = Object.assign({}, supervision);
+  let normalized = Object.assign({}, supervision);
   const incomingSupervisionId = String(normalized.sepervize_id || '').trim();
   normalized.sepervize_id = normalized.sepervize_id || nextPrefixedId_(sheet, supervisionIdColumn, 'SUPERVIZE');
 
@@ -1296,8 +1406,10 @@ function saveSupervision_(supervision) {
   const existing = existingRow
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
+  assertRecordCanBeUpdated_(incomingSupervisionId, existingRow, existing, 'Supervize');
   assertExpectedVersion_(existing, normalized.expected_updated_at, 'Supervizi ' + normalized.sepervize_id);
   delete normalized.expected_updated_at;
+  normalized = Object.assign({}, existing, normalized);
   normalized.updated_at = now;
   normalized.updated_by = normalized.updated_by || '';
   normalized.created_at = existing.created_at || normalized.created_at || now;
@@ -1311,7 +1423,314 @@ function saveSupervision_(supervision) {
   const savedRange = sheet.getRange(targetRow, 1, 1, headers.length);
   savedRange.setValues([values]);
 
-  return rowToObject_(headers, savedRange.getValues()[0], savedRange.getDisplayValues()[0]);
+  return rowToObject_(headers, values);
+}
+
+function normalizeRecordDocumentType_(recordType) {
+  const value = String(recordType || '').trim().toLowerCase();
+  return value === 'performance' || value === 'meeting' ? value : '';
+}
+
+function recordDocumentKey_(recordType, recordId) {
+  const type = normalizeRecordDocumentType_(recordType);
+  const id = String(recordId || '').trim();
+  if (!type || !id) throw new Error('Chybi typ nebo ID dokumentu zaznamu.');
+  return type + ':' + id;
+}
+
+function readJsonProperty_(key, fallback) {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (error) {
+    console.warn('Invalid script property ' + key + ': ' + String(error.message || error));
+    return fallback;
+  }
+}
+
+function writeJsonProperty_(key, value) {
+  PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(value));
+}
+
+function readRecordDocumentStatuses_() {
+  const statuses = readJsonProperty_(RECORD_DOCUMENT_STATUS_PROPERTY_, {});
+  return statuses && typeof statuses === 'object' && !Array.isArray(statuses) ? statuses : {};
+}
+
+function writeRecordDocumentStatus_(key, patch) {
+  const statusLock = LockService.getUserLock();
+  statusLock.waitLock(30000);
+  try {
+    const statuses = readRecordDocumentStatuses_();
+    statuses[key] = Object.assign({}, statuses[key] || {}, patch || {}, { updatedAt: new Date().toISOString() });
+    const orderedKeys = Object.keys(statuses).sort((left, right) => (
+      String(statuses[right].updatedAt || '').localeCompare(String(statuses[left].updatedAt || ''))
+    ));
+    orderedKeys.slice(120).forEach((oldKey) => delete statuses[oldKey]);
+    writeJsonProperty_(RECORD_DOCUMENT_STATUS_PROPERTY_, statuses);
+    return statuses[key];
+  } finally {
+    statusLock.releaseLock();
+  }
+}
+
+function getRecordDocumentStatus_(recordType, recordId) {
+  const key = recordDocumentKey_(recordType, recordId);
+  const status = readRecordDocumentStatuses_()[key];
+  return status || {
+    key: key,
+    recordType: normalizeRecordDocumentType_(recordType),
+    recordId: String(recordId || '').trim(),
+    state: 'unknown'
+  };
+}
+
+function readRecordDocumentQueue_() {
+  const queue = readJsonProperty_(RECORD_DOCUMENT_QUEUE_PROPERTY_, []);
+  return Array.isArray(queue) ? queue : [];
+}
+
+function ensureRecordDocumentTrigger_(delayMs) {
+  const exists = ScriptApp.getProjectTriggers().some((trigger) => (
+    trigger.getHandlerFunction() === RECORD_DOCUMENT_TRIGGER_HANDLER_
+  ));
+  if (!exists) {
+    ScriptApp.newTrigger(RECORD_DOCUMENT_TRIGGER_HANDLER_)
+      .timeBased()
+      .after(Math.max(Number(delayMs) || 1000, 1000))
+      .create();
+  }
+}
+
+function queueRecordDocument_(recordType, recordId, options) {
+  const settings = options || {};
+  const type = normalizeRecordDocumentType_(recordType);
+  const id = String(recordId || '').trim();
+  const key = recordDocumentKey_(type, id);
+  const queue = readRecordDocumentQueue_();
+  const existingIndex = queue.findIndex((job) => job && job.key === key);
+  const existing = existingIndex >= 0 ? queue[existingIndex] : {};
+  const attempts = settings.resetAttempts
+    ? 0
+    : Number.isFinite(Number(settings.attempts)) ? Number(settings.attempts) : Number(existing.attempts) || 0;
+  const job = {
+    key: key,
+    recordType: type,
+    recordId: id,
+    attempts: attempts,
+    requestedAt: new Date().toISOString(),
+    notBefore: Number(settings.notBefore) || Date.now()
+  };
+  if (existingIndex >= 0) queue[existingIndex] = job;
+  else queue.push(job);
+  writeJsonProperty_(RECORD_DOCUMENT_QUEUE_PROPERTY_, queue);
+  let status = writeRecordDocumentStatus_(key, {
+    key: key,
+    recordType: type,
+    recordId: id,
+    state: 'queued',
+    attempts: attempts,
+    error: settings.error ? String(settings.error) : ''
+  });
+  try {
+    ensureRecordDocumentTrigger_(Math.max(job.notBefore - Date.now(), 1000));
+  } catch (triggerError) {
+    console.error('Document trigger could not be scheduled: ' + String(triggerError.message || triggerError));
+    status = writeRecordDocumentStatus_(key, {
+      state: 'queued',
+      error: 'Dokument ceka ve fronte; chybi opravneni ke spusteni fronty.'
+    });
+  }
+  return status;
+}
+
+function queueRecordDocumentWithLock_(recordType, recordId, options) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return queueRecordDocument_(recordType, recordId, options);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function cancelRecordDocument_(recordType, recordId) {
+  const key = recordDocumentKey_(recordType, recordId);
+  const queue = readRecordDocumentQueue_().filter((job) => !job || job.key !== key);
+  writeJsonProperty_(RECORD_DOCUMENT_QUEUE_PROPERTY_, queue);
+  return writeRecordDocumentStatus_(key, {
+    key: key,
+    recordType: normalizeRecordDocumentType_(recordType),
+    recordId: String(recordId || '').trim(),
+    state: 'cancelled',
+    error: ''
+  });
+}
+
+function takeReadyRecordDocumentJob_() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const queue = readRecordDocumentQueue_();
+    const now = Date.now();
+    const index = queue.findIndex((job) => !Number(job.notBefore) || Number(job.notBefore) <= now);
+    if (index < 0) return null;
+    const job = queue.splice(index, 1)[0];
+    writeJsonProperty_(RECORD_DOCUMENT_QUEUE_PROPERTY_, queue);
+    return job;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getRecordDocumentDescriptor_(recordType) {
+  const type = normalizeRecordDocumentType_(recordType);
+  if (type === 'performance') {
+    return {
+      type: type,
+      sheetName: CONFIG.performanceSheetName,
+      idHeader: 'vykon_id',
+      readAction: 'listPerformances',
+      activityName: 'KA1-Individu\u00e1ln\u00ed podpora',
+      fallbackRecordType: 'Z\u00e1pis v\u00fdkonu'
+    };
+  }
+  if (type === 'meeting') {
+    return {
+      type: type,
+      sheetName: CONFIG.meetingSheetName,
+      idHeader: 'meeting_id',
+      readAction: 'listMeetings',
+      activityName: 'KA2-Case management',
+      fallbackRecordType: 'Z\u00e1pis case managementu'
+    };
+  }
+  throw new Error('Neznamy typ dokumentu zaznamu.');
+}
+
+function readRecordDocumentRow_(descriptor, recordId) {
+  const sheet = getSpreadsheet_().getSheetByName(descriptor.sheetName);
+  if (!sheet) throw new Error('Missing sheet: ' + descriptor.sheetName);
+  const headers = getHeaders_(sheet);
+  const idColumn = headers.indexOf(descriptor.idHeader) + 1;
+  if (!idColumn) throw new Error('Missing id column: ' + descriptor.idHeader);
+  const targetRow = findRowById_(sheet, idColumn, recordId);
+  if (!targetRow) {
+    const error = new Error('Zaznam ' + recordId + ' nelze najit.');
+    error.code = 'NOT_FOUND';
+    throw error;
+  }
+  const values = sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0];
+  return { sheet: sheet, headers: headers, targetRow: targetRow, record: rowToObject_(headers, values) };
+}
+
+function writeRecordDocumentResult_(descriptor, recordId, documentUrl, documentError) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const current = readRecordDocumentRow_(descriptor, recordId);
+    if (normalizeDuplicateText_(current.record.status).startsWith('smaz')) {
+      const error = new Error('Zaznam byl smazan; dokument se nepripojuje.');
+      error.code = 'NOT_FOUND';
+      throw error;
+    }
+    const urlColumn = current.headers.indexOf('document_url') + 1;
+    const errorColumn = current.headers.indexOf('document_error') + 1;
+    if (urlColumn && documentUrl !== undefined) current.sheet.getRange(current.targetRow, urlColumn).setValue(documentUrl || '');
+    if (errorColumn && documentError !== undefined) current.sheet.getRange(current.targetRow, errorColumn).setValue(documentError || '');
+    invalidateReadActions_([descriptor.readAction]);
+    return current.record;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function processRecordDocumentJob_(job) {
+  const descriptor = getRecordDocumentDescriptor_(job.recordType);
+  const key = recordDocumentKey_(job.recordType, job.recordId);
+  writeRecordDocumentStatus_(key, {
+    key: key,
+    recordType: descriptor.type,
+    recordId: job.recordId,
+    state: 'processing',
+    attempts: Number(job.attempts) || 0,
+    error: ''
+  });
+
+  const snapshot = readRecordDocumentRow_(descriptor, job.recordId);
+  if (normalizeDuplicateText_(snapshot.record.status).startsWith('smaz')) {
+    throw new Error('Zaznam byl smazan; dokument se nevytvari.');
+  }
+  const snapshotVersion = versionToken_(snapshot.record.updated_at);
+  const documentUrl = upsertClientRecordDocument_(
+    snapshot.record,
+    descriptor.activityName,
+    snapshot.record.typ_podpory || descriptor.fallbackRecordType,
+    snapshot.record.document_url
+  );
+  const current = writeRecordDocumentResult_(descriptor, job.recordId, documentUrl, '');
+  const changedDuringGeneration = versionToken_(current.updated_at) !== snapshotVersion;
+  const status = writeRecordDocumentStatus_(key, {
+    state: changedDuringGeneration ? 'queued' : 'ready',
+    attempts: Number(job.attempts) || 0,
+    documentUrl: documentUrl || '',
+    error: ''
+  });
+  if (changedDuringGeneration) {
+    queueRecordDocumentWithLock_(descriptor.type, job.recordId, { resetAttempts: true });
+  }
+  return status;
+}
+
+function requeueFailedRecordDocument_(job, error) {
+  const attempts = (Number(job.attempts) || 0) + 1;
+  const message = String(error && (error.message || error) || 'Neznama chyba dokumentu.');
+  const descriptor = getRecordDocumentDescriptor_(job.recordType);
+  if (/smazan/i.test(message) || (error && error.code === 'NOT_FOUND')) {
+    return writeRecordDocumentStatus_(recordDocumentKey_(job.recordType, job.recordId), {
+      state: 'cancelled',
+      attempts: attempts,
+      documentUrl: '',
+      error: message
+    });
+  }
+  try {
+    writeRecordDocumentResult_(descriptor, job.recordId, undefined, message);
+  } catch (writeError) {
+    console.warn('Document error could not be written: ' + String(writeError.message || writeError));
+  }
+  if (attempts < RECORD_DOCUMENT_MAX_ATTEMPTS_) {
+    return queueRecordDocumentWithLock_(job.recordType, job.recordId, {
+      attempts: attempts,
+      error: message,
+      notBefore: Date.now() + attempts * 15000
+    });
+  }
+  return writeRecordDocumentStatus_(recordDocumentKey_(job.recordType, job.recordId), {
+    state: 'error',
+    attempts: attempts,
+    documentUrl: '',
+    error: message
+  });
+}
+
+function runQueuedRecordDocuments() {
+  deleteTriggers_(RECORD_DOCUMENT_TRIGGER_HANDLER_);
+  for (let index = 0; index < RECORD_DOCUMENT_BATCH_SIZE_; index += 1) {
+    const job = takeReadyRecordDocumentJob_();
+    if (!job) break;
+    try {
+      processRecordDocumentJob_(job);
+    } catch (error) {
+      console.error('Record document job failed: ' + String(error.message || error));
+      requeueFailedRecordDocument_(job, error);
+    }
+  }
+  const remaining = readRecordDocumentQueue_();
+  if (remaining.length) {
+    const nextAt = remaining.reduce((earliest, job) => Math.min(earliest, Number(job.notBefore) || Date.now()), Infinity);
+    ensureRecordDocumentTrigger_(Math.max(nextAt - Date.now(), 1000));
+  }
 }
 
 function upsertClientRecordDocument_(record, activityName, recordType, currentUrl) {
@@ -1411,12 +1830,9 @@ function ensureClientFolder_(klientId) {
   const folder = getOrCreateClientFolder_(row, sheet.getRange(targetRow, folderUrlColumn).getValue());
   const monitoringList = getOrCreateMonitoringList_(folder, row, sheet.getRange(targetRow, monitoringUrlColumn).getValue());
 
-  const now = new Date();
   const refreshedHeaders = getHeaders_(sheet);
   sheet.getRange(targetRow, refreshedHeaders.indexOf('drive_folder_url') + 1).setValue(folder.getUrl());
   sheet.getRange(targetRow, refreshedHeaders.indexOf('monitoring_list_url') + 1).setValue(monitoringList.getUrl());
-  if (refreshedHeaders.indexOf('updated_at') !== -1) sheet.getRange(targetRow, refreshedHeaders.indexOf('updated_at') + 1).setValue(now);
-  if (refreshedHeaders.indexOf('updated_by') !== -1) sheet.getRange(targetRow, refreshedHeaders.indexOf('updated_by') + 1).setValue('');
 
   return rowToObject_(refreshedHeaders, sheet.getRange(targetRow, 1, 1, refreshedHeaders.length).getValues()[0]);
 }
@@ -2034,6 +2450,21 @@ function assertExpectedVersion_(existing, expectedUpdatedAt, recordLabel) {
   );
   error.code = 'CONFLICT';
   throw error;
+}
+
+function assertRecordCanBeUpdated_(incomingId, existingRow, existing, recordLabel) {
+  const id = String(incomingId || '').trim();
+  if (!id) return;
+  if (!existingRow) {
+    const error = new Error((recordLabel || 'Zaznam') + ' s ID ' + id + ' nelze najit. Obnovte data.');
+    error.code = 'NOT_FOUND';
+    throw error;
+  }
+  if (normalizeDuplicateText_(existing && existing.status).startsWith('smaz')) {
+    const error = new Error((recordLabel || 'Zaznam') + ' ' + id + ' je smazany a nelze jej upravit. Obnovte data.');
+    error.code = 'CONFLICT';
+    throw error;
+  }
 }
 
 

@@ -79,6 +79,18 @@ test('import objektu převede číselné datum Google Sheets na běžné datum',
   assert.equal(client.datumNarozeni, '27.7.1944');
 });
 
+test('import klienta zachová přesnou verzi řádku pro bezpečnou úpravu', () => {
+  const updatedAt = '2026-08-04T09:15:30.123Z';
+  const client = mapSheetRowToClient({
+    klient_id: 'KLIENT-0001',
+    jmeno: 'Alena',
+    updated_at: updatedAt
+  }, 0);
+
+  assert.equal(client.expectedUpdatedAt, updatedAt);
+  assert.equal(client.updatedAt, Date.parse(updatedAt));
+});
+
 test('statistika použije délku v minutách, když nejsou časy od-do', () => {
   const summary = getClientSupportBreakdown('client-1', [{
     id: 'record-1',

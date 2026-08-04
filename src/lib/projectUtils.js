@@ -122,6 +122,7 @@ function mapSheetRowToClient(row, index) {
       situacePoUkonceni: row.situace_po_ukonceni || '',
       driveFolderUrl: row.drive_folder_url || '',
       monitoringListUrl: row.monitoring_list_url || '',
+      expectedUpdatedAt: String(row.updated_at || ''),
       updatedAt: Number.isFinite(Number(row.updated_at)) && String(row.updated_at || '').trim()
         ? Number(row.updated_at)
         : Date.parse(String(row.updated_at || '')) || 0,

@@ -55,11 +55,12 @@ test('server najde existující plán klienta a respektuje upravovaný řádek',
   assert.equal(context.findRowByHeaderValue_(sheet, headers, 'klient_id', 'KLIENT-0021', 2), null);
 });
 
-test('nové Firebase ID neobejde serverovou kontrolu duplicitního výkonu', () => {
+test('nový výkon bez serverového ID neobejde kontrolu duplicit', () => {
   const performanceContext = vm.createContext({});
   vm.runInContext(source, performanceContext);
   const headers = ['vykon_id', 'klient_id', 'datum'];
   const sheet = {
+    getLastRow: () => 2,
     getRange: () => ({ getValues: () => [['VYKON-0001', 'KLIENT-0021', '2026-07-22']] })
   };
   performanceContext.getOrCreateSheet_ = () => sheet;
@@ -69,7 +70,7 @@ test('nové Firebase ID neobejde serverovou kontrolu duplicitního výkonu', () 
   performanceContext.upsertPerformanceStatistics_ = () => {};
 
   const saved = performanceContext.savePerformance_({
-    vykon_id: 'firebase-new-id',
+    vykon_id: '',
     klient_id: 'KLIENT-0021',
     datum: '2026-07-22'
   });

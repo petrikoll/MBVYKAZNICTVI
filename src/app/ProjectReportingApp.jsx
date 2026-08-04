@@ -1783,7 +1783,7 @@ function mapClientDraftToSheetClient(draft, klientId = '') {
   const caseManagementPotreba = caseManagementDisabled ? 'Ne' : draft.caseManagementPotreba || 'Ne';
   return {
     klient_id: klientId,
-    expected_updated_at: klientId ? draft.updatedAt || '' : '',
+    expected_updated_at: klientId ? draft.expectedUpdatedAt || draft.updatedAt || '' : '',
     jmeno: String(draft.jmeno || '').trim(),
     prijmeni: String(draft.prijmeni || '').trim(),
     datum_narozeni: normalizeClientDateForSheet(draft.datumNarozeni),
@@ -2148,7 +2148,8 @@ function withSheetVersion(record, row) {
   return {
     ...cleanRecord,
     ...(updatedAt ? { updatedAt } : {}),
-    ...(expectedUpdatedAt ? { expectedUpdatedAt } : {})
+    ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+    ...(row?.document_pending === true ? { documentSyncPending: true } : {})
   };
 }
 
@@ -2289,6 +2290,7 @@ function App() {
   const [isBackupActionRunning, setIsBackupActionRunning] = useState(false);
   const [saveNotice, setSaveNotice] = useState(null);
   const [saveButtonNotices, setSaveButtonNotices] = useState({});
+  const [recordDeleteNotice, setRecordDeleteNotice] = useState(null);
   const pendingRecordSaveSignaturesRef = useRef(new Set());
   const pendingRecordMutationIdsRef = useRef(new Set());
   const pendingClientSaveSignaturesRef = useRef(new Set());
@@ -4081,6 +4083,99 @@ function App() {
     return result;
   };
 
+  const recordDocumentDescriptor = (record) => {
+    if (!record?.documentSyncPending || record?.entityType !== 'consultations' || !record?.clientId || !record?.documentText) return null;
+    const isCaseManagement = record.ka === 'KA2' || record.payload?.caseManagementMode;
+    return {
+      recordType: isCaseManagement ? 'meeting' : 'performance',
+      recordId: String(record.id || '')
+    };
+  };
+
+  const fetchRecordDocumentStatus = async ({ recordType, recordId }) => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const url = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
+      url.searchParams.set('action', 'getRecordDocumentStatus');
+      url.searchParams.set('record_type', recordType);
+      url.searchParams.set('record_id', recordId);
+      const response = await fetch(url.toString(), { cache: 'no-store', signal: controller.signal });
+      if (!response.ok) throw new Error(`Stav dokumentu nelze načíst (HTTP ${response.status}).`);
+      const result = await response.json().catch(() => ({}));
+      if (result?.ok !== true) throw new Error(result?.error || 'Stav dokumentu nelze načíst.');
+      return result.document || null;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  };
+
+  const applyRecordDocumentStatus = (recordId, status) => {
+    setRecords((previousRecords) => previousRecords.map((record) => (
+      record.id === recordId
+        ? {
+          ...record,
+          documentUrl: status?.documentUrl || record.documentUrl || '',
+          documentSyncPending: status?.state === 'queued' || status?.state === 'processing',
+          documentSyncState: status?.state || '',
+          documentSyncError: status?.error || ''
+        }
+        : record
+    )));
+  };
+
+  const monitorRecordDocument = async (record, descriptor, { noticeKey = '', successText = 'Uloženo' } = {}) => {
+    const showStatus = (tone, text) => {
+      if (noticeKey) setSaveButtonNotice(noticeKey, tone, text);
+      else setFlash(text);
+    };
+    applyRecordDocumentStatus(record.id, { state: 'queued' });
+    showStatus('progress', `${successText}. Dokument se připravuje na pozadí…`);
+
+    const delays = [1200, 1800, 2500, 3500, 5000, 7000, 9000, 12000];
+    for (const delay of delays) {
+      await new Promise((resolve) => window.setTimeout(resolve, delay));
+      let status;
+      try {
+        status = await fetchRecordDocumentStatus(descriptor);
+      } catch (error) {
+        // Starší Apps Script nemusí stavovou akci ještě znát. Samotný zápis je potvrzený.
+        console.warn('Document status check skipped:', error);
+        continue;
+      }
+      if (!status) continue;
+      applyRecordDocumentStatus(record.id, status);
+      if (status.state === 'ready') {
+        showStatus('success', `${successText}. Dokument je připraven.`);
+        return;
+      }
+      if (status.state === 'error') {
+        showStatus('error', `${successText}, ale dokument se nepodařilo připravit ani po opakování. Data v Sheetu jsou bezpečně uložená.`);
+        return;
+      }
+      if (status.state === 'queued' && /oprávněn|opravnen/i.test(String(status.error || ''))) {
+        showStatus('error', `${successText}. Data v Sheetu jsou bezpečně uložená, ale frontu dokumentů je nutné jednou autorizovat v Apps Scriptu.`);
+        return;
+      }
+      if (status.state === 'cancelled') return;
+    }
+    showStatus('success', `${successText}. Dokument se stále připravuje na pozadí.`);
+  };
+
+  const continueRecordSyncInBackground = (record, options = {}) => {
+    const descriptor = recordDocumentDescriptor(record);
+    if (descriptor?.recordId) {
+      window.setTimeout(() => {
+        void monitorRecordDocument(record, descriptor, options);
+      }, 0);
+    }
+    if (record?.entityType !== 'ai_style_memory') {
+      void syncRecordToGoogleDrive(record).then((result) => {
+        if (result?.ok === false) console.warn('Legacy Drive sync remains pending:', result.error);
+      });
+    }
+  };
+
   const loadBackupStatus = async () => {
     if (!GOOGLE_SHEET_MACRO_URL || !canSeeAllClients) return null;
     try {
@@ -4178,11 +4273,12 @@ function App() {
     const payload = record.payload || {};
     const hasExplicitExpectedVersion = Object.prototype.hasOwnProperty.call(record, 'expectedUpdatedAt');
     const expectedUpdatedAt = hasExplicitExpectedVersion ? record.expectedUpdatedAt : record.updatedAt || '';
+    const persistedSheetId = hasExplicitExpectedVersion ? record.id || '' : '';
 
     if (record.entityType === 'actor_registry') {
       const contactSheetFields = actorContactsToSheetFields(payload);
       const partnerToSave = {
-        partner_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
+        partner_id: persistedSheetId,
         nazev_subjektu: payload.name || record.title || '',
         typ_aktera: payload.actorType || '',
         puvod_site: payload.networkOrigin || 'st\u00e1vaj\u00edc\u00ed',
@@ -4218,7 +4314,7 @@ function App() {
       const result = await postGoogleSheetAction({
         action: 'saveNetworkMeeting',
         networkMeeting: {
-          schuzka_site_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
+          schuzka_site_id: persistedSheetId,
           datum: record.activityDate || '',
           cas_od: payload.startTime || '',
           cas_do: payload.endTime || '',
@@ -4246,7 +4342,7 @@ function App() {
       const result = await postGoogleSheetAction({
         action: 'saveEducation',
         education: {
-          vzdelavani_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
+          vzdelavani_id: persistedSheetId,
           datum: record.activityDate || payload.date || '',
           pocet_hodin: payload.hours || '',
           nazev_vzdelavani: payload.title || record.title || '',
@@ -4268,7 +4364,7 @@ function App() {
       const result = await postGoogleSheetAction({
         action: 'saveSupervision',
         supervision: {
-          sepervize_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
+          sepervize_id: persistedSheetId,
           datum: record.activityDate || payload.date || '',
           pocet_hodin: payload.hours || '',
           typ_supervize: payload.type || '',
@@ -4318,7 +4414,7 @@ function App() {
       const result = await postGoogleSheetAction({
         action: 'saveIndividualPlan',
         individualPlan: {
-          plan_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
+          plan_id: persistedSheetId,
           klient_id: record.clientId || '',
           popis_situace: payload.situationDescription || payload.currentSituation || '',
           cile_json: JSON.stringify(normalizedGoals),
@@ -4346,7 +4442,7 @@ function App() {
       const result = await postGoogleSheetAction({
         action: 'saveMeeting',
         meeting: {
-          meeting_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
+          meeting_id: persistedSheetId,
           klient_id: record.clientId || '',
           case_management_id: '',
           datum: record.activityDate || '',
@@ -4379,7 +4475,7 @@ function App() {
       const result = await postGoogleSheetAction({
         action: 'savePerformance',
         performance: {
-          vykon_id: String(record.id || '').startsWith('local-') ? '' : record.id || '',
+          vykon_id: persistedSheetId,
           klient_id: record.clientId || '',
           datum: record.activityDate || '',
           cas_od: payload.startTime || payload.ka02StartTime || '',
@@ -4402,7 +4498,7 @@ function App() {
         }
       });
       const savedPerformance = requireSavedGoogleSheetRecord(result, 'performance', 'vykon_id', 'výkonu');
-      await refreshStatisticsRows();
+      void refreshStatisticsRows();
       return withSheetVersion({ ...record, id: savedPerformance.vykon_id }, savedPerformance);
     }
 
@@ -4454,10 +4550,9 @@ function App() {
         ];
         return nextRecords;
       });
-      if (syncedRecord.entityType !== 'ai_style_memory') {
-        await syncRecordToGoogleDrive(syncedRecord);
-      }
-      return completeSave();
+      completeSave();
+      continueRecordSyncInBackground(syncedRecord, { noticeKey, successText });
+      return true;
     } catch (error) {
       console.error('Error saving record:', error);
       return failSave(saveErrorMessage('Záznam nebyl uložen', error));
@@ -4487,7 +4582,7 @@ function App() {
     const writeBlockMessage = recordWriteBlockMessage(existingRecord);
     if (writeBlockMessage) return failSave(writeBlockMessage);
 
-    const mutationKey = `update:${recordId}`;
+    const mutationKey = `record:${recordId}`;
     if (pendingRecordMutationIdsRef.current.has(mutationKey)) {
       return failSave('Tento záznam se už ukládá. Vyčkejte na dokončení.');
     }
@@ -4513,10 +4608,9 @@ function App() {
         const nextRecords = previousRecords.map((record) => (record.id === recordId ? syncedRecord : record));
         return nextRecords;
       });
-      if (syncedRecord.entityType !== 'ai_style_memory') {
-        await syncRecordToGoogleDrive(syncedRecord);
-      }
-      return completeSave();
+      completeSave();
+      continueRecordSyncInBackground(syncedRecord, { noticeKey, successText });
+      return true;
     } catch (error) {
       console.error('Update record error:', error);
       return failSave(saveErrorMessage('Záznam nebyl uložen', error));
@@ -4547,35 +4641,47 @@ function App() {
       await postGoogleSheetAction({
         action,
         id: record.id,
-        expected_updated_at: record.updatedAt || '',
+        expected_updated_at: record.expectedUpdatedAt || record.updatedAt || '',
         updated_by: currentWorker || ''
       });
-      if (action === 'deletePerformance') await refreshStatisticsRows();
+      if (action === 'deletePerformance') void refreshStatisticsRows();
     }
   };
 
   const deleteRecord = async (record) => {
     if (!record?.id) return;
+    const showDeleteNotice = (tone, text) => setRecordDeleteNotice({
+      tone,
+      text,
+      recordId: record.id,
+      entityType: record.entityType || '',
+      clientId: record.clientId || ''
+    });
     const writeBlockMessage = recordWriteBlockMessage(record);
     if (writeBlockMessage) {
-      setFlash(writeBlockMessage);
+      showDeleteNotice('error', writeBlockMessage);
       return;
     }
     const confirmed = window.confirm(`Opravdu smazat záznam "${record.title || 'bez názvu'}"?`);
     if (!confirmed) return;
 
+    const mutationKey = `record:${record.id}`;
+    if (pendingRecordMutationIdsRef.current.has(mutationKey)) {
+      showDeleteNotice('progress', 'Tento záznam se právě mění. Vyčkejte na dokončení.');
+      return;
+    }
+    pendingRecordMutationIdsRef.current.add(mutationKey);
+    showDeleteNotice('progress', `Mažu záznam „${record.title || 'bez názvu'}“…`);
     setIsSaving(true);
-    const previousRecords = records;
-    const nextRecords = records.filter((item) => item.id !== record.id);
     try {
       await deleteGoogleSheetRecord(record);
-      setRecords(nextRecords);
-      setFlash('Záznam byl smazán.');
+      setRecords((previousRecords) => previousRecords.filter((item) => item.id !== record.id));
+      showDeleteNotice('success', `Záznam „${record.title || 'bez názvu'}“ byl smazán.`);
     } catch (error) {
-      setRecords(previousRecords);
       console.error('Delete record error:', error);
-      setFlash(saveErrorMessage('Záznam nebyl smazán', error));
+      showDeleteNotice('error', saveErrorMessage('Záznam nebyl smazán', error));
     } finally {
+      pendingRecordMutationIdsRef.current.delete(mutationKey);
       setIsSaving(false);
     }
   };
@@ -4656,25 +4762,75 @@ function App() {
 
   const handleClientKeyWorkerQuickChange = async (client, nextKeyWorker) => {
     if (!client) return;
+    const noticeKey = `client-worker:${client.id}`;
     if (!isClientRegistryAvailable) {
-      setFlash('Klientský registr není dostupný. Změna pracovníka byla zablokována.');
+      setSaveButtonNotice(noticeKey, 'error', 'Klientský registr není dostupný. Změna byla zablokována.');
       return;
     }
     const normalizedNextKeyWorker = String(nextKeyWorker || '').trim();
     if ((client.keyWorker || '') === normalizedNextKeyWorker) return;
 
+    const mutationKey = `client:${client.id}`;
+    if (pendingRecordMutationIdsRef.current.has(mutationKey)) {
+      setSaveButtonNotice(noticeKey, 'progress', 'Tento klient se právě ukládá.');
+      return;
+    }
+    pendingRecordMutationIdsRef.current.add(mutationKey);
+    setSaveButtonNotice(noticeKey, 'progress', 'Ukládám pracovníka…');
     setIsSaving(true);
     try {
-      const result = await postGoogleSheetAction({
-        action: 'saveClient',
-        client: mapClientDraftToSheetClient({
-          ...emptyClientDraft,
-          ...client,
-          keyWorker: normalizedNextKeyWorker
-        }, client.id)
-      });
-      if (!result?.client?.klient_id) throw new Error('Google Sheet nevrátil ID klienta.');
-      const savedClient = mapSheetRowToClient(result.client, clients.findIndex((item) => item.id === client.id));
+      const saveKeyWorker = async (baseClient) => {
+        const quickPayload = {
+          klient_id: client.id,
+          klicovy_pracovnik: normalizedNextKeyWorker,
+          expected_updated_at: baseClient.expectedUpdatedAt || baseClient.updatedAt || '',
+          updated_by: currentWorker || ''
+        };
+        let result;
+        try {
+          result = await postGoogleSheetAction({
+            action: 'updateClientKeyWorker',
+            client: quickPayload
+          });
+        } catch (quickError) {
+          // Kompatibilita pro krátké přechodné období mezi nasazením frontendu a Apps Scriptu.
+          if (!/unknown action|nezn[aá]m[aá] akce/i.test(String(quickError?.message || ''))) throw quickError;
+          result = await postGoogleSheetAction({
+            action: 'saveClient',
+            client: mapClientDraftToSheetClient({
+              ...emptyClientDraft,
+              ...baseClient,
+              keyWorker: normalizedNextKeyWorker
+            }, client.id)
+          });
+        }
+        if (!result?.client?.klient_id) throw new Error('Google Sheet nevrátil ID klienta.');
+        return mapSheetRowToClient(result.client, clients.findIndex((item) => item.id === client.id));
+      };
+
+      let savedClient;
+      try {
+        savedClient = await saveKeyWorker(client);
+      } catch (error) {
+        if (error?.code !== 'CONFLICT') throw error;
+        setSaveButtonNotice(noticeKey, 'progress', 'Ověřuji aktuální údaje klienta…');
+        const refreshedResult = await fetchGoogleSheetAction('listClients', 1);
+        const refreshedClients = (refreshedResult?.clients || [])
+          .map((row, index) => mapSheetRowToClient(row, index))
+          .filter(Boolean);
+        const refreshedClient = refreshedClients.find((item) => item.id === client.id);
+        if (!refreshedClient) throw error;
+
+        const originalWorker = String(client.keyWorker || '').trim();
+        const refreshedWorker = String(refreshedClient.keyWorker || '').trim();
+        if (refreshedWorker === normalizedNextKeyWorker) {
+          savedClient = refreshedClient;
+        } else if (refreshedWorker === originalWorker) {
+          savedClient = await saveKeyWorker(refreshedClient);
+        } else {
+          throw error;
+        }
+      }
       if (!savedClient) throw new Error('Upraveného klienta se nepodařilo načíst.');
 
       setClients((prev) => prev.map((item) => (item.id === client.id ? savedClient : item)));
@@ -4682,11 +4838,12 @@ function App() {
         setClientEditDraft((prev) => ({ ...prev, keyWorker: savedClient.keyWorker || '' }));
       }
       setSheetError('');
-      setFlash('Klíčový pracovník byl uložen.');
+      setSaveButtonNotice(noticeKey, 'success', 'Pracovník uložen');
     } catch (error) {
       console.error('Google Sheets client key worker update error:', error);
-      setFlash(saveErrorMessage('Klíčový pracovník nebyl uložen', error));
+      setSaveButtonNotice(noticeKey, 'error', saveErrorMessage('Pracovník nebyl uložen', error));
     } finally {
+      pendingRecordMutationIdsRef.current.delete(mutationKey);
       setIsSaving(false);
     }
   };
@@ -4716,6 +4873,14 @@ function App() {
       return;
     }
 
+    const mutationKey = `client:${targetClientId}`;
+    if (pendingRecordMutationIdsRef.current.has(mutationKey)) {
+      const message = 'Tento klient se právě ukládá. Vyčkejte na dokončení.';
+      setSaveButtonNotice('client-update', 'progress', message);
+      setFlash(message);
+      return;
+    }
+    pendingRecordMutationIdsRef.current.add(mutationKey);
     setIsSaving(true);
     setSaveButtonNotice('client-update', 'progress', 'Ukládám úpravy…');
     try {
@@ -4738,6 +4903,7 @@ function App() {
       setSaveButtonNotice('client-update', 'error', message);
       setFlash(message);
     } finally {
+      pendingRecordMutationIdsRef.current.delete(mutationKey);
       setIsSaving(false);
     }
   };
@@ -5052,7 +5218,9 @@ ${rawOutput}` }] }],
       return false;
     }
     if (!generatorClient) {
-      setFlash('Vyber klienta.');
+      const message = 'Vyber klienta.';
+      setSaveNotice({ tone: 'error', text: message });
+      setFlash(message);
       return;
     }
     const isOneTimeOrder = generatorDraft.linkedPlanGoalId === 'one-time-order';
@@ -5060,11 +5228,17 @@ ${rawOutput}` }] }],
       generatorDraft.selectedKey !== 'plan' &&
       (!generatorDraft.linkedPlanGoalId || (!isOneTimeOrder && !generatorPlanGoalOptions.some((goal) => goal.value === generatorDraft.linkedPlanGoalId)))
     ) {
-      setFlash(generatorPlanGoalOptions.length ? 'Vyber cíl z plánu osobního rozvoje.' : 'Nejdřív doplň cíl v plánu osobního rozvoje klienta.');
+      const message = generatorPlanGoalOptions.length
+        ? 'Vyber cíl z plánu osobního rozvoje.'
+        : 'Nejdřív doplň cíl v plánu osobního rozvoje klienta.';
+      setSaveNotice({ tone: 'error', text: message });
+      setFlash(message);
       return;
     }
     if (!generatedText.trim()) {
-      setFlash('Nejprve vygeneruj nebo doplň text výstupu.');
+      const message = 'Nejprve vygeneruj nebo doplň text výstupu.';
+      setSaveNotice({ tone: 'error', text: message });
+      setFlash(message);
       return;
     }
 
@@ -7179,14 +7353,19 @@ ${rawPlanOutput}` }] }],
               })}
             </nav>
 
-            {statusMessage && (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
-                {statusMessage}
-              </div>
-            )}
           </div>
         </div>
       </header>
+
+      {statusMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-5 left-1/2 z-[70] max-w-[min(92vw,720px)] -translate-x-1/2 rounded-xl border border-slate-300 bg-slate-900 px-4 py-3 text-center text-sm font-semibold text-white shadow-2xl"
+        >
+          {statusMessage}
+        </div>
+      )}
 
       <main className="relative z-[1] mx-auto max-w-7xl px-4 py-6 md:px-6">
         {sheetError && (
@@ -7333,6 +7512,11 @@ ${rawPlanOutput}` }] }],
                             </label>
                             <MiniBadge icon={Clock} label={formatSupportMinutes(stats.supportMinutes)} tone="indigo" />
                             {showCaseManagementBadge && <MiniBadge icon={User} label="case" tone="emerald" />}
+                            {saveButtonNotices[`client-worker:${client.id}`] && (
+                              <div className="col-span-2">
+                                <SaveInlineNotice notice={saveButtonNotices[`client-worker:${client.id}`]} />
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -7566,6 +7750,11 @@ ${rawPlanOutput}` }] }],
                         </button>
                       }
                     >
+                      {recordDeleteNotice?.clientId === selectedClient.id && (
+                        <div className="mb-3">
+                          <SaveInlineNotice notice={recordDeleteNotice} />
+                        </div>
+                      )}
                       <div className="mb-3 grid gap-3 md:grid-cols-3">
                         <InfoCard icon={History} label="Položky na ose" value={String(clientJourneyTimeline.length)} />
                         <InfoCard icon={Clock} label="Čas podpory" value={formatSupportMinutes(getClientStats(selectedClient.id, clientJourneyTimeline).supportMinutes)} />
@@ -7988,6 +8177,7 @@ ${rawPlanOutput}` }] }],
               exportKa01NetworkDocx={exportKa01NetworkDocx}
               handleEditKa01Network={handleEditKa01Network}
               deleteRecord={deleteRecord}
+              recordDeleteNotice={recordDeleteNotice}
               computedIndicators={computedIndicators}
               formatDurationFromTimes={formatDurationFromTimes}
             />
@@ -8037,6 +8227,9 @@ ${rawPlanOutput}` }] }],
               </Panel>
 
               <Panel title="Uložená vzdělávání" icon={FileSpreadsheet}>
+                {recordDeleteNotice?.entityType === 'education_records' && (
+                  <div className="mb-3"><SaveInlineNotice notice={recordDeleteNotice} /></div>
+                )}
                 {educationRecords.length === 0 ? (
                   <EmptyState icon={GraduationCap} title="Zatím není uložena žádná vzdělávací akce." />
                 ) : (
@@ -8108,6 +8301,9 @@ ${rawPlanOutput}` }] }],
               </Panel>
 
               <Panel title="Uložené supervize" icon={FileSpreadsheet}>
+                {recordDeleteNotice?.entityType === 'supervision_records' && (
+                  <div className="mb-3"><SaveInlineNotice notice={recordDeleteNotice} /></div>
+                )}
                 {supervisionRecords.length === 0 ? (
                   <EmptyState icon={Brain} title="Zatím není uložena žádná supervize." />
                 ) : (

@@ -101,7 +101,7 @@ function Ka01View({
   ka01NetworkTimeError, cancelKa01NetworkEdit, ka01NetworkRecords,
   ka01ActorRegistryRecords, expandedKa01NetworkRecordIds,
   toggleKa01NetworkDescription, exportKa01NetworkDocx,
-  handleEditKa01Network, deleteRecord
+  handleEditKa01Network, deleteRecord, recordDeleteNotice
 }) {
   const [expandedActorIds, setExpandedActorIds] = React.useState([]);
   const [attendanceActorRecord, setAttendanceActorRecord] = React.useState(null);
@@ -272,6 +272,9 @@ function Ka01View({
 
           <div>
             <div className="mb-2 text-sm font-bold">Uložené schůzky a aktivity sítě</div>
+            {recordDeleteNotice?.entityType === 'network_activities' && (
+              <div className="mb-2"><SaveInlineNotice notice={recordDeleteNotice} /></div>
+            )}
             {ka01NetworkRecords.length === 0 ? <EmptyState icon={Users} title="Zatím není uložena žádná aktivita sítě." /> : (
               <div className="overflow-auto rounded-lg border border-slate-200 bg-white"><table className="min-w-[900px] w-full divide-y divide-slate-200 text-xs"><thead className="bg-sky-50 font-semibold uppercase text-sky-800"><tr><th className="px-2 py-2 text-left">Datum</th><th className="px-2 py-2 text-left">Typ</th><th className="px-2 py-2 text-left">Účastníci</th><th className="px-2 py-2 text-left">Zápis</th><th className="px-2 py-2 text-right">Akce</th></tr></thead><tbody className="divide-y divide-slate-100">
                 {ka01NetworkRecords.map((record) => { const expanded = expandedKa01NetworkRecordIds.includes(record.id); const text = record.payload?.description || record.payload?.notes || ''; return <tr key={record.id} className="even:bg-slate-50/60"><td className="px-2 py-2">{record.activityDate || '-'}</td><td className="px-2 py-2 font-semibold">{record.payload?.type || record.title}</td><td className="max-w-[220px] px-2 py-2">{truncate(record.payload?.participants || '-', 80)}</td><td className="max-w-[360px] px-2 py-2">{expanded ? text : truncate(text, 150)} {text.length > 150 && <button type="button" onClick={() => toggleKa01NetworkDescription(record.id)} className="font-semibold text-blue-700">{expanded ? 'Méně' : 'Více'}</button>}</td><td className="whitespace-nowrap px-2 py-2 text-right"><button type="button" onClick={() => exportKa01NetworkDocx(record)} className="mr-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">DOCX</button><button type="button" onClick={() => handleEditKa01Network(record)} className="mr-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-blue-700">Upravit</button><button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700">Smazat</button></td></tr>; })}
@@ -334,6 +337,9 @@ function Ka01View({
               </div>
               <button type="button" onClick={() => setAttendanceTypePickerOpen(true)} disabled={attendanceCount === 0} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Vytvořit prezenční listinu ({attendanceCount} osob)</button>
             </div>
+            {recordDeleteNotice?.entityType === 'actor_registry' && (
+              <div className="mb-2"><SaveInlineNotice notice={recordDeleteNotice} /></div>
+            )}
             {sortedActors.length === 0 ? <EmptyState icon={Users} title="Zatím není uložen žádný aktér v síti." /> : (
               <div className="overflow-auto rounded-lg border border-slate-200 bg-white"><table className="min-w-[1100px] w-full divide-y divide-slate-200 text-xs"><thead className="sticky top-0 bg-sky-50 font-semibold uppercase text-sky-800"><tr><th className="px-2 py-2 text-left">Subjekt</th><th className="px-2 py-2 text-left">Typ</th><th className="px-2 py-2 text-left">Kontaktní osoba</th><th className="px-2 py-2 text-left">Funkce</th><th className="px-2 py-2 text-left">Kontakt</th><th className="px-2 py-2 text-left">Původ</th><th className="px-2 py-2 text-left">Datum zapojení</th><th className="px-2 py-2 text-left">Prezenční listina</th><th className="px-2 py-2 text-right">Akce</th></tr></thead><tbody className="divide-y divide-slate-100">
                 {sortedActors.map((record) => {
