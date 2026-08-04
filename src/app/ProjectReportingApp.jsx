@@ -111,9 +111,7 @@ import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js
 import { isBackupStatusActive } from '../lib/backupStatus.js';
 import {
   buildGoalAlertSignature,
-  readDismissedGoalAlertSignatures,
-  rememberDismissedGoalAlertSignature,
-  storeDismissedGoalAlertSignatures
+  rememberDismissedGoalAlertSignature
 } from '../lib/goalAlertDismissal.js';
 import { buildHorizontalPrincipleAiPrompt, buildHorizontalPrinciplesTexts, buildZorTexts, ZOR_TEXT_MAX_LENGTH } from '../lib/zorSummary.js';
 import AiDocumentPanel from './AiDocumentPanel.jsx';
@@ -151,12 +149,7 @@ import {
   CASE_MEETING_DASHBOARD_NOTE,
   isCaseMeetingDashboardRecord,
   groupRecordsByType,
-  clearLocalReportingCache,
-  loadLocalClients,
-  loadLocalRecords,
   mapSheetRowToClient,
-  saveLocalClients,
-  saveLocalRecords,
   slugify,
   todayIso,
   truncate
@@ -2134,29 +2127,6 @@ const hasUnsavedGeneratorDraftContent = (draft) =>
   hasContentInFields(draft, GENERATOR_DRAFT_CONTENT_FIELDS) ||
   (hasContentValue(draft?.ka02Place) && !(draft?.caseManagementMode && draft.ka02Place === 'ambulantní'));
 
-const GLOBAL_WORKER_STORAGE_KEY = 'mbVykaznictvi.globalWorker';
-
-function readStoredGlobalWorker() {
-  if (typeof window === 'undefined') return WORKERS[0];
-  try {
-    const storedWorker = window.localStorage.getItem(GLOBAL_WORKER_STORAGE_KEY);
-    const canonicalWorker = canonicalizeWorkerName(storedWorker);
-    return WORKERS.includes(canonicalWorker) ? canonicalWorker : WORKERS[0];
-  } catch {
-    return WORKERS[0];
-  }
-}
-
-function storeGlobalWorker(worker) {
-  const canonicalWorker = canonicalizeWorkerName(worker);
-  if (typeof window === 'undefined' || !WORKERS.includes(canonicalWorker)) return;
-  try {
-    window.localStorage.setItem(GLOBAL_WORKER_STORAGE_KEY, canonicalWorker);
-  } catch {
-    // Ukládání do localStorage může být v některých režimech prohlížeče blokované.
-  }
-}
-
 function parseSheetVersion(value) {
   const text = asSheetText(value).trim();
   if (!text) return 0;
@@ -2266,16 +2236,6 @@ const VERIFIED_RECORD_SOURCE_ACTIONS = [
   'listEducation',
   'listSupervision'
 ];
-const RECORD_SOURCE_LABELS = {
-  listPerformances: 'v\u00fdkony KA1',
-  listMeetings: 'z\u00e1pisy case managementu',
-  listIndividualPlans: 'individu\u00e1ln\u00ed pl\u00e1ny',
-  listNetworkMeetings: 'sch\u016fzky s\u00edt\u011b',
-  listPartners: 'akt\u00e9\u0159i s\u00edt\u011b',
-  listEducation: 'vzd\u011bl\u00e1v\u00e1n\u00ed',
-  listSupervision: 'supervize'
-};
-
 function recordSourceAction(record) {
   if (!record || isLocalOnlyRecord(record)) return '';
   if (record.entityType === 'plans') return 'listIndividualPlans';
@@ -2289,28 +2249,22 @@ function recordSourceAction(record) {
 }
 
 function App() {
-  const cachedClientsAtStartup = useMemo(() => loadLocalClients(), []);
-  const cachedRecordsAtStartup = useMemo(() => loadLocalRecords(), []);
   const [mainView, setMainView] = useState('clients');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAllClients, setShowAllClients] = useState(true);
-  const [records, setRecords] = useState(cachedRecordsAtStartup);
-  const [clients, setClients] = useState(cachedClientsAtStartup);
+  const [records, setRecords] = useState([]);
+  const [clients, setClients] = useState([]);
   const [verifiedRecordActions, setVerifiedRecordActions] = useState(() => new Set());
-  const [hasLocalDataCache, setHasLocalDataCache] = useState(
-    cachedClientsAtStartup.length > 0 || cachedRecordsAtStartup.length > 0
-  );
   const [isLoadingClients, setIsLoadingClients] = useState(false);
   const [isClientRegistryAvailable, setIsClientRegistryAvailable] = useState(false);
   const [sheetError, setSheetError] = useState('');
-  const [showVerificationNotice, setShowVerificationNotice] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [showClientForm, setShowClientForm] = useState(false);
   const [clientDraft, setClientDraft] = useState(emptyClientDraft);
   const [showClientEditForm, setShowClientEditForm] = useState(false);
   const [clientEditDraft, setClientEditDraft] = useState(emptyClientDraft);
-  const [globalWorker, setGlobalWorker] = useState(readStoredGlobalWorker);
-  const [generatorDraft, setGeneratorDraft] = useState(() => ({ ...emptyGeneratorDraft, worker: readStoredGlobalWorker() }));
+  const [globalWorker, setGlobalWorker] = useState(WORKERS[0]);
+  const [generatorDraft, setGeneratorDraft] = useState(() => ({ ...emptyGeneratorDraft, worker: WORKERS[0] }));
   const [generatedText, setGeneratedText] = useState('');
   const [lastGeneratedText, setLastGeneratedText] = useState('');
   const [generationNotice, setGenerationNotice] = useState('');
@@ -2339,9 +2293,7 @@ function App() {
   const [copied, setCopied] = useState(false);
   const [clientCaseSummary, setClientCaseSummary] = useState('');
   const [goalAlertsExpanded, setGoalAlertsExpanded] = useState(false);
-  const [dismissedGoalAlertSignatures, setDismissedGoalAlertSignatures] = useState(() =>
-    readDismissedGoalAlertSignatures(window.localStorage)
-  );
+  const [dismissedGoalAlertSignatures, setDismissedGoalAlertSignatures] = useState([]);
   const [dashboardFilters, setDashboardFilters] = useState({ period: 'all', ka: 'all', worker: 'all' });
   const [isEsfExportStatus, setIsEsfExportStatus] = useState({
     state: 'idle',
@@ -2380,10 +2332,6 @@ function App() {
   const [ka01AttendanceSelection, setKa01AttendanceSelection] = useState({});
   const ka01NetworkSaveLockRef = useRef(false);
   const ka01NetworkPendingIdRef = useRef('');
-
-  useEffect(() => {
-    storeGlobalWorker(globalWorker || WORKERS[0]);
-  }, [globalWorker]);
 
   useEffect(() => {
     const standaloneQuery = window.matchMedia('(display-mode: standalone)');
@@ -2519,7 +2467,7 @@ function App() {
     hours: '',
     title: '',
     accreditationNumber: '',
-    worker1: readStoredGlobalWorker(),
+    worker1: WORKERS[0],
     worker2: '',
     worker3: ''
   });
@@ -2527,7 +2475,7 @@ function App() {
     date: todayIso(),
     hours: '',
     type: 'individuální',
-    worker1: readStoredGlobalWorker(),
+    worker1: WORKERS[0],
     worker2: '',
     worker3: ''
   });
@@ -2583,24 +2531,20 @@ function App() {
         if (cancelled) return;
         console.error('Google Sheets load error:', error);
         setIsClientRegistryAvailable(false);
-        if (cachedClientsAtStartup.length > 0) {
-          setSheetError('Aktuální data ze Sheetu se nepodařilo ověřit. Zobrazuje se poslední lokální kopie; ukládání je do obnovení spojení zablokováno.');
-        } else {
-          setClients([]);
-          setSelectedClientId('');
-          setGeneratorDraft((prev) => ({ ...prev, clientId: '' }));
-          setKa01Draft((prev) => ({ ...prev, assessmentClientId: '' }));
-          setKa02Draft((prev) => ({ ...prev, selectedClientId: '' }));
-          setKa03Draft((prev) => ({
-            ...prev,
-            selectedClientId: '',
-            tpmClientId: '',
-            employmentClientId: '',
-            tpmDate: prev.tpmDate || todayIso(),
-            employmentDate: prev.employmentDate || todayIso()
-          }));
-          setSheetError('Načtení klientského registru selhalo. Ukládání klientských dat je zablokováno, aby nevznikly chybně přiřazené záznamy.');
-        }
+        setClients([]);
+        setSelectedClientId('');
+        setGeneratorDraft((prev) => ({ ...prev, clientId: '' }));
+        setKa01Draft((prev) => ({ ...prev, assessmentClientId: '' }));
+        setKa02Draft((prev) => ({ ...prev, selectedClientId: '' }));
+        setKa03Draft((prev) => ({
+          ...prev,
+          selectedClientId: '',
+          tpmClientId: '',
+          employmentClientId: '',
+          tpmDate: prev.tpmDate || todayIso(),
+          employmentDate: prev.employmentDate || todayIso()
+        }));
+        setSheetError('Načtení klientského registru selhalo. Ukládání klientských dat je zablokováno, aby nevznikly chybně přiřazené záznamy.');
         retryTimeoutId = window.setTimeout(fetchClients, 8000);
       } finally {
         if (!cancelled) setIsLoadingClients(false);
@@ -2614,12 +2558,6 @@ function App() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!isClientRegistryAvailable) return;
-    saveLocalClients(clients);
-    setHasLocalDataCache(clients.length > 0 || records.length > 0);
-  }, [clients, isClientRegistryAvailable, records.length]);
-
   const clientIndex = useMemo(() => {
     const map = {};
     clients.forEach((client) => {
@@ -2627,7 +2565,7 @@ function App() {
     });
     return map;
   }, [clients]);
-  const canLoadSheetRecords = isClientRegistryAvailable && clients.length > 0;
+  const canLoadSheetRecords = isClientRegistryAvailable;
 
 
   useEffect(() => {
@@ -2713,8 +2651,6 @@ function App() {
           );
           const localOnly = prev.filter((record) => isLocalOnlyRecord(record) && !remoteIds.has(record.id));
           const merged = [...remoteRecords, ...preservedPendingRemote, ...localOnly].sort(compareTimelineRecordsDesc);
-          saveLocalRecords(merged);
-          if (merged.length > 0) setHasLocalDataCache(true);
           return merged;
         });
       };
@@ -2901,18 +2837,6 @@ function App() {
   }, [canLoadSheetRecords]);
 
   const currentWorker = globalWorker || WORKERS[0];
-  const pendingRecordVerification = VERIFIED_RECORD_SOURCE_ACTIONS.some((action) => !verifiedRecordActions.has(action));
-  const pendingVerificationLabels = VERIFIED_RECORD_SOURCE_ACTIONS
-    .filter((action) => !verifiedRecordActions.has(action))
-    .map((action) => RECORD_SOURCE_LABELS[action] || action);
-  useEffect(() => {
-    if (!pendingRecordVerification) {
-      setShowVerificationNotice(false);
-      return undefined;
-    }
-    const timeoutId = window.setTimeout(() => setShowVerificationNotice(true), 10000);
-    return () => window.clearTimeout(timeoutId);
-  }, [pendingRecordVerification]);
   const recordWriteBlockMessage = (record) => {
     const sourceAction = recordSourceAction(record);
     if (!sourceAction || verifiedRecordActions.has(sourceAction)) return '';
@@ -2964,7 +2888,6 @@ function App() {
   const dismissGoalAlerts = () => {
     const nextSignatures = rememberDismissedGoalAlertSignature(dismissedGoalAlertSignatures, goalAlertSignature);
     setDismissedGoalAlertSignatures(nextSignatures);
-    storeDismissedGoalAlertSignatures(window.localStorage, nextSignatures);
     setGoalAlertsExpanded(false);
   };
 
@@ -3806,13 +3729,6 @@ function App() {
     window.setTimeout(() => setStatusMessage(''), 3000);
   };
 
-  const clearDeviceDataCache = () => {
-    const confirmed = window.confirm('Vymazat lokální kopii klientů a výkonů z tohoto zařízení? Data v Google Sheetu zůstanou beze změny.');
-    if (!confirmed) return;
-    clearLocalReportingCache();
-    window.location.reload();
-  };
-
   const installApplication = async () => {
     const availablePrompt = installPrompt || window.__MB_INSTALL_PROMPT__;
     if (!availablePrompt) {
@@ -4000,7 +3916,6 @@ function App() {
       ? records.map((record) => (record.id === existingRecord.id ? nextRecord : record))
       : [nextRecord, ...records];
     setRecords(nextRecords);
-    saveLocalRecords(nextRecords);
   };
 
   const provisionClientDriveFolder = async (client, { silent = false, manageState = true } = {}) => {
@@ -4458,7 +4373,6 @@ function App() {
           syncedRecord,
           ...previousRecords.filter((record) => record.id !== syncedRecord.id)
         ];
-        saveLocalRecords(nextRecords);
         return nextRecords;
       });
       if (syncedRecord.entityType !== 'ai_style_memory') {
@@ -4518,7 +4432,6 @@ function App() {
       const syncedRecord = await syncRecordToGoogleSheet(updatedRecord);
       setRecords((previousRecords) => {
         const nextRecords = previousRecords.map((record) => (record.id === recordId ? syncedRecord : record));
-        saveLocalRecords(nextRecords);
         return nextRecords;
       });
       if (syncedRecord.entityType !== 'ai_style_memory') {
@@ -4578,7 +4491,6 @@ function App() {
     try {
       await deleteGoogleSheetRecord(record);
       setRecords(nextRecords);
-      saveLocalRecords(nextRecords);
       setFlash('Záznam byl smazán.');
     } catch (error) {
       setRecords(previousRecords);
@@ -5442,14 +5354,13 @@ ${rawOutput}` }] }],
     try {
       const url = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
       url.searchParams.set('action', 'listNetworkMeetings');
-      const response = await fetch(url.toString());
+      const response = await fetch(url.toString(), { cache: 'no-store' });
       const json = await response.json();
       if (!response.ok || json.ok === false) throw new Error(json.error || 'Načtení schůzek selhalo.');
       const remoteNetworkRecords = mapSheetRecordsToAppRecords({ networkMeetings: json.networkMeetings || [] }, clientIndex);
       setRecords((previous) => {
         const otherRecords = previous.filter((record) => record.entityType !== 'network_activities');
         const merged = [...remoteNetworkRecords, ...otherRecords].sort(compareTimelineRecordsDesc);
-        saveLocalRecords(merged);
         return merged;
       });
     } catch (error) {
@@ -5959,7 +5870,7 @@ ${rawOutput}` }] }],
       hours: '',
       title: '',
       accreditationNumber: '',
-      worker1: readStoredGlobalWorker(),
+      worker1: currentWorker,
       worker2: '',
       worker3: ''
     });
@@ -6007,7 +5918,7 @@ ${rawOutput}` }] }],
       date: todayIso(),
       hours: '',
       type: 'individuální',
-      worker1: readStoredGlobalWorker(),
+      worker1: currentWorker,
       worker2: '',
       worker3: ''
     });
@@ -6782,7 +6693,7 @@ ${rawPlanOutput}` }] }],
       try {
         const url = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
         url.searchParams.set('action', 'listNetworkMeetings');
-        const response = await fetch(url.toString());
+        const response = await fetch(url.toString(), { cache: 'no-store' });
         const json = await response.json();
         if (!response.ok || json.ok === false) throw new Error(json.error || 'Na\u010dten\u00ed aktivit selhalo.');
         const freshRecords = mapSheetRecordsToAppRecords({ networkMeetings: json.networkMeetings || [] }, clientIndex)
@@ -7199,23 +7110,9 @@ ${rawPlanOutput}` }] }],
       </header>
 
       <main className="relative z-[1] mx-auto max-w-7xl px-4 py-6 md:px-6">
-        {showVerificationNotice && pendingRecordVerification && cachedRecordsAtStartup.some((record) => !isLocalOnlyRecord(record)) && (
-          <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-            Ověřuji aktuální data: {pendingVerificationLabels.join(', ')}. Ověřené oblasti lze normálně používat; zbývající jsou dočasně pouze pro čtení. Ověření se opakuje automaticky.
-          </div>
-        )}
         {sheetError && (
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             <span>{sheetError}</span>
-            {hasLocalDataCache && (
-              <button
-                type="button"
-                onClick={clearDeviceDataCache}
-                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100"
-              >
-                Vymazat lokální kopii
-              </button>
-            )}
           </div>
         )}
 

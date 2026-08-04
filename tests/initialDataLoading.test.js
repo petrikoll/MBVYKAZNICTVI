@@ -26,7 +26,7 @@ test('clients load first and record fallbacks run concurrently with bounded retr
   assert.match(recordsBlock, /fetchGoogleSheetAction\(action, 1, timeoutMs\)/);
   assert.match(recordsBlock, /const bootstrapSources = \[/);
   assert.match(recordsBlock, /const bootstrapPrefetched = prefetchedSheetActionsRef\.current\.get\('bootstrapSections'\)/);
-  assert.match(source, /const canLoadSheetRecords = isClientRegistryAvailable && clients\.length > 0/);
+  assert.match(source, /const canLoadSheetRecords = isClientRegistryAvailable;/);
   assert.match(source, /if \(!canLoadSheetRecords \|\| !GOOGLE_SHEET_MACRO_URL/);
   assert.match(source, /\}, \[canLoadSheetRecords\]\);/);
   assert.doesNotMatch(source, /\}, \[clients, clientIndex\]\);/);

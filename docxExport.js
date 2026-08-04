@@ -63,11 +63,15 @@ async function handleDocxExportRequest(request, response) {
     response.writeHead(200, {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'Content-Disposition': `attachment; filename="${filename.endsWith('.docx') ? filename : `${filename}.docx`}"`,
+      'Cache-Control': 'no-store, private',
       'Content-Length': buffer.length
     });
     response.end(buffer);
   } catch (error) {
-    response.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    response.writeHead(400, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store, private'
+    });
     response.end(JSON.stringify({ error: error.message || 'Export DOCX selhal.' }));
   }
 }

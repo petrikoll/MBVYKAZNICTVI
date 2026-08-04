@@ -38,6 +38,18 @@ test('service worker neukládá citlivá API do mezipaměti', async () => {
   assert.match(serviceWorker, /isPrivateApi/);
 });
 
+test('citlive API odpovedi zakazuji ulozeni v prohlizeci a sdilenych cache', async () => {
+  const [googleProxy, geminiProxy, docxExport] = await Promise.all([
+    readFile(new URL('../googleAppsScriptProxy.js', import.meta.url), 'utf8'),
+    readFile(new URL('../geminiProxy.js', import.meta.url), 'utf8'),
+    readFile(new URL('../docxExport.js', import.meta.url), 'utf8')
+  ]);
+
+  [googleProxy, geminiProxy, docxExport].forEach((source) => {
+    assert.match(source, /Cache-Control['"]?:?\s*['"]no-store, private/);
+  });
+});
+
 test('instalační událost se zachytí ještě před prvním renderem aplikace', async () => {
   const mainSource = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8');
   const renderPosition = mainSource.indexOf('createRoot(');

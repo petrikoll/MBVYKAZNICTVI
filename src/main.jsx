@@ -2,7 +2,12 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 
 import ProjectReportingApp from './app/ProjectReportingApp.jsx';
+import { purgeSensitiveLocalStorage } from './lib/browserStoragePolicy.js';
 import './styles.css';
+
+// Sensitive project data remains only in memory while the application is open.
+// Older persistent copies are removed before the first render.
+purgeSensitiveLocalStorage();
 
 // Chrome může událost vyvolat ještě před dokončením prvního renderu Reactu.
 // Zachytíme ji proto hned při startu a obrazovka si ji následně převezme.

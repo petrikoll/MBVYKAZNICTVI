@@ -2,11 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  GOAL_ALERT_DISMISS_STORAGE_KEY,
   buildGoalAlertSignature,
-  readDismissedGoalAlertSignatures,
-  rememberDismissedGoalAlertSignature,
-  storeDismissedGoalAlertSignatures
+  rememberDismissedGoalAlertSignature
 } from '../src/lib/goalAlertDismissal.js';
 
 const alerts = {
@@ -40,17 +37,9 @@ test('nový termín nebo přesun po termínu vytvoří nový otisk', () => {
   assert.notEqual(buildGoalAlertSignature(alerts), buildGoalAlertSignature(becameOverdue));
 });
 
-test('zavřený otisk se uloží bez osobních údajů a znovu načte', () => {
-  const memory = new Map();
-  const storage = {
-    getItem: (key) => memory.get(key) || null,
-    setItem: (key, value) => memory.set(key, value)
-  };
+test('zavřený otisk zůstane jen v otevřené relaci', () => {
   const signature = buildGoalAlertSignature(alerts);
   const signatures = rememberDismissedGoalAlertSignature([], signature);
 
-  storeDismissedGoalAlertSignatures(storage, signatures);
-
-  assert.deepEqual(readDismissedGoalAlertSignatures(storage), [signature]);
-  assert.doesNotMatch(memory.get(GOAL_ALERT_DISMISS_STORAGE_KEY), /client-1|Bydlení|Finance/);
+  assert.deepEqual(signatures, [signature]);
 });

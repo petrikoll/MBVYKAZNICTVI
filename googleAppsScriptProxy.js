@@ -21,7 +21,10 @@ const inFlightReads = new Map();
 let mutationGeneration = 0;
 
 function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+  response.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store, private'
+  });
   response.end(JSON.stringify(payload));
 }
 
@@ -61,7 +64,7 @@ function buildReadCacheKey(upstreamUrl) {
 function sendUpstreamSnapshot(response, snapshot) {
   response.writeHead(snapshot.status, {
     'Content-Type': snapshot.contentType || 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store'
+    'Cache-Control': 'no-store, private'
   });
   response.end(snapshot.body);
 }

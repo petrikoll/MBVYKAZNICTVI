@@ -71,7 +71,7 @@ test('Gemini proxy anonymizuje prompt a neposílá API klíč v URL', async () =
   assert.doesNotMatch(forwardedText, /Jan Novák|Novákova 12|jan\.novak@example\.cz|777 111 222/);
   assert.doesNotMatch(forwardedText, /sensitiveTerms/);
   assert.equal(response.statusCode, 200);
-  assert.equal(response.headers['Cache-Control'], 'no-store');
+  assert.equal(response.headers['Cache-Control'], 'no-store, private');
 });
 
 test('obecná serverová redakce odstraní označené identifikátory', () => {

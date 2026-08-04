@@ -8,7 +8,6 @@ import { getVacationOverview } from './vacationUtils.mjs';
 import { buildWorkReportWorkbook } from './workbookExport.mjs';
 import { getAutomaticWorkReportActivity } from './autoActivity.mjs';
 
-const STORAGE_KEY = 'projectReporting.workReports.v1';
 const MONTH_NAMES = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec'];
 
 const currentPeriod = () => {
@@ -16,15 +15,6 @@ const currentPeriod = () => {
   const now = new Date();
   const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   return periods.find((item) => item.key === key) || periods[0];
-};
-
-const readDraft = () => {
-  try {
-    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    return value && typeof value === 'object' ? value : null;
-  } catch {
-    return null;
-  }
 };
 
 const decodeBase64 = (value) => {
@@ -48,16 +38,15 @@ const downloadBlob = (blob, filename) => {
 const formatHours = (value) => `${Number(value || 0).toLocaleString('cs-CZ', { maximumFractionDigits: 2 })} h`;
 
 function WorkReportsView({ records = [] }) {
-  const restored = useMemo(readDraft, []);
-  const initialPeriod = restored?.period || currentPeriod();
+  const initialPeriod = currentPeriod();
   const initialTerms = getContractTerms(initialPeriod);
   const [period, setPeriod] = useState(initialPeriod);
-  const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS, ...(restored?.settings || {}), ...initialTerms });
+  const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS, ...initialTerms });
   const [activities, setActivities] = useState(() => distributeHours(
-    (restored?.activities?.length ? restored.activities.slice(0, 2) : DEFAULT_ACTIVITIES).map((item) => ({ ...item })),
+    DEFAULT_ACTIVITIES.map((item) => ({ ...item })),
     initialTerms.monthlyHours,
   ));
-  const [vacationByPeriod, setVacationByPeriod] = useState(restored?.vacationByPeriod || {});
+  const [vacationByPeriod, setVacationByPeriod] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState(null);
@@ -81,10 +70,6 @@ function WorkReportsView({ records = [] }) {
   );
   const status = useMemo(() => getHoursStatus(reportActivities, workTargetHours), [reportActivities, workTargetHours]);
   const workingDays = getWorkingDays(period.month, period.year);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ period, settings, activities: activities.slice(0, 2), vacationByPeriod }));
-  }, [period, settings, activities, vacationByPeriod]);
 
   useEffect(() => {
     setActivities((previous) => distributeHours(previous.slice(0, 2), basicActivityTarget));

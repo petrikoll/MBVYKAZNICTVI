@@ -5,7 +5,7 @@ const GEMINI_API_ROOT = 'https://generativelanguage.googleapis.com/v1beta/models
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store'
+    'Cache-Control': 'no-store, private'
   });
   response.end(JSON.stringify(payload));
 }
@@ -110,7 +110,7 @@ async function handleGeminiProxy(request, response, overrides = {}) {
     const responseBody = await upstreamResponse.text();
     response.writeHead(upstreamResponse.status, {
       'Content-Type': upstreamResponse.headers.get('content-type') || 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store'
+      'Cache-Control': 'no-store, private'
     });
     response.end(responseBody);
   } catch (error) {

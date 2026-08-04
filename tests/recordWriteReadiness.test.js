@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const source = readFileSync(new URL('../src/app/ProjectReportingApp.jsx', import.meta.url), 'utf8');
 
-test('cached records remain read-only until their sheet source is verified', () => {
+test('records remain read-only until their sheet source is verified', () => {
   assert.match(source, /const \[verifiedRecordActions, setVerifiedRecordActions\] = useState/);
   assert.match(source, /const writeBlockMessage = recordWriteBlockMessage\(payload\)/);
   assert.match(source, /const writeBlockMessage = recordWriteBlockMessage\(existingRecord\)/);
@@ -18,9 +18,8 @@ test('each writable record area maps to its own verification action', () => {
   assert.match(source, /return 'listPerformances'/);
 });
 
-test('the interface identifies cached data as read-only while verification is pending', () => {
-  assert.match(source, /zbývající jsou dočasně pouze pro čtení/);
-  assert.match(source, /Ověření se opakuje automaticky/);
-  assert.match(source, /setShowVerificationNotice\(true\), 10000/);
-  assert.match(source, /showVerificationNotice && pendingRecordVerification/);
+test('the interface no longer offers a persistent local data copy', () => {
+  assert.doesNotMatch(source, /Zobrazuje se poslední lokální kopie/);
+  assert.doesNotMatch(source, /Vymazat lokální kopii/);
+  assert.doesNotMatch(source, /cachedRecordsAtStartup|cachedClientsAtStartup/);
 });

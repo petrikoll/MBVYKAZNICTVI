@@ -1890,112 +1890,6 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;');
 }
 
-const LOCAL_CLIENTS_CACHE_KEY = 'projectReporting.clients.v1';
-const LOCAL_RECORDS_CACHE_KEY = 'projectReporting.records';
-const LOCAL_CLIENTS_CACHE_VERSION = 1;
-const LOCAL_RECORDS_CACHE_VERSION = 1;
-const LOCAL_CLIENTS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const LOCAL_RECORDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-
-function getBrowserStorage(storage) {
-  if (storage) return storage;
-  return typeof window !== 'undefined' ? window.localStorage : null;
-}
-
-function loadLocalClients(storage, now = Date.now()) {
-  try {
-    const browserStorage = getBrowserStorage(storage);
-    if (!browserStorage) return [];
-    const raw = browserStorage.getItem(LOCAL_CLIENTS_CACHE_KEY);
-    if (!raw) return [];
-    const cached = JSON.parse(raw);
-    const savedAt = Number(cached?.savedAt);
-    const isCurrent = cached?.version === LOCAL_CLIENTS_CACHE_VERSION
-      && Number.isFinite(savedAt)
-      && now - savedAt <= LOCAL_CLIENTS_MAX_AGE_MS;
-    if (!isCurrent || !Array.isArray(cached.clients)) {
-      browserStorage.removeItem(LOCAL_CLIENTS_CACHE_KEY);
-      return [];
-    }
-    return cached.clients.filter((client) => client && typeof client === 'object' && String(client.id || '').trim());
-  } catch (error) {
-    console.error('Local clients load error:', error);
-    return [];
-  }
-}
-
-function saveLocalClients(clients, storage, now = Date.now()) {
-  try {
-    const browserStorage = getBrowserStorage(storage);
-    if (!browserStorage) return false;
-    browserStorage.setItem(LOCAL_CLIENTS_CACHE_KEY, JSON.stringify({
-      version: LOCAL_CLIENTS_CACHE_VERSION,
-      savedAt: now,
-      clients: Array.isArray(clients) ? clients : []
-    }));
-    return true;
-  } catch (error) {
-    console.error('Local clients save error:', error);
-    return false;
-  }
-}
-
-function clearLocalReportingCache(storage) {
-  try {
-    const browserStorage = getBrowserStorage(storage);
-    if (!browserStorage) return false;
-    browserStorage.removeItem(LOCAL_CLIENTS_CACHE_KEY);
-    browserStorage.removeItem(LOCAL_RECORDS_CACHE_KEY);
-    return true;
-  } catch (error) {
-    console.error('Local reporting cache clear error:', error);
-    return false;
-  }
-}
-
-function loadLocalRecords(storage, now = Date.now()) {
-  try {
-    const browserStorage = getBrowserStorage(storage);
-    if (!browserStorage) return [];
-    const stored = browserStorage.getItem(LOCAL_RECORDS_CACHE_KEY);
-    if (!stored) return [];
-    const cached = JSON.parse(stored);
-
-    // Původní verze ukládala přímo pole. Jednorázově je přijmeme, aby se
-    // uživateli po aktualizaci okamžitě zobrazila poslední známá data.
-    if (Array.isArray(cached)) return canonicalizeWorkerReferences(cached);
-
-    const savedAt = Number(cached?.savedAt);
-    const isCurrent = cached?.version === LOCAL_RECORDS_CACHE_VERSION
-      && Number.isFinite(savedAt)
-      && now - savedAt <= LOCAL_RECORDS_MAX_AGE_MS;
-    if (!isCurrent || !Array.isArray(cached.records)) {
-      browserStorage.removeItem(LOCAL_RECORDS_CACHE_KEY);
-      return [];
-    }
-    return canonicalizeWorkerReferences(cached.records);
-  } catch (error) {
-    console.error('Local records load error:', error);
-    return [];
-  }
-}
-
-function saveLocalRecords(records, storage, now = Date.now()) {
-  try {
-    const browserStorage = getBrowserStorage(storage);
-    if (!browserStorage) return false;
-    browserStorage.setItem(LOCAL_RECORDS_CACHE_KEY, JSON.stringify({
-      version: LOCAL_RECORDS_CACHE_VERSION,
-      savedAt: now,
-      records: Array.isArray(records) ? records : []
-    }));
-    return true;
-  } catch (error) {
-    console.error('Local records save error:', error);
-    return false;
-  }
-}
-
 export {
   todayIso,
   mapSheetRowToClient,
@@ -2036,11 +1930,6 @@ export {
   buildAllRecordsBackupHtml,
   buildMonitoringBundleHtml,
   buildManualClientId,
-  clearLocalReportingCache,
-  loadLocalClients,
-  loadLocalRecords,
-  saveLocalClients,
-  saveLocalRecords,
   slugify,
   splitMultiValue
 };
