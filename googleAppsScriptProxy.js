@@ -1,4 +1,21 @@
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
+const DEFAULT_UPSTREAM_TIMEOUT_MS = 25000;
+const DEFAULT_READ_CACHE_TTL_MS = 15000;
+const CACHEABLE_GET_ACTIONS = new Set([
+  'listClients',
+  'listPartners',
+  'listIndividualPlans',
+  'listPerformances',
+  'listMeetings',
+  'listNetworkMeetings',
+  'listEducation',
+  'listSupervision',
+  'listStatistics'
+]);
+
+const readResponseCache = new Map();
+const inFlightReads = new Map();
+let mutationGeneration = 0;
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -31,9 +48,50 @@ function getProxyConfig(overrides = {}) {
   };
 }
 
+function buildReadCacheKey(upstreamUrl) {
+  const safeUrl = new URL(upstreamUrl);
+  safeUrl.searchParams.delete('token');
+  safeUrl.searchParams.sort();
+  return safeUrl.toString();
+}
+
+function sendUpstreamSnapshot(response, snapshot) {
+  response.writeHead(snapshot.status, {
+    'Content-Type': snapshot.contentType || 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store'
+  });
+  response.end(snapshot.body);
+}
+
+async function fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, timeoutMs) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const upstreamResponse = await fetchImpl(upstreamUrl, { ...fetchOptions, signal: controller.signal });
+    return {
+      status: upstreamResponse.status,
+      contentType: upstreamResponse.headers.get('content-type') || 'application/json; charset=utf-8',
+      body: await upstreamResponse.text()
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function isSuccessfulJsonSnapshot(snapshot) {
+  if (snapshot.status < 200 || snapshot.status >= 300) return false;
+  try {
+    return JSON.parse(snapshot.body)?.ok !== false;
+  } catch {
+    return false;
+  }
+}
+
 async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
   const { appsScriptUrl, appsScriptToken } = getProxyConfig(overrides);
   const fetchImpl = overrides.fetchImpl || fetch;
+  const upstreamTimeoutMs = overrides.upstreamTimeoutMs || DEFAULT_UPSTREAM_TIMEOUT_MS;
+  const readCacheTtlMs = overrides.readCacheTtlMs ?? DEFAULT_READ_CACHE_TTL_MS;
   if (!appsScriptUrl || !appsScriptToken) {
     sendJson(response, 503, { ok: false, error: 'Propojení s Google Sheets není bezpečně nakonfigurované.' });
     return;
@@ -62,16 +120,61 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
       fetchOptions.body = JSON.stringify({ ...payload, token: appsScriptToken });
     }
 
-    const upstreamResponse = await fetchImpl(upstreamUrl, fetchOptions);
-    const responseBody = await upstreamResponse.text();
-    response.writeHead(upstreamResponse.status, {
-      'Content-Type': upstreamResponse.headers.get('content-type') || 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store'
-    });
-    response.end(responseBody);
+    const action = incomingUrl.searchParams.get('action') || '';
+    const canCacheRead = request.method === 'GET' && CACHEABLE_GET_ACTIONS.has(action) && readCacheTtlMs > 0;
+    if (canCacheRead) {
+      const cacheKey = buildReadCacheKey(upstreamUrl);
+      const cached = readResponseCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        sendUpstreamSnapshot(response, cached.snapshot);
+        return;
+      }
+      if (cached) readResponseCache.delete(cacheKey);
+
+      let upstreamRequest = inFlightReads.get(cacheKey);
+      if (!upstreamRequest) {
+        const generationAtStart = mutationGeneration;
+        upstreamRequest = fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs)
+          .then((snapshot) => {
+            if (generationAtStart === mutationGeneration && isSuccessfulJsonSnapshot(snapshot)) {
+              readResponseCache.set(cacheKey, {
+                expiresAt: Date.now() + readCacheTtlMs,
+                snapshot
+              });
+            }
+            return snapshot;
+          })
+          .finally(() => inFlightReads.delete(cacheKey));
+        inFlightReads.set(cacheKey, upstreamRequest);
+      }
+
+      sendUpstreamSnapshot(response, await upstreamRequest);
+      return;
+    }
+
+    if (request.method === 'POST') {
+      mutationGeneration += 1;
+      readResponseCache.clear();
+    }
+
+    try {
+      const snapshot = await fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs);
+      sendUpstreamSnapshot(response, snapshot);
+    } finally {
+      if (request.method === 'POST') {
+        mutationGeneration += 1;
+        readResponseCache.clear();
+      }
+    }
   } catch (error) {
     console.error('Google Apps Script proxy error:', error);
-    sendJson(response, 502, { ok: false, error: 'Spojení s Google Sheets selhalo.' });
+    const timedOut = error?.name === 'AbortError';
+    sendJson(response, timedOut ? 504 : 502, {
+      ok: false,
+      error: timedOut
+        ? 'Načítání dat z Google Sheets překročilo časový limit.'
+        : 'Spojení s Google Sheets selhalo.'
+    });
   }
 }
 

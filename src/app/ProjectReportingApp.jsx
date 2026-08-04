@@ -2208,13 +2208,17 @@ function actorSheetRowMatchesPayload(row, partner) {
   return JSON.stringify(comparableContacts(row)) === JSON.stringify(comparableContacts(partner));
 }
 
+const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 30000;
+
 async function fetchGoogleSheetAction(action) {
   let lastError = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), GOOGLE_SHEET_REQUEST_TIMEOUT_MS);
     try {
       const url = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
       url.searchParams.set('action', action);
-      const response = await fetch(url.toString(), { cache: 'no-store' });
+      const response = await fetch(url.toString(), { cache: 'no-store', signal: controller.signal });
       if (!response.ok) {
         let detail = '';
         try {
@@ -2229,8 +2233,12 @@ async function fetchGoogleSheetAction(action) {
       if (json?.ok === false) throw new Error(json.error || 'Google Sheet akce ' + action + ' selhala.');
       return json;
     } catch (error) {
-      lastError = error;
+      lastError = error?.name === 'AbortError'
+        ? new Error('Načítání dat z Google Sheetu trvá příliš dlouho.')
+        : error;
       if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 350));
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   }
   throw lastError || new Error('Google Sheet akce ' + action + ' selhala.');
@@ -2667,69 +2675,15 @@ function App() {
         });
       };
 
-      // Výkony se načítají už souběžně s klienty. Case management a plány běží
-      // zároveň, ale další skupiny se dávkují, aby nebyl Apps Script zahlcen.
-      const bootstrapPrefetch = fetchGoogleSheetAction('bootstrap')
-        .then((result) => ({ result }))
-        .catch((error) => ({ error }));
+      // Výkony se načítají už souběžně s klienty. Další skupiny se načítají
+      // po menších dávkách. Jeden velký bootstrap požadavek byl pomalý, duplikoval výkony
+      // a při zpomalení Apps Scriptu mohl zablokovat celou aktualizaci.
       const performancesPromise = loadAction('listPerformances', { performances: [] });
       const performances = await performancesPromise;
       applyLoadedResults(
         { performances },
         new Set(loadedActions.has('listPerformances') ? ['listPerformances'] : [])
       );
-
-      const bootstrapOutcome = await bootstrapPrefetch;
-      if (!bootstrapOutcome?.error && bootstrapOutcome?.result) {
-        const bootstrap = bootstrapOutcome.result;
-        const bootstrapErrors = Array.isArray(bootstrap.errors) ? bootstrap.errors : [];
-        const failedBootstrapActions = new Set(bootstrapErrors.map((item) => item?.action).filter(Boolean));
-        const bootstrapActions = [
-            'listPerformances',
-            'listMeetings',
-            'listIndividualPlans',
-            'listNetworkMeetings',
-            'listPartners',
-            'listEducation',
-            'listSupervision',
-            'listStatistics'
-        ];
-        const loadedBootstrapActions = new Set(
-          bootstrapActions.filter((action) => !failedBootstrapActions.has(action))
-        );
-        setVerifiedRecordActions((previous) => new Set([
-          ...previous,
-          ...[...loadedBootstrapActions].filter((action) => VERIFIED_RECORD_SOURCE_ACTIONS.includes(action))
-        ]));
-
-          if (loadedBootstrapActions.has('listStatistics')) {
-            setStatisticsRows(Array.isArray(bootstrap.statistics) ? bootstrap.statistics : []);
-          }
-          applyLoadedResults({
-            performances: { performances: Array.isArray(bootstrap.performances) ? bootstrap.performances : [] },
-            meetings: { meetings: Array.isArray(bootstrap.meetings) ? bootstrap.meetings : [] },
-            plans: { individualPlans: Array.isArray(bootstrap.individualPlans) ? bootstrap.individualPlans : [] },
-            networkMeetings: { networkMeetings: Array.isArray(bootstrap.networkMeetings) ? bootstrap.networkMeetings : [] },
-            partners: { partners: Array.isArray(bootstrap.partners) ? bootstrap.partners : [] },
-            education: { education: Array.isArray(bootstrap.education) ? bootstrap.education : [] },
-            supervision: { supervision: Array.isArray(bootstrap.supervision) ? bootstrap.supervision : [] }
-          }, loadedBootstrapActions);
-
-          const bootstrapActionLabels = {
-            listPerformances: 'v\u00fdkony KA1',
-            listMeetings: 'z\u00e1pisy case managementu',
-            listIndividualPlans: 'individu\u00e1ln\u00ed pl\u00e1ny',
-            listNetworkMeetings: 'sch\u016fzky s\u00edt\u011b',
-            listPartners: 'akt\u00e9\u0159i s\u00edt\u011b',
-            listEducation: 'vzd\u011bl\u00e1v\u00e1n\u00ed',
-            listSupervision: 'supervize',
-            listStatistics: 'statistiky K\u00da'
-          };
-          setSheetError(bootstrapErrors.length
-            ? 'Nepoda\u0159ilo se na\u010d\u00edst: ' + bootstrapErrors.map((item) => bootstrapActionLabels[item.action] || item.action).join(', ') + '. Ostatn\u00ed data jsou dostupn\u00e1.'
-            : '');
-        return;
-      }
 
       const meetingsPromise = loadAction('listMeetings', { meetings: [] });
       const plansPromise = loadAction('listIndividualPlans', { individualPlans: [] });

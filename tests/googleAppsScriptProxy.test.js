@@ -85,3 +85,96 @@ test('POST proxy přepíše token v těle serverovým tokenem', async () => {
   assert.equal(forwardedBody.token, 'server-secret');
   assert.equal(response.statusCode, 200);
 });
+
+test('souběžné stejné GET požadavky sdílejí jedno volání Apps Scriptu a krátkou cache', async () => {
+  let upstreamCalls = 0;
+  const fetchImpl = async () => {
+    upstreamCalls += 1;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return new Response(JSON.stringify({ ok: true, performances: [{ vykon_id: 'VYKON-0001' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  };
+  const overrides = {
+    appsScriptUrl: 'https://example.test/macros/s/cache-test/exec',
+    appsScriptToken: 'server-secret',
+    fetchImpl,
+    readCacheTtlMs: 1000
+  };
+  const responseA = createResponse();
+  const responseB = createResponse();
+
+  await Promise.all([
+    handleGoogleAppsScriptProxy(createRequest('GET', '/api/google-sheets?action=listPerformances'), responseA, overrides),
+    handleGoogleAppsScriptProxy(createRequest('GET', '/api/google-sheets?action=listPerformances'), responseB, overrides)
+  ]);
+  const responseC = createResponse();
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listPerformances'),
+    responseC,
+    overrides
+  );
+
+  assert.equal(upstreamCalls, 1);
+  assert.equal(responseA.statusCode, 200);
+  assert.equal(responseB.statusCode, 200);
+  assert.equal(responseC.statusCode, 200);
+});
+
+test('zápis zneplatní cache čtecích požadavků', async () => {
+  let upstreamCalls = 0;
+  const fetchImpl = async () => {
+    upstreamCalls += 1;
+    return new Response(JSON.stringify({ ok: true, partners: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  };
+  const overrides = {
+    appsScriptUrl: 'https://example.test/macros/s/invalidation-test/exec',
+    appsScriptToken: 'server-secret',
+    fetchImpl,
+    readCacheTtlMs: 1000
+  };
+
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listPartners'),
+    createResponse(),
+    overrides
+  );
+  await handleGoogleAppsScriptProxy(
+    createRequest('POST', '/api/google-sheets', JSON.stringify({ action: 'savePartner', partner: {} })),
+    createResponse(),
+    overrides
+  );
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listPartners'),
+    createResponse(),
+    overrides
+  );
+
+  assert.equal(upstreamCalls, 3);
+});
+
+test('proxy ukončí zaseknutý Apps Script časovým limitem', async () => {
+  const response = createResponse();
+  const fetchImpl = async (_url, options) => new Promise((_resolve, reject) => {
+    options.signal.addEventListener('abort', () => reject(new DOMException('timeout', 'AbortError')), { once: true });
+  });
+
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listSupervision'),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/timeout-test/exec',
+      appsScriptToken: 'server-secret',
+      fetchImpl,
+      upstreamTimeoutMs: 5,
+      readCacheTtlMs: 0
+    }
+  );
+
+  assert.equal(response.statusCode, 504);
+  assert.equal(JSON.parse(response.body).ok, false);
+});
