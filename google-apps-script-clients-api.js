@@ -59,6 +59,16 @@ function doGet(e) {
     if (e.parameter.action === 'bootstrap') {
       return json_(buildBootstrapPayload_());
     }
+    if (e.parameter.action === 'bootstrapCore') {
+      return json_(buildBootstrapPayload_([
+        'listPerformances', 'listMeetings', 'listIndividualPlans', 'listPartners'
+      ]));
+    }
+    if (e.parameter.action === 'bootstrapAuxiliary') {
+      return json_(buildBootstrapPayload_([
+        'listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'
+      ]));
+    }
     if (e.parameter.action === 'listClients') {
       return json_({ ok: true, clients: readCachedDataset_('listClients', () => listClients_()) });
     }
@@ -1032,7 +1042,7 @@ function onEdit(e) {
   }
 }
 
-function buildBootstrapPayload_() {
+function buildBootstrapPayload_(requestedActions) {
   let spreadsheet = null;
   const sharedSpreadsheet = () => {
     if (!spreadsheet) spreadsheet = getSpreadsheet_();
@@ -1048,19 +1058,25 @@ function buildBootstrapPayload_() {
     }
   };
 
-  return {
-    ok: true,
-    clients: load('listClients', [], (book) => listClients_(book)),
-    performances: load('listPerformances', [], (book) => listPerformances_(book)),
-    meetings: load('listMeetings', [], (book) => listMeetings_(book)),
-    individualPlans: load('listIndividualPlans', [], (book) => listIndividualPlans_(book)),
-    networkMeetings: load('listNetworkMeetings', [], (book) => listNetworkMeetings_(book)),
-    partners: load('listPartners', [], (book) => listPartners_(book)),
-    education: load('listEducation', [], (book) => listEducation_(book)),
-    supervision: load('listSupervision', [], (book) => listSupervision_(book)),
-    statistics: load('listStatistics', [], (book) => listStatistics_(book)),
-    errors: errors
-  };
+  const definitions = [
+    ['listClients', 'clients', (book) => listClients_(book)],
+    ['listPerformances', 'performances', (book) => listPerformances_(book)],
+    ['listMeetings', 'meetings', (book) => listMeetings_(book)],
+    ['listIndividualPlans', 'individualPlans', (book) => listIndividualPlans_(book)],
+    ['listNetworkMeetings', 'networkMeetings', (book) => listNetworkMeetings_(book)],
+    ['listPartners', 'partners', (book) => listPartners_(book)],
+    ['listEducation', 'education', (book) => listEducation_(book)],
+    ['listSupervision', 'supervision', (book) => listSupervision_(book)],
+    ['listStatistics', 'statistics', (book) => listStatistics_(book)]
+  ];
+  const selected = Array.isArray(requestedActions) && requestedActions.length
+    ? new Set(requestedActions)
+    : new Set(definitions.map((definition) => definition[0]));
+  const payload = { ok: true, errors: errors };
+  definitions.forEach(([action, property, loader]) => {
+    if (selected.has(action)) payload[property] = load(action, [], loader);
+  });
+  return payload;
 }
 
 // Spustte jednou rucne po vlozeni kodu do samostatneho Apps Script projektu.

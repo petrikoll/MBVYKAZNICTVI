@@ -3,6 +3,8 @@ const DEFAULT_UPSTREAM_TIMEOUT_MS = 45000;
 const DEFAULT_READ_CACHE_TTL_MS = 15000;
 const CACHEABLE_GET_ACTIONS = new Set([
   'bootstrap',
+  'bootstrapCore',
+  'bootstrapAuxiliary',
   'listClients',
   'listPartners',
   'listIndividualPlans',

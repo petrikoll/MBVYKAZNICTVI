@@ -2529,10 +2529,14 @@ function App() {
       setSheetError('');
       try {
         const json = await fetchGoogleSheetAction('listClients');
-        const bootstrapPrefetch = fetchGoogleSheetAction('bootstrap', 1)
-          .then((result) => ({ result }))
-          .catch((error) => ({ error }));
-        prefetchedSheetActionsRef.current.set('bootstrap', bootstrapPrefetch);
+        const bootstrapPrefetch = Promise.all(
+          ['bootstrapCore', 'bootstrapAuxiliary'].map((action) => (
+            fetchGoogleSheetAction(action, 1)
+              .then((result) => ({ action, result }))
+              .catch((error) => ({ action, error }))
+          ))
+        );
+        prefetchedSheetActionsRef.current.set('bootstrapSections', bootstrapPrefetch);
         let rows = [];
         if (Array.isArray(json)) rows = json;
         else if (json && Array.isArray(json.clients)) rows = json.clients;
@@ -2687,15 +2691,26 @@ function App() {
         });
       };
 
-      const bootstrapPrefetched = prefetchedSheetActionsRef.current.get('bootstrap');
+      const bootstrapPrefetched = prefetchedSheetActionsRef.current.get('bootstrapSections');
       if (bootstrapPrefetched) {
-        prefetchedSheetActionsRef.current.delete('bootstrap');
-        const bootstrapOutcome = await bootstrapPrefetched;
-        if (bootstrapOutcome?.result) {
-          const data = bootstrapOutcome.result;
+        prefetchedSheetActionsRef.current.delete('bootstrapSections');
+        const bootstrapOutcomes = await bootstrapPrefetched;
+        const successfulBootstrapOutcomes = bootstrapOutcomes.filter((outcome) => outcome?.result);
+        if (successfulBootstrapOutcomes.length) {
+          const data = Object.assign({}, ...successfulBootstrapOutcomes.map((outcome) => outcome.result));
+          const sectionActions = {
+            bootstrapCore: ['listPerformances', 'listMeetings', 'listIndividualPlans', 'listPartners'],
+            bootstrapAuxiliary: ['listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics']
+          };
           const bootstrapFailures = new Set(
-            (Array.isArray(data.errors) ? data.errors : []).map((item) => item?.action).filter(Boolean)
+            successfulBootstrapOutcomes
+              .flatMap((outcome) => Array.isArray(outcome.result?.errors) ? outcome.result.errors : [])
+              .map((item) => item?.action)
+              .filter(Boolean)
           );
+          bootstrapOutcomes.forEach((outcome) => {
+            if (outcome?.error) (sectionActions[outcome.action] || []).forEach((action) => bootstrapFailures.add(action));
+          });
           const bundle = {
             performances: { performances: data.performances || [] },
             meetings: { meetings: data.meetings || [] },
@@ -2743,7 +2758,7 @@ function App() {
             : '');
           return;
         }
-        console.warn('Google Sheets bootstrap load skipped:', bootstrapOutcome?.error);
+        console.warn('Google Sheets bootstrap load skipped:', bootstrapOutcomes.map((outcome) => outcome?.error).filter(Boolean));
       }
 
       // Záložní cesta pro případ, že dávkový bootstrap selže. Oblasti se načítají

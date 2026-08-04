@@ -98,6 +98,25 @@ test('bootstrap používá jednu otevřenou tabulku pro všechny datové sady', 
   });
 });
 
+test('dílčí bootstrap načte jen vyžádané oblasti', () => {
+  const context = createContext();
+  let opens = 0;
+  context.getSpreadsheet_ = () => {
+    opens += 1;
+    return { id: 'shared-spreadsheet' };
+  };
+  context.listPerformances_ = () => [{ vykon_id: 'VYKON-1' }];
+  context.listPartners_ = () => [{ partner_id: 'PARTNER-1' }];
+
+  const payload = context.buildBootstrapPayload_(['listPerformances', 'listPartners']);
+
+  assert.equal(opens, 1);
+  assert.equal(payload.performances[0].vykon_id, 'VYKON-1');
+  assert.equal(payload.partners[0].partner_id, 'PARTNER-1');
+  assert.equal('clients' in payload, false);
+  assert.equal('supervision' in payload, false);
+});
+
 test('Apps Script cache zvládne i datovou sadu větší než limit jednoho klíče', () => {
   const context = createCachedContext();
   const dataset = [{ id: 'VYKON-1', text: 'Příliš žluťoučký kůň '.repeat(7000) }];

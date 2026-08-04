@@ -11,7 +11,8 @@ test('clients load first and records prefer one cached bootstrap with a sequenti
 
   assert.ok(clientsStart >= 0 && clientsEnd > clientsStart);
   assert.match(clientsBlock, /fetchGoogleSheetAction\('listClients'\)/);
-  assert.match(clientsBlock, /fetchGoogleSheetAction\('bootstrap', 1\)/);
+  assert.match(clientsBlock, /\['bootstrapCore', 'bootstrapAuxiliary'\]/);
+  assert.match(clientsBlock, /fetchGoogleSheetAction\(action, 1\)/);
   assert.doesNotMatch(clientsBlock, /fetchGoogleSheetAction\('listPerformances'\)/);
 
   const recordsStart = source.indexOf('const fetchSheetRecords = async () => {');
@@ -29,5 +30,5 @@ test('clients load first and records prefer one cached bootstrap with a sequenti
   assert.doesNotMatch(recordsBlock, /Promise\.all/);
   assert.match(recordsBlock, /fetchGoogleSheetAction\(action, 1\)/);
   assert.match(recordsBlock, /const bootstrapSources = \[/);
-  assert.match(recordsBlock, /const bootstrapPrefetched = prefetchedSheetActionsRef\.current\.get\('bootstrap'\)/);
+  assert.match(recordsBlock, /const bootstrapPrefetched = prefetchedSheetActionsRef\.current\.get\('bootstrapSections'\)/);
 });

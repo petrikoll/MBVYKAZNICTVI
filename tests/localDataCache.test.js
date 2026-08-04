@@ -73,8 +73,8 @@ test('aplikace při startu použije celou lokální kopii záznamů', () => {
   assert.match(appSource, /const preservedPendingRemote = prev\.filter/);
 });
 
-test('aplikace ověřuje záznamy jedním dávkovým požadavkem a zachovává záložní načtení', () => {
-  assert.match(appSource, /fetchGoogleSheetAction\('bootstrap', 1\)/);
+test('aplikace ověřuje záznamy dvěma menšími dávkami a zachovává záložní načtení', () => {
+  assert.match(appSource, /\['bootstrapCore', 'bootstrapAuxiliary'\]/);
   assert.match(appSource, /const bootstrapSources = \[/);
   assert.match(appSource, /Záložní cesta pro případ, že dávkový bootstrap selže/);
 });
