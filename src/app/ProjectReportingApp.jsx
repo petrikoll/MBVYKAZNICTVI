@@ -2208,13 +2208,13 @@ function actorSheetRowMatchesPayload(row, partner) {
   return JSON.stringify(comparableContacts(row)) === JSON.stringify(comparableContacts(partner));
 }
 
-const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 50000;
+const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 30000;
 
-async function fetchGoogleSheetAction(action, maxAttempts = 2) {
+async function fetchGoogleSheetAction(action, maxAttempts = 2, timeoutMs = GOOGLE_SHEET_REQUEST_TIMEOUT_MS) {
   let lastError = null;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), GOOGLE_SHEET_REQUEST_TIMEOUT_MS);
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
       const url = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
       url.searchParams.set('action', action);
@@ -2266,6 +2266,15 @@ const VERIFIED_RECORD_SOURCE_ACTIONS = [
   'listEducation',
   'listSupervision'
 ];
+const RECORD_SOURCE_LABELS = {
+  listPerformances: 'v\u00fdkony KA1',
+  listMeetings: 'z\u00e1pisy case managementu',
+  listIndividualPlans: 'individu\u00e1ln\u00ed pl\u00e1ny',
+  listNetworkMeetings: 'sch\u016fzky s\u00edt\u011b',
+  listPartners: 'akt\u00e9\u0159i s\u00edt\u011b',
+  listEducation: 'vzd\u011bl\u00e1v\u00e1n\u00ed',
+  listSupervision: 'supervize'
+};
 
 function recordSourceAction(record) {
   if (!record || isLocalOnlyRecord(record)) return '';
@@ -2524,11 +2533,14 @@ function App() {
   const isIndividualSupervision = supervisionDraft.type === 'individuální';
 
   useEffect(() => {
+    let cancelled = false;
+    let retryTimeoutId = null;
     const fetchClients = async () => {
       setIsLoadingClients(true);
       setSheetError('');
       try {
-        const json = await fetchGoogleSheetAction('listClients');
+        const json = await fetchGoogleSheetAction('listClients', 1);
+        if (cancelled) return;
         const bootstrapPrefetch = Promise.all(
           ['bootstrapCore', 'bootstrapAuxiliary'].map((action) => (
             fetchGoogleSheetAction(action, 1)
@@ -2567,6 +2579,7 @@ function App() {
           setSelectedClientId('');
         }
       } catch (error) {
+        if (cancelled) return;
         console.error('Google Sheets load error:', error);
         setIsClientRegistryAvailable(false);
         if (cachedClientsAtStartup.length > 0) {
@@ -2587,12 +2600,17 @@ function App() {
           }));
           setSheetError('Načtení klientského registru selhalo. Ukládání klientských dat je zablokováno, aby nevznikly chybně přiřazené záznamy.');
         }
+        retryTimeoutId = window.setTimeout(fetchClients, 8000);
       } finally {
-        setIsLoadingClients(false);
+        if (!cancelled) setIsLoadingClients(false);
       }
     };
 
     fetchClients();
+    return () => {
+      cancelled = true;
+      if (retryTimeoutId) window.clearTimeout(retryTimeoutId);
+    };
   }, []);
 
   useEffect(() => {
@@ -2626,20 +2644,28 @@ function App() {
         }
         return result;
       };
-      const loadAction = async (action, fallback) => {
+      const loadAction = async (action, fallback, options = {}) => {
+        const {
+          initialAttempts = 1,
+          retry = true,
+          timeoutMs = GOOGLE_SHEET_REQUEST_TIMEOUT_MS
+        } = options;
         try {
           const prefetched = prefetchedSheetActionsRef.current.get(action);
           if (prefetched) prefetchedSheetActionsRef.current.delete(action);
           const outcome = prefetched ? await prefetched : null;
           if (outcome?.error) throw outcome.error;
-          const result = outcome?.result || await fetchGoogleSheetAction(action);
+          const result = outcome?.result || await fetchGoogleSheetAction(action, initialAttempts, timeoutMs);
           return acceptLoadedAction(action, result);
         } catch (firstError) {
           console.warn('Google Sheets action load retry:', action, firstError);
-          if (cancelled) return fallback;
-          await new Promise((resolve) => window.setTimeout(resolve, 1500));
+          if (cancelled || !retry) {
+            failedActions.add(action);
+            return fallback;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 750));
           try {
-            const result = await fetchGoogleSheetAction(action, 1);
+            const result = await fetchGoogleSheetAction(action, 1, timeoutMs);
             return acceptLoadedAction(action, result);
           } catch (retryError) {
             console.warn('Google Sheets action load skipped:', action, retryError);
@@ -2691,6 +2717,46 @@ function App() {
         });
       };
 
+      const recoveryActionLabels = {
+        listPerformances: 'v\u00fdkony KA1',
+        listMeetings: 'z\u00e1pisy case managementu',
+        listIndividualPlans: 'individu\u00e1ln\u00ed pl\u00e1ny',
+        listNetworkMeetings: 'sch\u016fzky s\u00edt\u011b',
+        listPartners: 'akt\u00e9\u0159i s\u00edt\u011b',
+        listEducation: 'vzd\u011bl\u00e1v\u00e1n\u00ed',
+        listSupervision: 'supervize',
+        listStatistics: 'statistiky K\u00da'
+      };
+      const scheduleFailedActionRecovery = (sources, bundle) => {
+        if (!failedActions.size) return;
+        void (async () => {
+          let delayMs = 8000;
+          while (!cancelled && failedActions.size) {
+            await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+            if (cancelled) return;
+            const pendingSources = sources.filter(([action]) => failedActions.has(action));
+            if (!pendingSources.length) return;
+            const recovered = await Promise.all(
+              pendingSources.map(async ([action, bundleKey, fallback]) => ({
+                action,
+                bundleKey,
+                result: await loadAction(action, fallback, { retry: false, timeoutMs: 20000 })
+              }))
+            );
+            recovered.forEach(({ bundleKey, result }) => {
+              bundle[bundleKey] = result;
+            });
+            if (cancelled) return;
+            if (loadedActions.has('listStatistics')) setStatisticsRows(bundle.statistics?.statistics || []);
+            applyLoadedResults(bundle, new Set(loadedActions));
+            setSheetError(failedActions.size
+              ? 'Nepoda\u0159ilo se na\u010d\u00edst: ' + [...failedActions].map((action) => recoveryActionLabels[action] || action).join(', ') + '. Ostatn\u00ed data jsou dostupn\u00e1; ov\u011b\u0159en\u00ed se automaticky opakuje.'
+              : '');
+            delayMs = Math.min(delayMs * 2, 60000);
+          }
+        })();
+      };
+
       const bootstrapPrefetched = prefetchedSheetActionsRef.current.get('bootstrapSections');
       if (bootstrapPrefetched) {
         prefetchedSheetActionsRef.current.delete('bootstrapSections');
@@ -2732,13 +2798,23 @@ function App() {
             ['listStatistics', 'statistics', { statistics: [] }]
           ];
 
-          for (const [action, bundleKey, fallback] of bootstrapSources) {
-            if (bootstrapFailures.has(action)) {
-              bundle[bundleKey] = await loadAction(action, fallback);
-            } else {
-              acceptLoadedAction(action, bundle[bundleKey]);
-            }
-          }
+          // Potvrzene oblasti odblokujeme ihned. Selhane oblasti overujeme soubezne,
+          // aby jedina pomala odpoved nemohla na nekolik minut zastavit zbytek aplikace.
+          bootstrapSources
+            .filter(([action]) => !bootstrapFailures.has(action))
+            .forEach(([action, bundleKey]) => acceptLoadedAction(action, bundle[bundleKey]));
+
+          const recoveredSources = await Promise.all(
+            bootstrapSources
+              .filter(([action]) => bootstrapFailures.has(action))
+              .map(async ([action, bundleKey, fallback]) => ({
+                bundleKey,
+                result: await loadAction(action, fallback, { retry: false, timeoutMs: 20000 })
+              }))
+          );
+          recoveredSources.forEach(({ bundleKey, result }) => {
+            bundle[bundleKey] = result;
+          });
 
           if (cancelled) return;
           if (loadedActions.has('listStatistics')) setStatisticsRows(bundle.statistics.statistics || []);
@@ -2756,6 +2832,7 @@ function App() {
           setSheetError(failedActions.size
             ? 'Nepodařilo se načíst: ' + [...failedActions].map((action) => bootstrapActionLabels[action] || action).join(', ') + '. Ostatní data jsou dostupná.'
             : '');
+          scheduleFailedActionRecovery(bootstrapSources, bundle);
           return;
         }
         console.warn('Google Sheets bootstrap load skipped:', bootstrapOutcomes.map((outcome) => outcome?.error).filter(Boolean));
@@ -2763,30 +2840,39 @@ function App() {
 
       // Záložní cesta pro případ, že dávkový bootstrap selže. Oblasti se načítají
       // po jedné, aby dočasné zpomalení Apps Scriptu nezablokovalo všechna data.
-      const performancesPromise = loadAction('listPerformances', { performances: [] });
-      const performances = await performancesPromise;
-      applyLoadedResults(
-        { performances },
-        new Set(loadedActions.has('listPerformances') ? ['listPerformances'] : [])
-      );
-
-      const meetings = await loadAction('listMeetings', { meetings: [] });
-      const plans = await loadAction('listIndividualPlans', { individualPlans: [] });
+      const [performances, meetings, plans] = await Promise.all([
+        loadAction('listPerformances', { performances: [] }, { retry: false, timeoutMs: 20000 }),
+        loadAction('listMeetings', { meetings: [] }, { retry: false, timeoutMs: 20000 }),
+        loadAction('listIndividualPlans', { individualPlans: [] }, { retry: false, timeoutMs: 20000 })
+      ]);
       const coreActions = new Set(
         ['listPerformances', 'listMeetings', 'listIndividualPlans'].filter((action) => loadedActions.has(action))
       );
       applyLoadedResults({ performances, meetings, plans }, coreActions);
 
-      const networkMeetings = await loadAction('listNetworkMeetings', { networkMeetings: [] });
-      const partners = await loadAction('listPartners', { partners: [] });
-      const education = await loadAction('listEducation', { education: [], educations: [], vzdelavani: [] });
-      const supervision = await loadAction('listSupervision', { supervision: [], supervisions: [], supervize: [] });
-      const statistics = await loadAction('listStatistics', { statistics: [] });
+      const [networkMeetings, partners, education, supervision, statistics] = await Promise.all([
+        loadAction('listNetworkMeetings', { networkMeetings: [] }, { retry: false, timeoutMs: 20000 }),
+        loadAction('listPartners', { partners: [] }, { retry: false, timeoutMs: 20000 }),
+        loadAction('listEducation', { education: [], educations: [], vzdelavani: [] }, { retry: false, timeoutMs: 20000 }),
+        loadAction('listSupervision', { supervision: [], supervisions: [], supervize: [] }, { retry: false, timeoutMs: 20000 }),
+        loadAction('listStatistics', { statistics: [] }, { retry: false, timeoutMs: 20000 })
+      ]);
 
       if (cancelled) return;
+      const fallbackBundle = { performances, meetings, plans, networkMeetings, partners, education, supervision, statistics };
+      const fallbackSources = [
+        ['listPerformances', 'performances', { performances: [] }],
+        ['listMeetings', 'meetings', { meetings: [] }],
+        ['listIndividualPlans', 'plans', { individualPlans: [] }],
+        ['listNetworkMeetings', 'networkMeetings', { networkMeetings: [] }],
+        ['listPartners', 'partners', { partners: [] }],
+        ['listEducation', 'education', { education: [], educations: [], vzdelavani: [] }],
+        ['listSupervision', 'supervision', { supervision: [], supervisions: [], supervize: [] }],
+        ['listStatistics', 'statistics', { statistics: [] }]
+      ];
       if (loadedActions.has('listStatistics')) setStatisticsRows(statistics.statistics || []);
       applyLoadedResults(
-        { performances, meetings, plans, networkMeetings, partners, education, supervision },
+        fallbackBundle,
         new Set(loadedActions)
       );
 
@@ -2803,6 +2889,7 @@ function App() {
       setSheetError(failedActions.size
         ? 'Nepodařilo se načíst: ' + [...failedActions].map((action) => actionLabels[action] || action).join(', ') + '. Ostatní data jsou dostupná.'
         : '');
+      scheduleFailedActionRecovery(fallbackSources, fallbackBundle);
     };
 
     fetchSheetRecords();
@@ -2813,6 +2900,9 @@ function App() {
 
   const currentWorker = globalWorker || WORKERS[0];
   const pendingRecordVerification = VERIFIED_RECORD_SOURCE_ACTIONS.some((action) => !verifiedRecordActions.has(action));
+  const pendingVerificationLabels = VERIFIED_RECORD_SOURCE_ACTIONS
+    .filter((action) => !verifiedRecordActions.has(action))
+    .map((action) => RECORD_SOURCE_LABELS[action] || action);
   const recordWriteBlockMessage = (record) => {
     const sourceAction = recordSourceAction(record);
     if (!sourceAction || verifiedRecordActions.has(sourceAction)) return '';
@@ -7101,7 +7191,7 @@ ${rawPlanOutput}` }] }],
       <main className="relative z-[1] mx-auto max-w-7xl px-4 py-6 md:px-6">
         {pendingRecordVerification && cachedRecordsAtStartup.some((record) => !isLocalOnlyRecord(record)) && (
           <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-            Zobrazuje se poslední lokální kopie. Jednotlivé oblasti jsou pouze pro čtení, dokud se jejich data neověří v Google Sheetu.
+            Ověřuji aktuální data: {pendingVerificationLabels.join(', ')}. Ověřené oblasti lze normálně používat; zbývající jsou dočasně pouze pro čtení. Ověření se opakuje automaticky.
           </div>
         )}
         {sheetError && (
