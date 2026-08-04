@@ -505,6 +505,15 @@ function analyzeDriveConsistency_(clients, records, inventory) {
       );
       return;
     }
+    if (!folderMatchesClientIdentity_(folder.name, clientById[detectedId])) {
+      addIssue(
+        'CHYBA', 'CLIENT_FOLDER_NAME_MISMATCH', 'slozka_klienta', folder.id, detectedId,
+        'Slozku nepouzivat automaticky. Vytvorit spravnou slozku podle ID a jmena klienta a tuto presunout do karanteny.',
+        String(clientById[detectedId].drive_folder_url || ''), folder.url,
+        'Slozka obsahuje spravne klient ID, ale neodpovida jmenu klienta v listu Klienti. Nazev: ' + folder.name
+      );
+      return;
+    }
     rootFoldersByClientId[detectedId] = rootFoldersByClientId[detectedId] || [];
     rootFoldersByClientId[detectedId].push(folder);
   });
@@ -546,6 +555,20 @@ function analyzeDriveConsistency_(clients, records, inventory) {
           'CHYBA', 'CLIENT_FOLDER_ID_MISMATCH', 'klient', clientId, clientId,
           'Neupravovat automaticky; overit, komu slozka patri.', folderUrl, canonical.url,
           'Nazev odkazovane slozky obsahuje klient ID ' + detectedId + '.'
+        );
+      } else if (!folderMatchesClientIdentity_(canonical.name, client)) {
+        addIssue(
+          'CHYBA', 'CLIENT_FOLDER_NAME_MISMATCH', 'klient', clientId, clientId,
+          'Vytvorit spravnou slozku podle ID a jmena klienta; propojene dokumenty presunout a tuto slozku dat do karanteny.',
+          folderUrl, canonical.url,
+          'Odkazovana slozka ma ID klienta, ale je pojmenovana po jine osobe. Nazev: ' + canonical.name
+        );
+      } else if (!clientFolderHasCanonicalLabel_(canonical.name, client)) {
+        addIssue(
+          'VAROVANI', 'CLIENT_FOLDER_LABEL_MISMATCH', 'klient', clientId, clientId,
+          'Prejmenovat slozku na jednotny format Prijmeni Jmeno. ID ani odkaz slozky se nemeni.',
+          folderUrl, canonical.url,
+          'Aktualni nazev: ' + canonical.name + '. Ocekavany nazev: ' + buildClientFolderName_(client) + '.'
         );
       }
     }
@@ -679,6 +702,31 @@ function auditNameContainsId_(name, id) {
   return new RegExp('(?:^|[^A-Z0-9])' + escaped + '(?=$|[^A-Z0-9])', 'i').test(String(name || ''));
 }
 
+function folderMatchesClientIdentity_(folderName, client) {
+  const clientId = String(client && client.klient_id || '').trim().toUpperCase();
+  if (!clientId || extractAuditEntityId_(folderName, 'KLIENT') !== clientId) return false;
+
+  const identityParts = [client && client.jmeno, client && client.prijmeni]
+    .map(function(value) { return normalizeDuplicateText_(value); })
+    .filter(Boolean);
+  if (!identityParts.length) return true;
+
+  const normalizedFolderName = ' ' + normalizeDuplicateText_(folderName)
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() + ' ';
+  return identityParts.every(function(part) {
+    const normalizedPart = part.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return normalizedPart && normalizedFolderName.indexOf(' ' + normalizedPart + ' ') !== -1;
+  });
+}
+
+function clientFolderHasCanonicalLabel_(folderName, client) {
+  const hasName = String(client && client.jmeno || '').trim() || String(client && client.prijmeni || '').trim();
+  if (!hasName) return true;
+  return String(folderName || '').trim() === buildClientFolderName_(client);
+}
+
 function writeDriveAuditReport_(spreadsheet, report) {
   let sheet = spreadsheet.getSheetByName(DRIVE_AUDIT_SHEET_NAME_);
   if (!sheet) sheet = spreadsheet.insertSheet(DRIVE_AUDIT_SHEET_NAME_);
@@ -785,6 +833,216 @@ function repairDriveConsistencyAfterBackup() {
   }
 }
 
+// Jednorazove sjednoti zdrojova pole klienta KLIENT-0004 a nasledne spusti
+// kontrolovanou opravu slozek. V aplikaci i na Disku se pak pouziva poradi
+// Prijmeni Jmeno. Funkce vyzaduje cerstvou kompletni zalohu a nic nemaze.
+function normalizeClientNamesAndFoldersAfterBackup() {
+  assertRecentSuccessfulBackupForDriveRepair_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  const spreadsheet = getSpreadsheet_();
+  const runId = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss') + '-JMENA';
+  const logger = createDriveRepairLogger_(spreadsheet, runId);
+
+  try {
+    const sheet = spreadsheet.getSheetByName(CONFIG.sheetName);
+    if (!sheet) throw new Error('OPRAVA ZASTAVENA: Chybi list ' + CONFIG.sheetName + '.');
+    const headers = getHeaders_(sheet);
+    const idColumn = headers.indexOf('klient_id') + 1;
+    const firstNameColumn = headers.indexOf('jmeno') + 1;
+    const lastNameColumn = headers.indexOf('prijmeni') + 1;
+    if (!idColumn || !firstNameColumn || !lastNameColumn) {
+      throw new Error('OPRAVA ZASTAVENA: V listu Klienti chybi klient_id, jmeno nebo prijmeni.');
+    }
+
+    const rows = findClientRows_(sheet, idColumn, 'KLIENT-0004');
+    if (rows.length !== 1) {
+      throw new Error('OPRAVA ZASTAVENA: KLIENT-0004 musi mit prave jeden radek. Nalezeno: ' + rows.length + '.');
+    }
+    const rowNumber = rows[0];
+    const values = sheet.getRange(rowNumber, 1, 1, headers.length).getValues()[0];
+    const client = rowToObject_(headers, values);
+    const currentFirstName = normalizeDuplicateText_(client.jmeno);
+    const currentLastName = normalizeDuplicateText_(client.prijmeni);
+    const alreadyCorrect = currentFirstName === 'milada' && currentLastName === 'hubacova';
+    const knownSwappedState = currentFirstName === 'hubacova' && currentLastName === 'milada';
+    if (!alreadyCorrect && !knownSwappedState) {
+      throw new Error('OPRAVA ZASTAVENA: KLIENT-0004 nema ocekavane hodnoty Milada/Hubacova ani jejich prohozene poradi.');
+    }
+
+    if (knownSwappedState) {
+      sheet.getRange(rowNumber, firstNameColumn).setValue('Milada');
+      sheet.getRange(rowNumber, lastNameColumn).setValue('Hubačová');
+      const updatedAtColumn = headers.indexOf('updated_at') + 1;
+      const updatedByColumn = headers.indexOf('updated_by') + 1;
+      if (updatedAtColumn) sheet.getRange(rowNumber, updatedAtColumn).setValue(new Date());
+      if (updatedByColumn) sheet.getRange(rowNumber, updatedByColumn).setValue('oprava poradi jmena');
+      logger('OK', 'normalize_client_name_columns', 'klient', 'KLIENT-0004', 'Hubačová | Milada', 'Milada | Hubačová', 'Opraven vyznam sloupcu jmeno a prijmeni. Zobrazeni zustava Prijmeni Jmeno.', 'KLIENT-0004');
+      invalidateReadActions_(['listClients']);
+    } else {
+      logger('OK', 'normalize_client_name_columns', 'klient', 'KLIENT-0004', 'Milada | Hubačová', 'Milada | Hubačová', 'Zdrojova pole uz byla ve spravnem poradi.', 'KLIENT-0004');
+    }
+  } catch (error) {
+    logger('ERROR', 'normalize_client_name_columns', 'klient', 'KLIENT-0004', '', '', String(error.message || error), 'KLIENT-0004');
+    throw error;
+  } finally {
+    lock.releaseLock();
+  }
+
+  return repairDriveConsistencyAfterBackup();
+}
+
+// Jednorazova bezpecna naprava incidentu, kdy byla slozka fiktivniho klienta
+// Laštovica omylem prirazena skutecnemu klientovi KLIENT-0018. Funkce vyzaduje
+// cerstvou kompletni zalohu, nic nemaze a presouva pouze soubory, na ktere
+// odkazuji radky KLIENT-0018 v hlavni tabulce.
+function repairClient0018FolderAfterNameMismatch() {
+  const clientId = 'KLIENT-0018';
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  const spreadsheet = getSpreadsheet_();
+  const runId = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss') + '-KLIENT-0018';
+  const logger = createDriveRepairLogger_(spreadsheet, runId);
+
+  try {
+    const backup = assertRecentSuccessfulBackupForDriveRepair_();
+    logger('START', 'repair_client_folder_identity', 'klient', clientId, backup.fileUrl || '', '', 'Zahajena cilena oprava po overene zaloze.', clientId);
+
+    const activeClients = readDriveAuditRows_(spreadsheet, CONFIG.sheetName)
+      .filter(function(client) { return !isDriveAuditDeleted_(client.status); });
+    const matches = activeClients.filter(function(client) {
+      return String(client.klient_id || '').trim() === clientId;
+    });
+    if (matches.length !== 1) {
+      throw new Error('OPRAVA ZASTAVENA: V listu Klienti musi byt prave jeden aktivni radek ' + clientId + '. Nalezeno: ' + matches.length + '.');
+    }
+
+    const client = matches[0];
+    if (normalizeDuplicateText_(client.jmeno) !== 'frantisek' || normalizeDuplicateText_(client.prijmeni) !== 'kral') {
+      throw new Error('OPRAVA ZASTAVENA: ' + clientId + ' neni Frantisek Kral. Zadna data nebyla presunuta.');
+    }
+
+    const currentUrl = String(client.drive_folder_url || '').trim();
+    const currentId = extractDriveId_(currentUrl);
+    if (!currentId) throw new Error('OPRAVA ZASTAVENA: ' + clientId + ' nema platny odkaz na soucasnou slozku.');
+    const currentFolder = DriveApp.getFolderById(currentId);
+    if (folderMatchesClientIdentity_(currentFolder.getName(), client)) {
+      logger('DONE', 'repair_client_folder_identity', 'klient', clientId, currentUrl, currentUrl, 'Slozka uz odpovida ID i jmenu klienta; nebyla nutna zadna zmena.', clientId);
+      return { ok: true, already_correct: true, client_id: clientId, folder_url: currentUrl, moved_files: 0, deleted_items: 0 };
+    }
+
+    const performances = readDriveAuditRows_(spreadsheet, CONFIG.performanceSheetName);
+    const meetings = readDriveAuditRows_(spreadsheet, CONFIG.meetingSheetName);
+    const linkedUrls = collectClientLinkedDriveUrls_(client, performances, meetings);
+    const linkedFiles = linkedUrls.map(function(url) {
+      const id = extractDriveId_(url);
+      if (!id) throw new Error('OPRAVA ZASTAVENA: Propojeny soubor ma neplatne URL: ' + url);
+      try {
+        return { id: id, url: url, file: DriveApp.getFileById(id) };
+      } catch (error) {
+        throw new Error('OPRAVA ZASTAVENA: Propojeny soubor neni dostupny: ' + url);
+      }
+    });
+
+    const root = getClientFolderParent_();
+    const matchingFolders = [];
+    const rootFolders = root.getFolders();
+    while (rootFolders.hasNext()) {
+      const folder = rootFolders.next();
+      if (folderMatchesClientIdentity_(folder.getName(), client)) matchingFolders.push(folder);
+    }
+    if (matchingFolders.length > 1) {
+      throw new Error('OPRAVA ZASTAVENA: Pro ' + clientId + ' existuje vice slozek odpovidajicich ID i jmenu.');
+    }
+
+    const quarantine = createDriveRepairQuarantine_(runId);
+    const targetFolder = matchingFolders.length === 1
+      ? matchingFolders[0]
+      : root.createFolder(buildClientFolderName_(client));
+    const targetId = targetFolder.getId();
+    const targetUrl = targetFolder.getUrl();
+    logger(
+      'OK', matchingFolders.length ? 'reuse_correct_client_folder' : 'create_correct_client_folder',
+      'slozka_klienta', targetId, currentUrl, targetUrl,
+      matchingFolders.length ? 'Použita existujici slozka odpovidajici ID i jmenu klienta.' : 'Vytvorena slozka odpovidajici ID i jmenu klienta.',
+      clientId
+    );
+
+    let movedFiles = 0;
+    linkedFiles.forEach(function(item) {
+      if (getDriveParentIds_(item.file).indexOf(targetId) !== -1) return;
+      item.file.moveTo(targetFolder);
+      movedFiles += 1;
+      logger('OK', 'move_linked_client_file', 'soubor', item.id, item.url, item.file.getUrl(), 'Presunut pouze soubor propojeny s radkem klienta.', clientId);
+    });
+
+    updateDriveRepairUrl_(spreadsheet, CONFIG.sheetName, 'klient_id', clientId, 'drive_folder_url', targetUrl);
+    logger('OK', 'repair_client_folder_link', 'klient', clientId, currentUrl, targetUrl, 'Odkaz klienta zmenen na slozku odpovidajici ID i jmenu.', clientId);
+
+    const usedByAnotherClient = activeClients.some(function(otherClient) {
+      return String(otherClient.klient_id || '').trim() !== clientId
+        && extractDriveId_(otherClient.drive_folder_url) === currentId;
+    });
+    let archivedOldFolder = false;
+    if (currentId !== targetId && !usedByAnotherClient) {
+      currentFolder.moveTo(quarantine.folders);
+      archivedOldFolder = true;
+      logger('OK', 'quarantine_wrong_identity_folder', 'slozka_klienta', currentId, currentUrl, currentFolder.getUrl(), 'Puvodni slozka s cizim jmenem presunuta do karanteny; nic nebylo smazano.', clientId);
+    } else if (usedByAnotherClient) {
+      logger('WARNING', 'keep_shared_folder', 'slozka_klienta', currentId, currentUrl, currentUrl, 'Puvodni slozka zustala na miste, protoze na ni odkazuje jiny aktivni klient.', clientId);
+    }
+
+    invalidateReadActions_(['listClients', 'listPerformances', 'listMeetings']);
+    const freshClients = readDriveAuditRows_(spreadsheet, CONFIG.sheetName)
+      .filter(function(item) { return !isDriveAuditDeleted_(item.status); });
+    const freshPerformances = readDriveAuditRows_(spreadsheet, CONFIG.performanceSheetName);
+    const freshMeetings = readDriveAuditRows_(spreadsheet, CONFIG.meetingSheetName);
+    const freshRecords = buildDriveAuditRecords_(freshPerformances, freshMeetings);
+    const freshInventory = collectDriveAuditInventory_(freshClients, freshRecords);
+    const report = analyzeDriveConsistency_(freshClients, freshRecords, freshInventory);
+    writeDriveAuditReport_(spreadsheet, report);
+
+    logger('DONE', 'repair_client_folder_identity', 'klient', clientId, currentUrl, targetUrl, 'Cilena oprava dokoncena. Presunuto propojenych souboru: ' + movedFiles + '. Nalezu po oprave: ' + report.summary.issue_count + '.', clientId);
+    return {
+      ok: true,
+      client_id: clientId,
+      folder_url: targetUrl,
+      quarantine_url: quarantine.root.getUrl(),
+      moved_files: movedFiles,
+      archived_old_folder: archivedOldFolder,
+      issues_after: report.summary.issue_count,
+      deleted_items: 0
+    };
+  } catch (error) {
+    logger('ERROR', 'repair_client_folder_identity', 'klient', clientId, '', '', String(error.message || error), clientId);
+    throw error;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function collectClientLinkedDriveUrls_(client, performances, meetings) {
+  const clientId = String(client && client.klient_id || '').trim();
+  const urls = [];
+  const seen = {};
+  function remember(url) {
+    const normalized = String(url || '').trim();
+    const id = extractDriveId_(normalized);
+    if (!normalized || !id || seen[id]) return;
+    seen[id] = true;
+    urls.push(normalized);
+  }
+
+  remember(client && client.monitoring_list_url);
+  [performances || [], meetings || []].forEach(function(rows) {
+    rows.forEach(function(record) {
+      if (String(record.klient_id || '').trim() !== clientId || isDriveAuditDeleted_(record.status)) return;
+      remember(record.document_url);
+    });
+  });
+  return urls;
+}
+
 function assertRecentSuccessfulBackupForDriveRepair_() {
   const status = normalizeBackupStatus_(readBackupStatus_(), new Date());
   const finishedAt = new Date(status.finishedAt || '').getTime();
@@ -807,6 +1065,8 @@ function assertDriveRepairReportIsSafe_(report, clients, records, inventory) {
     CLIENT_FOLDER_DUPLICATE: true,
     CLIENT_FOLDER_LINK_MISSING: true,
     CLIENT_FOLDER_ID_MISMATCH: true,
+    CLIENT_FOLDER_NAME_MISMATCH: true,
+    CLIENT_FOLDER_LABEL_MISMATCH: true,
     CLIENT_FOLDER_OUTSIDE_ROOT: true,
     DOCUMENT_DUPLICATE: true,
     DOCUMENT_WRONG_FOLDER: true,
@@ -894,6 +1154,10 @@ function repairClientFolderLinks_(spreadsheet, clients, inventory, logger) {
     if (!folder.direct_root_child) return;
     const clientId = extractAuditEntityId_(folder.name, 'KLIENT');
     if (!clientId) return;
+    const matchingClient = (clients || []).find(function(client) {
+      return String(client.klient_id || '').trim() === clientId;
+    });
+    if (!matchingClient || !folderMatchesClientIdentity_(folder.name, matchingClient)) return;
     rootCandidates[clientId] = rootCandidates[clientId] || [];
     rootCandidates[clientId].push(folder);
   });
@@ -905,6 +1169,7 @@ function repairClientFolderLinks_(spreadsheet, clients, inventory, logger) {
     const currentId = extractDriveId_(currentUrl);
     const currentFolder = currentId && foldersById[currentId];
     const detectedId = currentFolder ? extractAuditEntityId_(currentFolder.name, 'KLIENT') : '';
+    const currentIdentityMatches = currentFolder && folderMatchesClientIdentity_(currentFolder.name, client);
     const exactCandidates = rootCandidates[clientId] || [];
     let targetFolder = null;
     let reason = '';
@@ -920,23 +1185,28 @@ function repairClientFolderLinks_(spreadsheet, clients, inventory, logger) {
         targetFolder = root.createFolder(buildClientFolderName_(client));
         reason = 'Vytvorena chybejici klientska slozka.';
       }
-    } else if (currentFolder && detectedId && detectedId !== clientId) {
+    } else if (currentFolder && (!detectedId || detectedId !== clientId || !currentIdentityMatches)) {
       if (exactCandidates.length > 1) {
-        throw new Error('OPRAVA ZASTAVENA: Klient ' + clientId + ' ma chybny odkaz a vice moznych spravnych slozek.');
+        throw new Error('OPRAVA ZASTAVENA: Klient ' + clientId + ' ma chybny odkaz nebo jmeno slozky a vice moznych spravnych slozek.');
       }
       targetFolder = exactCandidates.length === 1
         ? DriveApp.getFolderById(exactCandidates[0].id)
         : root.createFolder(buildClientFolderName_(client));
       reason = exactCandidates.length === 1
-        ? 'Chybny odkaz nahrazen existujici spravnou slozkou.'
-        : 'Chybny odkaz nahrazen novou spravnou slozkou.';
+        ? 'Chybny odkaz nebo jmeno slozky nahrazeny existujici spravnou slozkou.'
+        : 'Chybny odkaz nebo jmeno slozky nahrazeny novou spravnou slozkou.';
     } else if (currentFolder && currentFolder.parent_ids.indexOf(inventory.root_folder_id) === -1) {
       targetFolder = DriveApp.getFolderById(currentId);
       targetFolder.moveTo(root);
       reason = 'Kanonicka slozka presunuta do nastaveneho korene.';
+    } else if (currentFolder && !clientFolderHasCanonicalLabel_(currentFolder.name, client)) {
+      targetFolder = DriveApp.getFolderById(currentId);
+      reason = 'Slozka prejmenovana na jednotny format Prijmeni Jmeno.';
     }
 
     if (!targetFolder) return;
+    const expectedFolderName = buildClientFolderName_(client);
+    if (targetFolder.getName() !== expectedFolderName) targetFolder.setName(expectedFolderName);
     const targetUrl = targetFolder.getUrl();
     updateDriveRepairUrl_(spreadsheet, CONFIG.sheetName, 'klient_id', clientId, 'drive_folder_url', targetUrl);
     client.drive_folder_url = targetUrl;
@@ -3270,7 +3540,8 @@ function sanitizeBackupPathPart_(value) {
 }
 
 function buildClientFolderName_(client) {
-  return sanitizeFileName_([client.klient_id, client.prijmeni, client.jmeno].filter(Boolean).join(' - '));
+  const displayName = [client.prijmeni, client.jmeno].filter(Boolean).join(' ').trim();
+  return sanitizeFileName_([client.klient_id, displayName].filter(Boolean).join(' - '));
 }
 
 function sanitizeFileName_(value) {

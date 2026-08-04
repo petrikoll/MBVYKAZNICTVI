@@ -53,6 +53,16 @@ test('import objektu správně mapuje neaktivní stavy klienta', () => {
   assert.equal(pending.projectStatus, 'waiting');
 });
 
+test('klient se v aplikaci zobrazuje jednotně jako příjmení a jméno', () => {
+  const client = mapSheetRowToClient({
+    klient_id: 'KLIENT-0018',
+    jmeno: 'František',
+    prijmeni: 'Král'
+  }, 0);
+
+  assert.equal(client.fullName, 'Král František');
+});
+
 test('import objektu načte vzdělání i ze staršího nebo popisného záhlaví', () => {
   const legacy = mapSheetRowToClient({
     klient_id: '1',

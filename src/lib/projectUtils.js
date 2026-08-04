@@ -193,7 +193,7 @@ function enrichClient(client) {
   const projectStatus = deriveProjectStatus(normalizedClient);
   return {
     ...normalizedClient,
-    fullName: [normalizedClient.jmeno, normalizedClient.prijmeni].filter(Boolean).join(' ').trim(),
+    fullName: [normalizedClient.prijmeni, normalizedClient.jmeno].filter(Boolean).join(' ').trim(),
     projectStatus,
     projectStatusLabel: translateProjectStatus(projectStatus)
   };

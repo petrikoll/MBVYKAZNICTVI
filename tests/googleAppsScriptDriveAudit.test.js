@@ -142,6 +142,50 @@ test('stale document URL is recoverable when exactly one matching document exist
   assert.equal(finding.found_url, driveUrl('file', foundId));
 });
 
+test('folder with correct client id but another person name is rejected', () => {
+  const context = createContext();
+  const rootId = 'root000000000000000000000001';
+  const folderId = 'folder0000000000000000000001';
+  const clients = [{
+    klient_id: 'KLIENT-0018',
+    jmeno: 'František',
+    prijmeni: 'Král',
+    drive_folder_url: driveUrl('folder', folderId)
+  }];
+  const inventory = {
+    root_folder_id: rootId,
+    folders: [{
+      id: folderId,
+      url: driveUrl('folder', folderId),
+      name: 'KLIENT-0018 - Laštovica - Petr',
+      parent_ids: [rootId],
+      direct_root_child: true
+    }],
+    files: [],
+    folder_access: { [folderId]: true },
+    file_access: {},
+    folder_errors: {},
+    file_errors: {}
+  };
+
+  const report = context.analyzeDriveConsistency_(clients, [], inventory);
+  const mismatches = report.issues.filter((issue) => issue.code === 'CLIENT_FOLDER_NAME_MISMATCH');
+
+  assert.equal(mismatches.length, 2);
+  assert.equal(context.folderMatchesClientIdentity_('KLIENT-0018 - Král - František', clients[0]), true);
+  assert.equal(context.folderMatchesClientIdentity_('KLIENT-0018 - Laštovica - Petr', clients[0]), false);
+});
+
+test('folder label is canonical only in surname-first order', () => {
+  const context = createContext();
+  const client = { klient_id: 'KLIENT-0018', jmeno: 'František', prijmeni: 'Král' };
+
+  assert.equal(context.buildClientFolderName_(client), 'KLIENT-0018 - Král František');
+  assert.equal(context.clientFolderHasCanonicalLabel_('KLIENT-0018 - Král František', client), true);
+  assert.equal(context.clientFolderHasCanonicalLabel_('KLIENT-0018 - František Král', client), false);
+  assert.equal(context.clientFolderHasCanonicalLabel_('KLIENT-0018 - Král - František', client), false);
+});
+
 test('record id matching respects token boundaries', () => {
   const context = createContext();
 
@@ -171,6 +215,7 @@ test('repair accepts recoverable audit findings and rejects missing data', () =>
   assert.doesNotThrow(() => context.assertDriveRepairReportIsSafe_({
     issues: [
       { code: 'CLIENT_FOLDER_DUPLICATE', entity_id: 'KLIENT-0001' },
+      { code: 'CLIENT_FOLDER_NAME_MISMATCH', entity_id: 'KLIENT-0001' },
       { code: 'DOCUMENT_DUPLICATE', entity_id: 'VYKON-0001' },
       { code: 'DOCUMENT_WRONG_FOLDER', entity_id: 'VYKON-0001' }
     ]
@@ -274,4 +319,53 @@ test('folder repair moves only noncanonical client folders to quarantine', () =>
     'folder0000000000000000000003'
   ]);
   assert.equal(logs.length, 2);
+});
+
+test('targeted KLIENT-0018 repair only collects linked active files', () => {
+  const context = createContext();
+  const client = {
+    klient_id: 'KLIENT-0018',
+    monitoring_list_url: driveUrl('file', 'monitoring00000000000000000001')
+  };
+  const performances = [
+    { klient_id: 'KLIENT-0018', document_url: driveUrl('file', 'document00000000000000000001'), status: 'Platný' },
+    { klient_id: 'KLIENT-0018', document_url: driveUrl('file', 'document00000000000000000002'), status: 'Smazaný' },
+    { klient_id: 'KLIENT-0019', document_url: driveUrl('file', 'document00000000000000000003'), status: 'Platný' }
+  ];
+  const meetings = [
+    { klient_id: 'KLIENT-0018', document_url: driveUrl('file', 'document00000000000000000001'), status: 'Platný' },
+    { klient_id: 'KLIENT-0018', document_url: driveUrl('file', 'document00000000000000000004'), status: 'Platný' }
+  ];
+
+  assert.deepEqual(
+    Array.from(context.collectClientLinkedDriveUrls_(client, performances, meetings)),
+    [
+      driveUrl('file', 'monitoring00000000000000000001'),
+      driveUrl('file', 'document00000000000000000001'),
+      driveUrl('file', 'document00000000000000000004')
+    ]
+  );
+});
+
+test('targeted KLIENT-0018 repair requires backup, checks exact identity and never deletes', () => {
+  const repairSection = source.match(/function repairClient0018FolderAfterNameMismatch\(\)[\s\S]*?function collectClientLinkedDriveUrls_\(/)?.[0] || '';
+
+  assert.ok(repairSection);
+  assert.match(repairSection, /assertRecentSuccessfulBackupForDriveRepair_/);
+  assert.match(repairSection, /client\.jmeno/);
+  assert.match(repairSection, /client\.prijmeni/);
+  assert.match(repairSection, /moveTo\s*\(/);
+  assert.doesNotMatch(repairSection, /setTrashed\s*\(/);
+});
+
+test('name and folder normalization is guarded by backup and exact known values', () => {
+  const repairSection = source.match(/function normalizeClientNamesAndFoldersAfterBackup\(\)[\s\S]*?function repairClient0018FolderAfterNameMismatch\(/)?.[0] || '';
+
+  assert.ok(repairSection);
+  assert.match(repairSection, /assertRecentSuccessfulBackupForDriveRepair_/);
+  assert.match(repairSection, /KLIENT-0004/);
+  assert.match(repairSection, /currentFirstName === 'hubacova'/);
+  assert.match(repairSection, /currentLastName === 'milada'/);
+  assert.match(repairSection, /repairDriveConsistencyAfterBackup/);
+  assert.doesNotMatch(repairSection, /setTrashed\s*\(/);
 });
