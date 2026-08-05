@@ -2186,7 +2186,6 @@ function actorSheetRowMatchesPayload(row, partner) {
 // Prohlizec musi cekat o neco dele nez Render proxy. Jinak ukonci pozadavek,
 // ktery na serveru stale uspesne probiha, a uzivatel uvidi falesnou chybu.
 const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 65000;
-const DEFERRED_DATA_TIMEOUT_MS = 30000;
 
 function createClientMutationRequestId(operation) {
   const prefix = String(operation || 'client').replace(/[^a-z0-9_-]/gi, '').slice(0, 24) || 'client';
@@ -2562,10 +2561,10 @@ function App() {
     // bootstrap tak uz nemuze blokovat prvni pouzitelne zobrazeni aplikace.
     // Ostatni oblasti se spusti az po klientskem registru a po prioritach, aby
     // Apps Script nezahltily soubeznymi studenymi ctenimi.
-    const prefetchAction = (action, timeoutMs = DEFERRED_DATA_TIMEOUT_MS) => fetchGoogleSheetAction(action, 1, timeoutMs)
+    const prefetchAction = (action, timeoutMs = GOOGLE_SHEET_REQUEST_TIMEOUT_MS) => fetchGoogleSheetAction(action, 1, timeoutMs)
       .then((result) => ({ action, result }))
       .catch((error) => ({ action, error }));
-    const clientsPrefetch = prefetchAction('listClients', DEFERRED_DATA_TIMEOUT_MS);
+    const clientsPrefetch = prefetchAction('listClients');
     prefetchedSheetActionsRef.current.set('startupClientReady', clientsPrefetch);
     void fetchGoogleSheetAction('getDataRevision', 1, 5000).then((result) => {
       if (result?.__dataRevision || result?.revision) {
@@ -2632,7 +2631,7 @@ function App() {
             console.warn('Google Sheets startup client prefetch skipped:', clientOutcome.error);
           }
         }
-        if (!json) json = await fetchGoogleSheetAction('listClients', 1, DEFERRED_DATA_TIMEOUT_MS);
+        if (!json) json = await fetchGoogleSheetAction('listClients', 1, GOOGLE_SHEET_REQUEST_TIMEOUT_MS);
         if (cancelled) return;
         currentDataRevisionRef.current = json?.__dataRevision || currentDataRevisionRef.current;
         consecutiveFailures = 0;
@@ -2838,6 +2837,21 @@ function App() {
         listSupervision: 'supervize',
         listStatistics: 'statistiky K\u00da'
       };
+      const mapSourcesWithConcurrency = async (sources, concurrency, mapper) => {
+        const results = new Array(sources.length);
+        let nextIndex = 0;
+        const workerCount = Math.min(Math.max(1, concurrency), sources.length);
+        const workers = Array.from({ length: workerCount }, async () => {
+          while (!cancelled) {
+            const sourceIndex = nextIndex;
+            nextIndex += 1;
+            if (sourceIndex >= sources.length) return;
+            results[sourceIndex] = await mapper(sources[sourceIndex], sourceIndex);
+          }
+        });
+        await Promise.all(workers);
+        return results;
+      };
       const scheduleFailedActionRecovery = (sources, bundle) => {
         if (!failedActions.size) return;
         void (async () => {
@@ -2847,17 +2861,19 @@ function App() {
             if (cancelled) return;
             const pendingSources = sources.filter(([action]) => failedActions.has(action));
             if (!pendingSources.length) return;
-            const recovered = await Promise.all(
-              pendingSources.map(async ([action, bundleKey, fallback]) => {
-                const recoveryTimeoutMs = action === 'listIndividualPlans'
-                  ? DEFERRED_DATA_TIMEOUT_MS
-                  : 20000;
+            const recovered = await mapSourcesWithConcurrency(
+              pendingSources,
+              3,
+              async ([action, bundleKey, fallback]) => {
                 return {
                   action,
                   bundleKey,
-                  result: await loadAction(action, fallback, { retry: false, timeoutMs: recoveryTimeoutMs })
+                  result: await loadAction(action, fallback, {
+                    retry: false,
+                    timeoutMs: GOOGLE_SHEET_REQUEST_TIMEOUT_MS
+                  })
                 };
-              })
+              }
             );
             recovered.forEach(({ bundleKey, result }) => {
               bundle[bundleKey] = result;
@@ -2875,10 +2891,10 @@ function App() {
 
       const progressiveSources = [
         ['listPerformances', 'performances', { performances: [] }],
-        ['listMeetings', 'meetings', { meetings: [] }],
         ['listIndividualPlans', 'plans', { individualPlans: [] }],
-        ['listNetworkMeetings', 'networkMeetings', { networkMeetings: [] }],
+        ['listMeetings', 'meetings', { meetings: [] }],
         ['listPartners', 'partners', { partners: [] }],
+        ['listNetworkMeetings', 'networkMeetings', { networkMeetings: [] }],
         ['listEducation', 'education', { education: [], educations: [], vzdelavani: [] }],
         ['listSupervision', 'supervision', { supervision: [], supervisions: [], supervize: [] }],
         ['listStatistics', 'statistics', { statistics: [] }]
@@ -2899,24 +2915,24 @@ function App() {
         applyLoadedResults(progressiveBundle, new Set([action]));
       };
       const loadSingleProgressiveSource = async ([action, bundleKey, fallback]) => {
-        const sourceTimeoutMs = action === 'listIndividualPlans'
-          ? DEFERRED_DATA_TIMEOUT_MS
-          : 20000;
-        const result = await loadAction(action, fallback, { retry: false, timeoutMs: sourceTimeoutMs });
+        const result = await loadAction(action, fallback, {
+          retry: false,
+          timeoutMs: GOOGLE_SHEET_REQUEST_TIMEOUT_MS
+        });
         if (!cancelled && loadedActions.has(action)) {
           applySingleProgressiveSource(action, bundleKey, result);
         }
       };
-      // Klientsky registr ma vzdy prednost. Po nem spustime vsechny nezavisle
-      // oblasti soubezne. Kazda se zverejni ihned po sve odpovedi a jedna pomala
-      // nebo docasne nedostupna oblast tak uz nezablokuje zadnou jinou.
+      // Klientsky registr ma vzdy prednost. Po nem zpracovavame nezavisle oblasti
+      // nejvyse po trech. Tim se Google Apps Script nezahlti soubeznymi otevrenimi
+      // tabulky; vykony a plany jsou pritom prvni a kazdy vysledek se zverejni hned.
       const startupClientReady = prefetchedSheetActionsRef.current.get('startupClientReady');
       if (startupClientReady) {
         prefetchedSheetActionsRef.current.delete('startupClientReady');
         await startupClientReady;
       }
       if (cancelled) return;
-      await Promise.all(progressiveSources.map(loadSingleProgressiveSource));
+      await mapSourcesWithConcurrency(progressiveSources, 3, loadSingleProgressiveSource);
       if (cancelled) return;
       // Prvni prechodne selhani jeste nehlasime. Automaticka obnova probehne
       // za osm sekund a zprava se zobrazi jen tehdy, pokud selze i ona.
