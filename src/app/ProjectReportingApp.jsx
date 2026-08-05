@@ -3624,6 +3624,11 @@ function App() {
     };
   }, [records, selectedClient]);
 
+  const hasCompleteSelectedClientDriveBundle = Boolean(
+    selectedClientDriveBundle?.payload?.clientFolderUrl
+    && selectedClientDriveBundle?.payload?.monListFileUrl
+  );
+
   const closeClientFolderViewer = () => {
     clientFolderViewerRequestRef.current += 1;
     setClientFolderViewer((current) => ({ ...current, open: false }));
@@ -4178,6 +4183,15 @@ function App() {
       };
       if (!bundleResult.clientFolderUrl) throw new Error('Apps Script nevr\u00e1til odkaz na slo\u017eku klienta.');
 
+      setClients((previousClients) => previousClients.map((item) => (
+        item.id === client.id
+          ? {
+            ...item,
+            driveFolderUrl: bundleResult.clientFolderUrl || item.driveFolderUrl || '',
+            monitoringListUrl: bundleResult.monListFileUrl || item.monitoringListUrl || ''
+          }
+          : item
+      )));
       await persistClientDriveBundleRecord(client, bundleResult);
       if (!silent) setFlash('Slo\u017eka klienta a monitorovac\u00ed list byly p\u0159ipraveny.');
       return true;
@@ -4297,7 +4311,7 @@ function App() {
     applyRecordDocumentStatus(record.id, { state: 'queued' });
     showStatus('progress', `${successText}. Dokument se připravuje na pozadí…`);
 
-    const delays = [1200, 1800, 2500, 3500, 5000, 7000, 9000, 12000];
+    const delays = [1200, 1800, 2500, 3500, 5000, 7000, 9000, 12000, 15000, 15000, 15000, 15000];
     for (const delay of delays) {
       await new Promise((resolve) => window.setTimeout(resolve, delay));
       let status;
@@ -4325,7 +4339,7 @@ function App() {
       }
       if (status.state === 'cancelled') return;
     }
-    showStatus('success', `${successText}. Dokument se stále připravuje na pozadí.`);
+    showStatus('progress', `${successText}. Složka, monitorovací list a dokument se stále připravují na pozadí.`);
   };
 
   const continueRecordSyncInBackground = (record, options = {}) => {
@@ -7862,15 +7876,21 @@ ${rawPlanOutput}` }] }],
                           Shrnout zakázku AI
                         </button>
                         <HelpIcon help={HELP.clientsAiSummary} />
-                        <button
-                          onClick={() => provisionClientDriveFolder(selectedClient)}
-                          disabled={isProvisioningClientFolder}
-                          className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isProvisioningClientFolder ?<Loader2 className="h-4 w-4 animate-spin" /> : <DownloadCloud className="h-4 w-4" />}
-                          Vytvoř složku klienta
-                        </button>
-                        <HelpIcon help={HELP.clientsDriveFolder} />
+                        {!hasCompleteSelectedClientDriveBundle && (
+                          <>
+                            <button
+                              onClick={() => provisionClientDriveFolder(selectedClient)}
+                              disabled={isProvisioningClientFolder}
+                              className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isProvisioningClientFolder ?<Loader2 className="h-4 w-4 animate-spin" /> : <DownloadCloud className="h-4 w-4" />}
+                              {selectedClientDriveBundle?.payload?.clientFolderUrl
+                                ? 'Doplnit monitorovací list'
+                                : 'Vytvoř složku klienta'}
+                            </button>
+                            <HelpIcon help={HELP.clientsDriveFolder} />
+                          </>
+                        )}
                         <button
                           onClick={openClientEditForm}
                           disabled={isSaving}
@@ -7994,20 +8014,37 @@ ${rawPlanOutput}` }] }],
                               </span>
                             </span>
                           </button>
-                          <a
-                            href={selectedClientDriveBundle.payload.monListFileUrl || '#'}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 transition hover:border-emerald-300 hover:bg-emerald-50"
-                          >
-                            <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-700" />
-                            <span className="min-w-0">
-                              <span className="block text-xs font-semibold text-slate-900">Monitorovací list</span>
-                              <span className="block truncate text-[11px] text-slate-500">
-                                {selectedClientDriveBundle.payload.monListFileName || 'Bez odkazu'}
+                          {selectedClientDriveBundle.payload.monListFileUrl ? (
+                            <a
+                              href={selectedClientDriveBundle.payload.monListFileUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 transition hover:border-emerald-300 hover:bg-emerald-50"
+                            >
+                              <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-700" />
+                              <span className="min-w-0">
+                                <span className="block text-xs font-semibold text-slate-900">Monitorovací list</span>
+                                <span className="block truncate text-[11px] text-slate-500">
+                                  {selectedClientDriveBundle.payload.monListFileName || 'Monitorovací list klienta'}
+                                </span>
                               </span>
-                            </span>
-                          </a>
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => provisionClientDriveFolder(selectedClient)}
+                              disabled={isProvisioningClientFolder}
+                              className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-left text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
+                            >
+                              {isProvisioningClientFolder
+                                ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                                : <FileSpreadsheet className="h-4 w-4 shrink-0" />}
+                              <span className="min-w-0">
+                                <span className="block text-xs font-semibold">Doplnit monitorovací list</span>
+                                <span className="block text-[11px]">Ve složce zatím chybí.</span>
+                              </span>
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <div className="mt-3 text-sm text-emerald-800">

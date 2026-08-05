@@ -3278,25 +3278,10 @@ function findRecordDocumentsInFolder_(folder, recordId) {
 }
 
 function getClientDocumentContext_(klientId) {
-  const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
-  let headers = getHeaders_(sheet);
-  const klientIdColumn = headers.indexOf('klient_id') + 1;
-  if (!klientIdColumn) throw new Error('Missing klient_id column');
-  const folderUrlColumn = ensureHeader_(sheet, headers, 'drive_folder_url');
-  headers = getHeaders_(sheet);
-  const targetRow = findClientRow_(sheet, klientIdColumn, klientId);
-  if (!targetRow) throw new Error('Client not found: ' + klientId);
-
-  const client = rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
-  const currentFolderUrl = String(sheet.getRange(targetRow, folderUrlColumn).getValue() || '');
-  const folder = getOrCreateClientFolder_(client, currentFolderUrl);
-  const folderUrl = folder.getUrl();
-  const refreshedHeaders = getHeaders_(sheet);
-  if (currentFolderUrl !== folderUrl) {
-    sheet.getRange(targetRow, refreshedHeaders.indexOf('drive_folder_url') + 1).setValue(folderUrl);
-    invalidateReadActions_(['listClients']);
-  }
-  return { client, folder };
+  const client = ensureClientFolder_(klientId);
+  const folderId = extractDriveId_(client.drive_folder_url);
+  if (!folderId) throw new Error('Klientska slozka nebyla po priprave nalezena.');
+  return { client: client, folder: DriveApp.getFolderById(folderId) };
 }
 
 function readClientFolderState_(klientId) {
@@ -3373,6 +3358,7 @@ function ensureClientFolder_(klientId) {
   const refreshedHeaders = getHeaders_(sheet);
   sheet.getRange(targetRow, refreshedHeaders.indexOf('drive_folder_url') + 1).setValue(folder.getUrl());
   sheet.getRange(targetRow, refreshedHeaders.indexOf('monitoring_list_url') + 1).setValue(monitoringList.getUrl());
+  invalidateReadActions_(['listClients']);
 
   return rowToObject_(refreshedHeaders, sheet.getRange(targetRow, 1, 1, refreshedHeaders.length).getValues()[0]);
 }

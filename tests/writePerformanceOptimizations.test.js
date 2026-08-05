@@ -103,9 +103,15 @@ test('serverová fronta sloučí opakovaný požadavek a uchová stav bez osobn�
 test('folder created by a document job is reflected in the open client card', () => {
   const statusBody = functionBody(appsScriptSource, 'getRecordDocumentStatus_', 'readRecordDocumentQueue_');
   const clientContextBody = functionBody(appsScriptSource, 'getClientDocumentContext_', 'readClientFolderState_');
+  const ensureFolderBody = functionBody(appsScriptSource, 'ensureClientFolder_', 'getOrCreateClientFolder_');
   assert.match(statusBody, /readClientFolderState_\(snapshot\.record\.klient_id\)/);
-  assert.match(clientContextBody, /invalidateReadActions_\(\['listClients'\]\)/);
+  assert.match(clientContextBody, /ensureClientFolder_\(klientId\)/);
+  assert.match(ensureFolderBody, /getOrCreateMonitoringList_/);
+  assert.match(ensureFolderBody, /invalidateReadActions_\(\['listClients'\]\)/);
   assert.match(appSource, /const applyClientFolderState = \(status\) =>/);
   assert.match(appSource, /driveFolderUrl: clientFolderUrl \|\| client\.driveFolderUrl \|\| ''/);
   assert.match(appSource, /if \(status\.state === 'ready'\) \{\s*applyClientFolderState\(status\)/);
+  assert.match(appSource, /hasCompleteSelectedClientDriveBundle/);
+  assert.match(appSource, /Doplnit monitorovací list/);
+  assert.match(appSource, /15000, 15000, 15000, 15000/);
 });
