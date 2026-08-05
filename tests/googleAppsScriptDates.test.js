@@ -88,3 +88,26 @@ test('čas výkonu z buňky se převádí na HH:mm, ne na datum', () => {
 
   assert.equal(timeContext.rowToObject_(['cas_od'], [timeValue]).cas_od, '09:05');
 });
+
+test('hromadné čtení dat nepoužívá opakovaně vzdálenou službu Session', () => {
+  let sessionCalls = 0;
+  const dateContext = vm.createContext({
+    Utilities: { formatDate: (_value, zone, pattern) => `${zone}:${pattern}` },
+    Session: { getScriptTimeZone: () => {
+      sessionCalls += 1;
+      return 'Unexpected/Remote';
+    } }
+  });
+  vm.runInContext(source, dateContext);
+  const dateValue = vm.runInContext('new Date(0)', dateContext);
+
+  const result = dateContext.rowToObject_(
+    ['datum', 'cas_od', 'created_at'],
+    [dateValue, dateValue, dateValue]
+  );
+
+  assert.equal(result.datum, 'Europe/Prague:yyyy-MM-dd');
+  assert.equal(result.cas_od, 'Europe/Prague:HH:mm');
+  assert.equal(sessionCalls, 0);
+  assert.doesNotMatch(source, /Session\.getScriptTimeZone\(\)/);
+});

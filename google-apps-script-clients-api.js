@@ -19,7 +19,8 @@ const CONFIG = {
   monitoringTemplateFileId: '1xCGjTEJX0mo1aqXjGZqVBVEBxv2whubZqJ1-_jBk1w4',
   projectName: 'Podpora sociální práce v Moravském Berouně II',
   projectCode: 'CZ.03.02.01/00/25_106/0006125',
-  beneficiaryName: 'Město Moravský Beroun'
+  beneficiaryName: 'Město Moravský Beroun',
+  timeZone: 'Europe/Prague'
 };
 
 const READ_CACHE_VERSION_ = 'read-v2-gzip';
@@ -1124,7 +1125,7 @@ function writeDriveAuditReport_(spreadsheet, report) {
   if (!sheet) sheet = spreadsheet.insertSheet(DRIVE_AUDIT_SHEET_NAME_);
   sheet.clear();
 
-  const generated = Utilities.formatDate(report.generated_at, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  const generated = Utilities.formatDate(report.generated_at, CONFIG.timeZone, 'yyyy-MM-dd HH:mm:ss');
   sheet.getRange(1, 1, 1, 4).setValues([[
     'AUDIT GOOGLE DRIVE - POUZE NAHLED',
     'Vytvoreno', generated,
@@ -1167,7 +1168,7 @@ function repairDriveConsistencyAfterBackup() {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   const spreadsheet = getSpreadsheet_();
-  const runId = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss');
+  const runId = Utilities.formatDate(new Date(), CONFIG.timeZone, 'yyyyMMdd-HHmmss');
   const logger = createDriveRepairLogger_(spreadsheet, runId);
 
   try {
@@ -1233,7 +1234,7 @@ function normalizeClientNamesAndFoldersAfterBackup() {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   const spreadsheet = getSpreadsheet_();
-  const runId = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss') + '-JMENA';
+  const runId = Utilities.formatDate(new Date(), CONFIG.timeZone, 'yyyyMMdd-HHmmss') + '-JMENA';
   const logger = createDriveRepairLogger_(spreadsheet, runId);
 
   try {
@@ -1293,7 +1294,7 @@ function repairClient0018FolderAfterNameMismatch() {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   const spreadsheet = getSpreadsheet_();
-  const runId = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss') + '-KLIENT-0018';
+  const runId = Utilities.formatDate(new Date(), CONFIG.timeZone, 'yyyyMMdd-HHmmss') + '-KLIENT-0018';
   const logger = createDriveRepairLogger_(spreadsheet, runId);
 
   try {
@@ -3863,7 +3864,7 @@ function readClientFolderState_(klientId) {
 }
 
 function buildRecordDocumentTitle_(record, activityName, recordType) {
-  const date = formatDateValue_(record.datum) || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const date = formatDateValue_(record.datum) || Utilities.formatDate(new Date(), CONFIG.timeZone, 'yyyy-MM-dd');
   const id = record.vykon_id || record.meeting_id || 'zaznam';
   return sanitizeFileName_([date, record.klient_id, activityName, recordType, id].filter(Boolean).join(' - '));
 }
@@ -4418,7 +4419,7 @@ function isTriggerAuthorizationError_(error) {
 }
 
 function buildBackupFileName_(date) {
-  return 'kompletni-zaloha-' + Utilities.formatDate(date || new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd-HHmmss') + '.zip';
+  return 'kompletni-zaloha-' + Utilities.formatDate(date || new Date(), CONFIG.timeZone, 'yyyy-MM-dd-HHmmss') + '.zip';
 }
 
 function sanitizeBackupPathPart_(value) {
@@ -4441,7 +4442,7 @@ function extractDriveId_(url) {
 
 function formatDateValue_(value) {
   if (!value) return '';
-  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (value instanceof Date) return Utilities.formatDate(value, CONFIG.timeZone, 'yyyy-MM-dd');
   return String(value).slice(0, 10);
 }
 
@@ -4503,14 +4504,14 @@ function rowToObject_(headers, row, displayRow) {
       if (displayRow && displayRow[index]) {
         acc[header] = displayRow[index];
       } else if (value instanceof Date) {
-        acc[header] = Utilities.formatDate(value, Session.getScriptTimeZone(), 'HH:mm');
+        acc[header] = Utilities.formatDate(value, CONFIG.timeZone, 'HH:mm');
       } else {
         acc[header] = value;
       }
     } else if ((header === 'created_at' || header === 'updated_at' || header === 'deleted_at') && value instanceof Date) {
       acc[header] = value.toISOString();
     } else if (value instanceof Date) {
-      acc[header] = Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      acc[header] = Utilities.formatDate(value, CONFIG.timeZone, 'yyyy-MM-dd');
     } else {
       acc[header] = value;
     }
