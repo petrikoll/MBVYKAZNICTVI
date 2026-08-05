@@ -43,6 +43,13 @@ test('výkon a case management pouze zařadí dokument do trvalé fronty', () =>
   assert.match(appsScriptSource, /function runQueuedRecordDocuments\(\)/);
 });
 
+test('spuštění fronty dokumentů používá existující správu triggerů', () => {
+  const runnerBody = functionBody(appsScriptSource, 'runQueuedRecordDocuments', 'upsertClientRecordDocument_');
+  assert.match(runnerBody, /deleteTriggersByHandler_\(RECORD_DOCUMENT_TRIGGER_HANDLER_\)/);
+  assert.doesNotMatch(runnerBody, /deleteTriggers_\(/);
+  assert.match(appsScriptSource, /function deleteTriggersByHandler_\(handler\)/);
+});
+
 test('frontend potvrzuje Sheet bez čekání na Drive a sleduje dokument na pozadí', () => {
   assert.match(appSource, /action: 'updateClientKeyWorker'/);
   assert.match(appSource, /continueRecordSyncInBackground\(syncedRecord, \{ noticeKey, successText \}\)/);

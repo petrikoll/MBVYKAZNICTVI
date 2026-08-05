@@ -3211,7 +3211,7 @@ function requeueFailedRecordDocument_(job, error) {
 }
 
 function runQueuedRecordDocuments() {
-  deleteTriggers_(RECORD_DOCUMENT_TRIGGER_HANDLER_);
+  deleteTriggersByHandler_(RECORD_DOCUMENT_TRIGGER_HANDLER_);
   for (let index = 0; index < RECORD_DOCUMENT_BATCH_SIZE_; index += 1) {
     const job = takeReadyRecordDocumentJob_();
     if (!job) break;
