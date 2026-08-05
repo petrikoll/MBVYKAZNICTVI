@@ -5,7 +5,18 @@ const DEFAULT_UPSTREAM_TIMEOUT_MS = 60000;
 const DEFAULT_READ_CACHE_TTL_MS = 60000;
 const DELETE_CONFIRMATION_DELAYS_MS = [0, 500, 1500, 3000];
 const DELETE_CONFIRMATION_TIMEOUT_MS = 15000;
-const CLIENT_REGISTRY_NOT_FOUND_RETRY_DELAYS_MS = [250, 750];
+const DATASET_READ_RETRY_DELAYS_MS = [250, 750, 1500];
+const RETRYABLE_DATASET_ACTIONS = new Set([
+  'listClients',
+  'listPartners',
+  'listIndividualPlans',
+  'listPerformances',
+  'listMeetings',
+  'listNetworkMeetings',
+  'listEducation',
+  'listSupervision',
+  'listStatistics'
+]);
 const CACHEABLE_GET_ACTIONS = new Set([
   'bootstrap',
   'bootstrapFast',
@@ -271,14 +282,15 @@ function buildClientDirectorySnapshot(snapshot) {
 async function fetchCompatibleReadSnapshot(fetchImpl, upstreamUrl, fetchOptions, timeoutMs, action) {
   const fetchStableAction = async (targetUrl, targetAction) => {
     let snapshot = await fetchUpstreamSnapshot(fetchImpl, targetUrl, fetchOptions, timeoutMs);
-    if (targetAction !== 'listClients' || snapshot.status !== 404) return snapshot;
+    const isTransientFailure = () => snapshot.status === 404 || snapshot.status >= 500;
+    if (!RETRYABLE_DATASET_ACTIONS.has(targetAction) || !isTransientFailure()) return snapshot;
 
-    for (let index = 0; index < CLIENT_REGISTRY_NOT_FOUND_RETRY_DELAYS_MS.length; index += 1) {
-      await new Promise((resolve) => setTimeout(resolve, CLIENT_REGISTRY_NOT_FOUND_RETRY_DELAYS_MS[index]));
+    for (let index = 0; index < DATASET_READ_RETRY_DELAYS_MS.length; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, DATASET_READ_RETRY_DELAYS_MS[index]));
       const retryUrl = new URL(targetUrl);
-      retryUrl.searchParams.set('proxy_registry_retry', `${Date.now()}-${index + 1}`);
+      retryUrl.searchParams.set('proxy_dataset_retry', `${Date.now()}-${index + 1}`);
       snapshot = await fetchUpstreamSnapshot(fetchImpl, retryUrl, fetchOptions, timeoutMs);
-      if (snapshot.status !== 404) break;
+      if (!isTransientFailure()) break;
     }
     return snapshot;
   };

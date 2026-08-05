@@ -299,6 +299,7 @@ test('ambiguous deletion response is verified against the authoritative client r
   assert.match(handler, /registryIsComplete && !clientStillActive/);
   assert.match(handler, /applyConfirmedDeletion\(\{ deleted: true, archive_warning: '' \}, true\)/);
   assert.match(handler, /result\.verified_after_response_failure === true/);
+  assert.match(handler, /úspěšně smazány\. Výsledek potvrdila následná kontrola/);
 });
 
 test('client deletion verification bypasses the cached client list', () => {

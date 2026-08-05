@@ -2557,15 +2557,16 @@ function App() {
     let retryTimeoutId = null;
     let consecutiveFailures = 0;
 
-    // Rychle a pomocne oblasti startuji soubezne. Individualni plany se spusti
-    // az po rychlem baliku, aby jejich dlouhe texty nezadrzely vykony a aktery.
+    // Rychle a pomocne oblasti startuji soubezne. Individualni plany jsou
+    // soucasti pomocneho baliku; starsi Apps Script dostane samostatny fallback.
     const prefetchAction = (action) => fetchGoogleSheetAction(action, 1)
       .then((result) => ({ action, result }))
       .catch((error) => ({ action, error }));
     const corePrefetch = prefetchAction('bootstrapFast');
     const auxiliaryPrefetch = prefetchAction('bootstrapAuxiliary');
-    const plansPrefetch = corePrefetch.then((outcome) => {
-      if (Array.isArray(outcome?.result?.individualPlans)) {
+    const plansPrefetch = auxiliaryPrefetch.then((outcome) => {
+      const plansFailedInBundle = (outcome?.result?.errors || []).some((item) => item?.action === 'listIndividualPlans');
+      if (!plansFailedInBundle && Array.isArray(outcome?.result?.individualPlans)) {
         return {
           action: 'listIndividualPlans',
           result: {
@@ -2681,10 +2682,11 @@ function App() {
           setKa01Draft((prev) => ({ ...prev, assessmentClientId: '' }));
           setKa02Draft((prev) => ({ ...prev, selectedClientId: '' }));
         }
-        if (consecutiveFailures >= 2) {
+        if (consecutiveFailures >= 3) {
           setSheetError('Načtení klientského registru se opakovaně nezdařilo. Aplikace připojení dál automaticky ověřuje; ukládání klientských dat zůstává do obnovení spojení zablokované.');
         }
-        retryTimeoutId = window.setTimeout(fetchClients, consecutiveFailures === 1 ? 1000 : 8000);
+        const retryDelayMs = consecutiveFailures === 1 ? 1000 : consecutiveFailures === 2 ? 2000 : 8000;
+        retryTimeoutId = window.setTimeout(fetchClients, retryDelayMs);
       } finally {
         if (!cancelled) setIsLoadingClients(false);
       }
@@ -2924,6 +2926,20 @@ function App() {
         if (bundleKey === 'statistics') return { statistics: data.statistics || [], __dataRevision: revision };
         return { individualPlans: data.individualPlans || [], __dataRevision: revision };
       };
+      const bootstrapContainsAction = (action, data) => {
+        const propertyByAction = {
+          listPerformances: 'performances',
+          listMeetings: 'meetings',
+          listIndividualPlans: 'individualPlans',
+          listNetworkMeetings: 'networkMeetings',
+          listPartners: 'partners',
+          listEducation: 'education',
+          listSupervision: 'supervision',
+          listStatistics: 'statistics'
+        };
+        const property = propertyByAction[action];
+        return Boolean(property && Array.isArray(data?.[property]));
+      };
       const applySingleProgressiveSource = (action, bundleKey, result) => {
         progressiveBundle[bundleKey] = result;
         if (action === 'listStatistics') setStatisticsRows(result.statistics || []);
@@ -2960,6 +2976,9 @@ function App() {
             .map((item) => item?.action)
             .filter(Boolean)
         );
+        sources.forEach(([action]) => {
+          if (!bootstrapContainsAction(action, outcome.result)) groupFailures.add(action);
+        });
         const successfulActions = new Set();
         sources.forEach(([action, bundleKey]) => {
           if (groupFailures.has(action)) return;
@@ -2981,20 +3000,18 @@ function App() {
         ['listPerformances', 'listMeetings', 'listPartners'].includes(action)
       ));
       const auxiliarySources = progressiveSources.filter(([action]) => (
-        ['listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'].includes(action)
+        ['listIndividualPlans', 'listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'].includes(action)
       ));
-      const plansSource = progressiveSources.find(([action]) => action === 'listIndividualPlans');
 
       // Side effects inside each promise publish a completed area immediately.
       await Promise.all([
         processProgressiveBootstrap('bootstrapFast', coreSources),
-        processProgressiveBootstrap('bootstrapAuxiliary', auxiliarySources),
-        loadSingleProgressiveSource(plansSource)
+        processProgressiveBootstrap('bootstrapAuxiliary', auxiliarySources)
       ]);
       if (cancelled) return;
-      setSheetError(failedActions.size
-        ? 'Nepoda\u0159ilo se na\u010d\u00edst: ' + [...failedActions].map((action) => recoveryActionLabels[action] || action).join(', ') + '. Ostatn\u00ed data jsou dostupn\u00e1.'
-        : '');
+      // Prvni prechodne selhani jeste nehlasime. Automaticka obnova probehne
+      // za osm sekund a zprava se zobrazi jen tehdy, pokud selze i ona.
+      setSheetError('');
       scheduleFailedActionRecovery(progressiveSources, progressiveBundle);
       return;
 
@@ -5365,7 +5382,7 @@ function App() {
         setClientEditDraft(emptyClientDraft);
       }
       const summary = verifiedAfterResponseFailure
-        ? 'Klient a jeho navázané záznamy byly podle následné kontroly v Google Sheetu vyřazeny. Stav složky doporučujeme zkontrolovat v archivu.'
+        ? 'Klient a jeho navázané záznamy byly úspěšně smazány. Výsledek potvrdila následná kontrola v Google Sheetu.'
         : `Klient smazán. Vyřazeno: ${deletion.performances || 0} výkonů, ${deletion.meetings || 0} záznamů case managementu a ${deletion.individual_plans || 0} individuálních plánů.`;
       setSaveButtonNotice('client-delete', deletion.archive_warning ? 'error' : 'success', deletion.archive_warning || summary);
       setFlash(deletion.archive_warning ? `${summary} ${deletion.archive_warning}` : summary);

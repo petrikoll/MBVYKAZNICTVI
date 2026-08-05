@@ -88,9 +88,35 @@ test('proxy retries a transient 404 while loading the authoritative client regis
 
   assert.equal(requestedUrls.length, 2);
   assert.equal(new URL(requestedUrls[1]).searchParams.get('action'), 'listClients');
-  assert.ok(new URL(requestedUrls[1]).searchParams.get('proxy_registry_retry'));
+  assert.ok(new URL(requestedUrls[1]).searchParams.get('proxy_dataset_retry'));
   assert.equal(response.statusCode, 200);
   assert.equal(JSON.parse(response.body).clients[0].klient_id, 'KLIENT-0001');
+});
+
+test('proxy retries a transient failure while loading individual plans', async () => {
+  let calls = 0;
+  const response = createResponse();
+
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listIndividualPlans'),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/transient-plans/exec',
+      appsScriptToken: 'server-secret',
+      fetchImpl: async () => {
+        calls += 1;
+        if (calls === 1) return new Response('Service Unavailable', { status: 503 });
+        return new Response(JSON.stringify({ ok: true, individualPlans: [{ plan_id: 'PLAN-0001' }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+  );
+
+  assert.equal(calls, 2);
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.body).individualPlans[0].plan_id, 'PLAN-0001');
 });
 
 test('POST proxy přepíše token v těle serverovým tokenem', async () => {

@@ -126,6 +126,15 @@ test('rychly startovni balik neobsahuje individualni plany', () => {
   assert.doesNotMatch(fastBlock, /listIndividualPlans/);
 });
 
+test('pomocny startovni balik nacte individualni plany bez dalsiho otevreni Sheetu', () => {
+  const auxiliaryBlock = source.slice(
+    source.indexOf("if (e.parameter.action === 'bootstrapAuxiliary')"),
+    source.indexOf("if (e.parameter.action === 'listClients')")
+  );
+  assert.match(auxiliaryBlock, /'listIndividualPlans'/);
+  assert.match(auxiliaryBlock, /'listNetworkMeetings'/);
+});
+
 test('lehky adresar klientu vraci jen udaje nutne pro rychly seznam', () => {
   const context = createContext();
   const directory = context.buildClientDirectory_([{

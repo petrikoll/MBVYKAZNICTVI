@@ -222,7 +222,7 @@ function doGet(e) {
     }
     if (e.parameter.action === 'bootstrapAuxiliary') {
       return json_(buildBootstrapPayload_([
-        'listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'
+        'listIndividualPlans', 'listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'
       ]));
     }
     if (e.parameter.action === 'listClients') {
