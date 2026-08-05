@@ -5117,8 +5117,15 @@ function App() {
       setClients((prev) => prev.map((client) => (client.id === targetClientId ? savedClient : client)));
       setSelectedClientId(savedClient.id);
       setSheetError('');
-      setSaveButtonNotice('client-update', 'success', 'Klient uložen');
-      setFlash('Klient uložen');
+      setSaveButtonNotice('client-update', 'progress', 'Klient uložen. Aktualizuji monitorovací list…');
+      setFlash('Klient uložen. Aktualizuji monitorovací list…');
+      void provisionClientDriveFolder(savedClient, { silent: true }).then((monitoringUpdated) => {
+        const message = monitoringUpdated
+          ? 'Klient uložen. Monitorovací list byl aktualizován.'
+          : 'Klient byl uložen, ale monitorovací list se nepodařilo aktualizovat.';
+        setSaveButtonNotice('client-update', monitoringUpdated ? 'success' : 'error', message);
+        setFlash(message);
+      });
     } catch (error) {
       console.error('Google Sheets client update error:', error);
       const message = saveErrorMessage('Klient nebyl uložen', error);

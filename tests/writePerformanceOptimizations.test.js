@@ -119,3 +119,14 @@ test('folder created by a document job is reflected in the open client card', ()
   assert.doesNotMatch(appSource, /onClick=\{\(\) => provisionClientDriveFolder\(selectedClient\)\}/);
   assert.match(appSource, /15000, 15000, 15000, 15000/);
 });
+
+test('client card update refreshes the existing monitoring list automatically', () => {
+  const updateStart = appSource.indexOf('const handleClientUpdate = async');
+  const deleteStart = appSource.indexOf('const handleClientDelete = async', updateStart);
+  const updateHandler = appSource.slice(updateStart, deleteStart);
+  const monitoringBody = functionBody(appsScriptSource, 'getOrCreateMonitoringList_', 'copyMonitoringTemplate_');
+
+  assert.match(updateHandler, /void provisionClientDriveFolder\(savedClient, \{ silent: true \}\)/);
+  assert.match(updateHandler, /Monitorovací list byl aktualizován/);
+  assert.match(monitoringBody, /fillMonitoringList_\(existing, client\)/);
+});
