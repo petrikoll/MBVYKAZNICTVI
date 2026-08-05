@@ -2636,8 +2636,11 @@ function App() {
     const partnersPrefetch = priorityReadsReady.then(() => prefetchAction('listPartners'));
     prefetchedSheetActionsRef.current.set('listMeetings', meetingsPrefetch);
     prefetchedSheetActionsRef.current.set('listPartners', partnersPrefetch);
-    const secondaryReadsReady = Promise.all([meetingsPrefetch, partnersPrefetch]);
-    const auxiliaryPrefetch = secondaryReadsReady.then(() => prefetchAction('bootstrapAuxiliary'));
+    // Pomocna data (vcetne schuzek site) nemaji cekat na pomalejsi z dvojice
+    // porady / akteri. Spustime je po prvnim dokoncenem pozadavku, cimz stale
+    // udrzime nejvyse dva aktivni sekundarni requesty najednou.
+    const firstSecondaryReadReady = Promise.race([meetingsPrefetch, partnersPrefetch]);
+    const auxiliaryPrefetch = firstSecondaryReadReady.then(() => prefetchAction('bootstrapAuxiliary'));
     [
       ['listNetworkMeetings', 'networkMeetings'],
       ['listEducation', 'education'],
