@@ -2590,9 +2590,10 @@ function App() {
     let retryTimeoutId = null;
     let consecutiveFailures = 0;
 
-    // Studeny Apps Script nesmi pri startu dostat nekolik soubeznych otevreni
-    // stejne tabulky. Nejprve proto bezi jediny zakladni balik. Teprve po
-    // autoritativnim nacteni klientu se spusti jeden pomocny balik a samostatne IP.
+    // Klientsky registr musi byt pri studenem startu maly samostatny pozadavek.
+    // Velky bootstrapFast drive blokoval celou aplikaci, kdyz studeny Apps Script
+    // nestihl odpovedet v limitu proxy. Dalsi zakladni oblasti proto nacitame az
+    // po klientech a postupne; pomocny balik a IP se spusti az po nich.
     const prefetchAction = (action, timeoutMs = GOOGLE_SHEET_REQUEST_TIMEOUT_MS) => fetchGoogleSheetAction(action, 1, timeoutMs)
       .then((result) => ({ action, result }))
       .catch((error) => ({ action, error }));
@@ -2625,24 +2626,21 @@ function App() {
     });
     prefetchedSheetActionsRef.current.set('startupClientReady', startupClientReady);
 
-    const corePrefetch = prefetchAction('bootstrapFast');
-    const clientsPrefetch = bundleActionPrefetch(corePrefetch, 'listClients', 'clients');
-    prefetchedSheetActionsRef.current.set(
+    const clientsPrefetch = prefetchAction('listClients');
+    let startupCoreReady = startupClientReady;
+    [
       'listPerformances',
-      bundleActionPrefetch(corePrefetch, 'listPerformances', 'performances')
-    );
-    prefetchedSheetActionsRef.current.set(
       'listMeetings',
-      bundleActionPrefetch(corePrefetch, 'listMeetings', 'meetings')
-    );
-    prefetchedSheetActionsRef.current.set(
-      'listPartners',
-      bundleActionPrefetch(corePrefetch, 'listPartners', 'partners')
-    );
+      'listPartners'
+    ].forEach((action) => {
+      const actionPrefetch = startupCoreReady.then(() => prefetchAction(action));
+      prefetchedSheetActionsRef.current.set(action, actionPrefetch);
+      startupCoreReady = actionPrefetch.then(() => undefined);
+    });
 
-    const individualPlansPrefetch = startupClientReady.then(() => prefetchAction('listIndividualPlans'));
+    const individualPlansPrefetch = startupCoreReady.then(() => prefetchAction('listIndividualPlans'));
     prefetchedSheetActionsRef.current.set('listIndividualPlans', individualPlansPrefetch);
-    const auxiliaryPrefetch = startupClientReady.then(() => prefetchAction('bootstrapAuxiliary'));
+    const auxiliaryPrefetch = startupCoreReady.then(() => prefetchAction('bootstrapAuxiliary'));
     [
       ['listNetworkMeetings', 'networkMeetings'],
       ['listEducation', 'education'],

@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const source = readFileSync(new URL('../src/app/ProjectReportingApp.jsx', import.meta.url), 'utf8');
 
-test('cold startup opens the Sheet once before launching deferred data bundles', () => {
+test('cold startup loads clients first and stages heavier Sheet reads', () => {
   const prefetchStart = source.indexOf('const prefetchAction =');
   const clientsStart = source.indexOf('const fetchClients = async () => {');
   const clientsEnd = source.indexOf('const clientIndex = useMemo', clientsStart);
@@ -12,16 +12,16 @@ test('cold startup opens the Sheet once before launching deferred data bundles',
   const clientsBlock = source.slice(clientsStart, clientsEnd);
 
   assert.ok(prefetchStart >= 0 && clientsStart > prefetchStart && clientsEnd > clientsStart);
-  assert.match(startupPrefetchBlock, /const corePrefetch = prefetchAction\('bootstrapFast'\)/);
-  assert.match(startupPrefetchBlock, /bundleActionPrefetch\(corePrefetch, 'listClients', 'clients'\)/);
-  assert.match(startupPrefetchBlock, /bundleActionPrefetch\(corePrefetch, 'listPerformances', 'performances'\)/);
-  assert.match(startupPrefetchBlock, /bundleActionPrefetch\(corePrefetch, 'listMeetings', 'meetings'\)/);
-  assert.match(startupPrefetchBlock, /bundleActionPrefetch\(corePrefetch, 'listPartners', 'partners'\)/);
-  assert.doesNotMatch(startupPrefetchBlock, /const clientsPrefetch = prefetchAction\('listClients'\)/);
+  assert.match(startupPrefetchBlock, /const clientsPrefetch = prefetchAction\('listClients'\)/);
+  assert.doesNotMatch(startupPrefetchBlock, /prefetchAction\('bootstrapFast'\)/);
+  assert.match(startupPrefetchBlock, /let startupCoreReady = startupClientReady/);
+  assert.match(startupPrefetchBlock, /'listPerformances',[\s\S]*?'listMeetings',[\s\S]*?'listPartners'/);
+  assert.match(startupPrefetchBlock, /const actionPrefetch = startupCoreReady\.then\(\(\) => prefetchAction\(action\)\)/);
+  assert.match(startupPrefetchBlock, /startupCoreReady = actionPrefetch\.then\(\(\) => undefined\)/);
   assert.doesNotMatch(startupPrefetchBlock, /fetchGoogleSheetAction\('getDataRevision'/);
 
-  assert.match(startupPrefetchBlock, /const individualPlansPrefetch = startupClientReady\.then\(\(\) => prefetchAction\('listIndividualPlans'\)\)/);
-  assert.match(startupPrefetchBlock, /const auxiliaryPrefetch = startupClientReady\.then\(\(\) => prefetchAction\('bootstrapAuxiliary'\)\)/);
+  assert.match(startupPrefetchBlock, /const individualPlansPrefetch = startupCoreReady\.then\(\(\) => prefetchAction\('listIndividualPlans'\)\)/);
+  assert.match(startupPrefetchBlock, /const auxiliaryPrefetch = startupCoreReady\.then\(\(\) => prefetchAction\('bootstrapAuxiliary'\)\)/);
   assert.match(startupPrefetchBlock, /\['listNetworkMeetings', 'networkMeetings'\]/);
   assert.match(startupPrefetchBlock, /\['listStatistics', 'statistics'\]/);
   assert.match(startupPrefetchBlock, /prefetchedSheetActionsRef\.current\.set\('startupClientReady', startupClientReady\)/);
