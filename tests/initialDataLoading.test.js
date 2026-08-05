@@ -4,15 +4,20 @@ import test from 'node:test';
 
 const source = readFileSync(new URL('../src/app/ProjectReportingApp.jsx', import.meta.url), 'utf8');
 
-test('startup uses one core bootstrap before deferred areas and bounded fallbacks', () => {
-  const bootstrapStart = source.indexOf("const corePrefetch = prefetchAction('bootstrapFast', STARTUP_BOOTSTRAP_TIMEOUT_MS)");
+test('startup loads clients independently while keeping other areas staged', () => {
+  const bootstrapStart = source.indexOf("const corePrefetch = clientsPrefetch.then(() => prefetchAction('bootstrapFast', STARTUP_BOOTSTRAP_TIMEOUT_MS))");
   const clientsStart = source.indexOf('const fetchClients = async () => {');
   const clientsEnd = source.indexOf('const clientIndex = useMemo', clientsStart);
   const clientsBlock = source.slice(clientsStart, clientsEnd);
 
   assert.ok(bootstrapStart >= 0 && clientsStart > bootstrapStart && clientsEnd > clientsStart);
-  assert.match(clientsBlock, /const bootstrapOutcome = await corePrefetch/);
-  assert.match(clientsBlock, /Array\.isArray\(bootstrapOutcome\.result\.clients\)/);
+  const startupPrefetchBlock = source.slice(source.indexOf('const prefetchAction ='), clientsStart);
+  assert.match(startupPrefetchBlock, /const clientsPrefetch = prefetchAction\('listClients', DEFERRED_DATA_TIMEOUT_MS\)/);
+  assert.match(startupPrefetchBlock, /const corePrefetch = clientsPrefetch\.then\(\(\) => prefetchAction\('bootstrapFast', STARTUP_BOOTSTRAP_TIMEOUT_MS\)\)/);
+  assert.ok(startupPrefetchBlock.indexOf('const clientsPrefetch') < startupPrefetchBlock.indexOf('const corePrefetch'));
+  assert.match(clientsBlock, /const clientOutcome = await clientsPrefetch/);
+  assert.match(clientsBlock, /Array\.isArray\(clientOutcome\.result\.clients\)/);
+  assert.doesNotMatch(clientsBlock, /await corePrefetch/);
   assert.match(clientsBlock, /fetchGoogleSheetAction\('listClients', 1, DEFERRED_DATA_TIMEOUT_MS\)/);
   assert.doesNotMatch(clientsBlock, /listClientDirectory/);
   assert.match(clientsBlock, /const retryDelayMs = consecutiveFailures === 1 \? 1000 : consecutiveFailures === 2 \? 2000 : 8000/);

@@ -2559,13 +2559,15 @@ function App() {
     let retryTimeoutId = null;
     let consecutiveFailures = 0;
 
-    // Jeden autoritativni rychly balik nacte klienty i bezne zaznamy. Teprve po
-    // jeho dokonceni spustime pomocne oblasti a plany, aby nezahltily Apps Script
-    // soubeznymi studenymi ctenimi a neblokovaly prvni pouzitelne zobrazeni.
+    // Klientsky registr nacitame samostatne hned. Pomalý nebo studeny spolecny
+    // bootstrap tak uz nemuze blokovat prvni pouzitelne zobrazeni aplikace.
+    // Ostatni oblasti zustavaji seskupene a odlozene, aby Apps Script nezahltily
+    // soubeznymi studenymi ctenimi.
     const prefetchAction = (action, timeoutMs = DEFERRED_DATA_TIMEOUT_MS) => fetchGoogleSheetAction(action, 1, timeoutMs)
       .then((result) => ({ action, result }))
       .catch((error) => ({ action, error }));
-    const corePrefetch = prefetchAction('bootstrapFast', STARTUP_BOOTSTRAP_TIMEOUT_MS);
+    const clientsPrefetch = prefetchAction('listClients', DEFERRED_DATA_TIMEOUT_MS);
+    const corePrefetch = clientsPrefetch.then(() => prefetchAction('bootstrapFast', STARTUP_BOOTSTRAP_TIMEOUT_MS));
     const auxiliaryPrefetch = corePrefetch.then(() => prefetchAction('bootstrapAuxiliary'));
     const plansPrefetch = corePrefetch.then(() => prefetchAction('listIndividualPlans'));
     prefetchedSheetActionsRef.current.set('bootstrapFast', corePrefetch);
@@ -2580,7 +2582,7 @@ function App() {
     });
 
     let hasClientSnapshot = false;
-    let startupBootstrapConsumed = false;
+    let startupClientPrefetchConsumed = false;
     const applyClientSnapshot = (parsed, authoritative) => {
       if (cancelled) return;
       if (authoritative) {
@@ -2627,13 +2629,13 @@ function App() {
       setIsLoadingClients(true);
       try {
         let json = null;
-        if (!startupBootstrapConsumed) {
-          startupBootstrapConsumed = true;
-          const bootstrapOutcome = await corePrefetch;
-          if (bootstrapOutcome?.result && Array.isArray(bootstrapOutcome.result.clients)) {
-            json = bootstrapOutcome.result;
-          } else if (bootstrapOutcome?.error) {
-            console.warn('Google Sheets startup bootstrap skipped for clients:', bootstrapOutcome.error);
+        if (!startupClientPrefetchConsumed) {
+          startupClientPrefetchConsumed = true;
+          const clientOutcome = await clientsPrefetch;
+          if (clientOutcome?.result && Array.isArray(clientOutcome.result.clients)) {
+            json = clientOutcome.result;
+          } else if (clientOutcome?.error) {
+            console.warn('Google Sheets startup client prefetch skipped:', clientOutcome.error);
           }
         }
         if (!json) json = await fetchGoogleSheetAction('listClients', 1, DEFERRED_DATA_TIMEOUT_MS);
