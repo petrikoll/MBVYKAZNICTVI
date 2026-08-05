@@ -19,10 +19,10 @@ test('cold startup loads clients first and stages heavier Sheet reads', () => {
   assert.match(startupPrefetchBlock, /const priorityReadsReady = Promise\.all\(\[performancesPrefetch, individualPlansPrefetch\]\)/);
   assert.match(startupPrefetchBlock, /const meetingsPrefetch = priorityReadsReady\.then\(\(\) => prefetchAction\('listMeetings'\)\)/);
   assert.match(startupPrefetchBlock, /const partnersPrefetch = priorityReadsReady\.then\(\(\) => prefetchAction\('listPartners'\)\)/);
-  assert.match(startupPrefetchBlock, /const secondaryReadsReady = Promise\.all\(\[meetingsPrefetch, partnersPrefetch\]\)/);
+  assert.match(startupPrefetchBlock, /const firstSecondaryReadReady = Promise\.race\(\[meetingsPrefetch, partnersPrefetch\]\)/);
   assert.doesNotMatch(startupPrefetchBlock, /fetchGoogleSheetAction\('getDataRevision'/);
 
-  assert.match(startupPrefetchBlock, /const auxiliaryPrefetch = secondaryReadsReady\.then\(\(\) => prefetchAction\('bootstrapAuxiliary'\)\)/);
+  assert.match(startupPrefetchBlock, /const auxiliaryPrefetch = firstSecondaryReadReady\.then\(\(\) => prefetchAction\('bootstrapAuxiliary'\)\)/);
   assert.match(startupPrefetchBlock, /\['listNetworkMeetings', 'networkMeetings'\]/);
   assert.match(startupPrefetchBlock, /\['listStatistics', 'statistics'\]/);
   assert.match(startupPrefetchBlock, /prefetchedSheetActionsRef\.current\.set\('startupClientReady', startupClientReady\)/);

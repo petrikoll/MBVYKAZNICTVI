@@ -145,7 +145,7 @@ test('POST proxy přepíše token v těle serverovým tokenem', async () => {
 test('proxy ceka dele nez puvodnich 45 sekund na pomaly Apps Script', async () => {
   const source = await readFile(new URL('../googleAppsScriptProxy.js', import.meta.url), 'utf8');
   assert.match(source, /DEFAULT_UPSTREAM_TIMEOUT_MS = 60000/);
-  assert.match(source, /DEFAULT_READ_CACHE_TTL_MS = 60000/);
+  assert.match(source, /DEFAULT_READ_CACHE_TTL_MS = 5 \* 60 \* 1000/);
 });
 
 test('rychla revize dat nevola Apps Script', async () => {
