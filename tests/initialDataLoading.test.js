@@ -14,14 +14,15 @@ test('cold startup loads clients first and stages heavier Sheet reads', () => {
   assert.ok(prefetchStart >= 0 && clientsStart > prefetchStart && clientsEnd > clientsStart);
   assert.match(startupPrefetchBlock, /const clientsPrefetch = prefetchAction\('listClients'\)/);
   assert.doesNotMatch(startupPrefetchBlock, /prefetchAction\('bootstrapFast'\)/);
-  assert.match(startupPrefetchBlock, /let startupCoreReady = startupClientReady/);
-  assert.match(startupPrefetchBlock, /'listPerformances',[\s\S]*?'listMeetings',[\s\S]*?'listPartners'/);
-  assert.match(startupPrefetchBlock, /const actionPrefetch = startupCoreReady\.then\(\(\) => prefetchAction\(action\)\)/);
-  assert.match(startupPrefetchBlock, /startupCoreReady = actionPrefetch\.then\(\(\) => undefined\)/);
+  assert.match(startupPrefetchBlock, /const performancesPrefetch = startupClientReady\.then\(\(\) => prefetchAction\('listPerformances'\)\)/);
+  assert.match(startupPrefetchBlock, /const individualPlansPrefetch = startupClientReady\.then\(\(\) => prefetchAction\('listIndividualPlans'\)\)/);
+  assert.match(startupPrefetchBlock, /const priorityReadsReady = Promise\.all\(\[performancesPrefetch, individualPlansPrefetch\]\)/);
+  assert.match(startupPrefetchBlock, /const meetingsPrefetch = priorityReadsReady\.then\(\(\) => prefetchAction\('listMeetings'\)\)/);
+  assert.match(startupPrefetchBlock, /const partnersPrefetch = priorityReadsReady\.then\(\(\) => prefetchAction\('listPartners'\)\)/);
+  assert.match(startupPrefetchBlock, /const secondaryReadsReady = Promise\.all\(\[meetingsPrefetch, partnersPrefetch\]\)/);
   assert.doesNotMatch(startupPrefetchBlock, /fetchGoogleSheetAction\('getDataRevision'/);
 
-  assert.match(startupPrefetchBlock, /const individualPlansPrefetch = startupCoreReady\.then\(\(\) => prefetchAction\('listIndividualPlans'\)\)/);
-  assert.match(startupPrefetchBlock, /const auxiliaryPrefetch = startupCoreReady\.then\(\(\) => prefetchAction\('bootstrapAuxiliary'\)\)/);
+  assert.match(startupPrefetchBlock, /const auxiliaryPrefetch = secondaryReadsReady\.then\(\(\) => prefetchAction\('bootstrapAuxiliary'\)\)/);
   assert.match(startupPrefetchBlock, /\['listNetworkMeetings', 'networkMeetings'\]/);
   assert.match(startupPrefetchBlock, /\['listStatistics', 'statistics'\]/);
   assert.match(startupPrefetchBlock, /prefetchedSheetActionsRef\.current\.set\('startupClientReady', startupClientReady\)/);
@@ -46,6 +47,7 @@ test('record startup reuses shared bundles and recovers failed actions sequentia
   assert.match(recordsBlock, /scheduleFailedActionRecovery/);
   assert.match(recordsBlock, /timeoutMs: GOOGLE_SHEET_REQUEST_TIMEOUT_MS/);
   assert.match(recordsBlock, /fetchGoogleSheetAction\(action, 1, timeoutMs\)/);
+  assert.match(recordsBlock, /retry: action === 'listPerformances' \|\| action === 'listIndividualPlans'/);
   assert.doesNotMatch(recordsBlock, /processProgressiveBootstrap/);
   assert.match(source, /const canLoadSheetRecords = Boolean\(GOOGLE_SHEET_MACRO_URL\);/);
   assert.match(source, /const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 65000;/);

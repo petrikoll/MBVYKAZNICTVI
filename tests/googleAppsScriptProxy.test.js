@@ -596,6 +596,34 @@ test('proxy does not retry a slow failed dataset read', async () => {
   assert.equal(response.headers['X-Upstream-Attempts'], '1');
 });
 
+test('proxy retries one slow transient 404 while read budget remains', async () => {
+  let calls = 0;
+  const response = createResponse();
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listPerformances'),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/slow-not-found/exec',
+      appsScriptToken: 'server-secret',
+      readCacheTtlMs: 0,
+      fastReadRetryThresholdMs: 5,
+      fetchImpl: async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        if (calls === 1) return new Response('Not Found', { status: 404 });
+        return new Response(JSON.stringify({ ok: true, performances: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+  );
+
+  assert.equal(calls, 2);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers['X-Upstream-Attempts'], '2');
+});
+
 test('total read budget prevents another retry chain', async () => {
   let calls = 0;
   const response = createResponse();

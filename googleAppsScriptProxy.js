@@ -400,7 +400,10 @@ async function fetchCompatibleReadSnapshot(
     if (!RETRYABLE_DATASET_ACTIONS.has(targetAction) || !isTransientFailure()) return snapshot;
 
     for (let index = 0; index < DATASET_READ_RETRY_DELAYS_MS.length; index += 1) {
-      if (snapshot.durationMs > fastRetryThresholdMs) break;
+      // Apps Script obcas po studenem startu vrati pomalou prechodnou 404,
+      // prestoze akce v nasazene verzi existuje. Pokud zbyva cas, jednu 404
+      // zopakujeme i po prekroceni bezneho prahu. Pomale 5xx dal neopakujeme.
+      if (snapshot.status !== 404 && snapshot.durationMs > fastRetryThresholdMs) break;
       const delayMs = DATASET_READ_RETRY_DELAYS_MS[index] + Math.floor(Math.random() * 151);
       if (Date.now() + delayMs >= deadlineAt) break;
       await new Promise((resolve) => setTimeout(resolve, delayMs));

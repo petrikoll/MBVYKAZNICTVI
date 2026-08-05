@@ -2592,8 +2592,8 @@ function App() {
 
     // Klientsky registr musi byt pri studenem startu maly samostatny pozadavek.
     // Velky bootstrapFast drive blokoval celou aplikaci, kdyz studeny Apps Script
-    // nestihl odpovedet v limitu proxy. Dalsi zakladni oblasti proto nacitame az
-    // po klientech a postupne; pomocny balik a IP se spusti az po nich.
+    // nestihl odpovedet v limitu proxy. Hned po klientech proto soubezne nacitame
+    // dve prioritni oblasti (vykony a IP); ostatni data je uz nemohou zdrzet.
     const prefetchAction = (action, timeoutMs = GOOGLE_SHEET_REQUEST_TIMEOUT_MS) => fetchGoogleSheetAction(action, 1, timeoutMs)
       .then((result) => ({ action, result }))
       .catch((error) => ({ action, error }));
@@ -2627,20 +2627,17 @@ function App() {
     prefetchedSheetActionsRef.current.set('startupClientReady', startupClientReady);
 
     const clientsPrefetch = prefetchAction('listClients');
-    let startupCoreReady = startupClientReady;
-    [
-      'listPerformances',
-      'listMeetings',
-      'listPartners'
-    ].forEach((action) => {
-      const actionPrefetch = startupCoreReady.then(() => prefetchAction(action));
-      prefetchedSheetActionsRef.current.set(action, actionPrefetch);
-      startupCoreReady = actionPrefetch.then(() => undefined);
-    });
-
-    const individualPlansPrefetch = startupCoreReady.then(() => prefetchAction('listIndividualPlans'));
+    const performancesPrefetch = startupClientReady.then(() => prefetchAction('listPerformances'));
+    const individualPlansPrefetch = startupClientReady.then(() => prefetchAction('listIndividualPlans'));
+    prefetchedSheetActionsRef.current.set('listPerformances', performancesPrefetch);
     prefetchedSheetActionsRef.current.set('listIndividualPlans', individualPlansPrefetch);
-    const auxiliaryPrefetch = startupCoreReady.then(() => prefetchAction('bootstrapAuxiliary'));
+    const priorityReadsReady = Promise.all([performancesPrefetch, individualPlansPrefetch]);
+    const meetingsPrefetch = priorityReadsReady.then(() => prefetchAction('listMeetings'));
+    const partnersPrefetch = priorityReadsReady.then(() => prefetchAction('listPartners'));
+    prefetchedSheetActionsRef.current.set('listMeetings', meetingsPrefetch);
+    prefetchedSheetActionsRef.current.set('listPartners', partnersPrefetch);
+    const secondaryReadsReady = Promise.all([meetingsPrefetch, partnersPrefetch]);
+    const auxiliaryPrefetch = secondaryReadsReady.then(() => prefetchAction('bootstrapAuxiliary'));
     [
       ['listNetworkMeetings', 'networkMeetings'],
       ['listEducation', 'education'],
@@ -2996,7 +2993,7 @@ function App() {
       };
       const loadSingleProgressiveSource = async ([action, bundleKey, fallback]) => {
         const result = await loadAction(action, fallback, {
-          retry: false,
+          retry: action === 'listPerformances' || action === 'listIndividualPlans',
           timeoutMs: GOOGLE_SHEET_REQUEST_TIMEOUT_MS
         });
         if (!cancelled && loadedActions.has(action)) {
