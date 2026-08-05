@@ -2187,6 +2187,13 @@ function actorSheetRowMatchesPayload(row, partner) {
 // ktery na serveru stale uspesne probiha, a uzivatel uvidi falesnou chybu.
 const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 65000;
 
+function createClientMutationRequestId(operation) {
+  const prefix = String(operation || 'client').replace(/[^a-z0-9_-]/gi, '').slice(0, 24) || 'client';
+  const randomPart = globalThis.crypto?.randomUUID?.()
+    || `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${randomPart}`;
+}
+
 async function fetchGoogleSheetAction(action, maxAttempts = 2, timeoutMs = GOOGLE_SHEET_REQUEST_TIMEOUT_MS, queryParams = {}) {
   let lastError = null;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -2316,6 +2323,8 @@ function App() {
   const pendingRecordSaveSignaturesRef = useRef(new Set());
   const pendingRecordMutationIdsRef = useRef(new Set());
   const pendingClientSaveSignaturesRef = useRef(new Set());
+  const clientCreateMutationIdsRef = useRef(new Map());
+  const clientDeleteMutationIdsRef = useRef(new Map());
   const clientDriveProvisionAttemptsRef = useRef(new Set());
   const prefetchedSheetActionsRef = useRef(new Map());
   const currentDataRevisionRef = useRef(readSafeRecordIndex().revision);
@@ -4154,6 +4163,29 @@ function App() {
   };
 
   const provisionClientDriveFolder = async (client, { silent = false } = {}) => {
+    const applyProvisionedClientFolder = (provisionedClient) => {
+      const bundleResult = {
+        clientFolderUrl: provisionedClient.drive_folder_url || provisionedClient.driveFolderUrl || '',
+        clientFolderName: client.fullName || client.id,
+        monListFileUrl: provisionedClient.monitoring_list_url || provisionedClient.monitoringListUrl || '',
+        monListFileName: 'Monitorovací list - ' + (client.fullName || client.id)
+      };
+      if (!bundleResult.clientFolderUrl || !bundleResult.monListFileUrl) return false;
+
+      setClients((previousClients) => previousClients.map((item) => (
+        item.id === client.id
+          ? {
+            ...item,
+            driveFolderUrl: bundleResult.clientFolderUrl || item.driveFolderUrl || '',
+            monitoringListUrl: bundleResult.monListFileUrl || item.monitoringListUrl || ''
+          }
+          : item
+      )));
+      persistClientDriveBundleRecord(client, bundleResult);
+      if (!silent) setFlash('Složka klienta a monitorovací list byly připraveny.');
+      return true;
+    };
+
     if (!isClientRegistryAvailable) {
       if (!silent) setFlash('Klientský registr není dostupný. Vytvoření složky bylo zablokováno.');
       return false;
@@ -4184,7 +4216,9 @@ function App() {
         monListFileUrl: provisionedClient.monitoring_list_url || '',
         monListFileName: 'Monitorovac\u00ed list - ' + (client.fullName || client.id)
       };
-      if (!bundleResult.clientFolderUrl) throw new Error('Apps Script nevr\u00e1til odkaz na slo\u017eku klienta.');
+      if (!bundleResult.clientFolderUrl || !bundleResult.monListFileUrl) {
+        throw new Error('Apps Script nevr\u00e1til \u00fapln\u00fd odkaz na slo\u017eku a monitorovac\u00ed list klienta.');
+      }
 
       setClients((previousClients) => previousClients.map((item) => (
         item.id === client.id
@@ -4200,6 +4234,27 @@ function App() {
       return true;
     } catch (error) {
       console.error('Client Drive folder provisioning error:', error);
+      const verificationDelays = [0, 1500];
+      for (const delayMs of verificationDelays) {
+        if (delayMs) await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+        try {
+          const refreshedRegistry = await fetchGoogleSheetAction(
+            'listClients',
+            1,
+            GOOGLE_SHEET_REQUEST_TIMEOUT_MS,
+            { folder_verification_nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}` }
+          );
+          const refreshedRows = Array.isArray(refreshedRegistry)
+            ? refreshedRegistry
+            : (Array.isArray(refreshedRegistry?.clients) ? refreshedRegistry.clients : []);
+          const refreshedClient = refreshedRows.find((row) => (
+            String(row?.klient_id || row?.id || '').trim() === client.id
+          ));
+          if (refreshedClient && applyProvisionedClientFolder(refreshedClient)) return true;
+        } catch (verificationError) {
+          console.warn('Client Drive folder confirmation failed:', verificationError);
+        }
+      }
       if (!silent) setFlash(error.message || 'Slo\u017eku klienta se nepoda\u0159ilo vytvo\u0159it.');
       return false;
     }
@@ -4913,8 +4968,12 @@ function App() {
     }
 
     pendingClientSaveSignaturesRef.current.add(pendingSignature);
+    const mutationRequestId = clientCreateMutationIdsRef.current.get(pendingSignature)
+      || createClientMutationRequestId('create-client');
+    clientCreateMutationIdsRef.current.set(pendingSignature, mutationRequestId);
     setIsSaving(true);
     const applyRecoveredClientCreate = (savedClient) => {
+      clientCreateMutationIdsRef.current.delete(pendingSignature);
       setClients((prev) => [savedClient, ...prev.filter((client) => client.id !== savedClient.id)]);
       setShowClientForm(false);
       setSelectedClientId(savedClient.id);
@@ -4935,11 +4994,13 @@ function App() {
     try {
       const result = await postGoogleSheetAction({
         action: 'saveClient',
+        request_id: mutationRequestId,
         client: mapClientDraftToSheetClient(clientToSave)
       });
       if (!result?.client?.klient_id) throw new Error('Google Sheet nevr\u00e1til ID klienta.');
       const savedClient = mapSheetRowToClient(result.client, clients.length);
       if (!savedClient) throw new Error('Ulo\u017een\u00e9ho klienta se nepoda\u0159ilo na\u010d\u00edst.');
+      clientCreateMutationIdsRef.current.delete(pendingSignature);
 
       setClients((prev) => [savedClient, ...prev.filter((client) => client.id !== savedClient.id)]);
       setShowClientForm(false);
@@ -4959,7 +5020,7 @@ function App() {
     } catch (error) {
       console.error('Google Sheets client save error:', error);
       const normalizedSaveError = normalizeDuplicateText(error?.message || '');
-      const saveMayAlreadyExist = [
+      const saveMayAlreadyExist = error?.code === 'MUTATION_PENDING' || [
         'prekrocilo casovy limit',
         'trva prilis dlouho',
         'nevratil platnou json odpoved',
@@ -4998,6 +5059,7 @@ function App() {
           }
         }
       }
+      if (!saveMayAlreadyExist) clientCreateMutationIdsRef.current.delete(pendingSignature);
       const message = saveErrorMessage('Klient nebyl uložen', error);
       setSaveButtonNotice('client-create', 'error', message);
       setFlash(message);
@@ -5235,7 +5297,9 @@ function App() {
     setIsSaving(true);
     setSaveButtonNotice(noticeKey, 'progress', 'Mažu klienta a navázané záznamy…');
     setSaveButtonNotice('client-delete', 'progress', `Mažu klienta ${client.fullName}…`);
+    let mutationRequestId = '';
     const applyConfirmedDeletion = (deletion, verifiedAfterResponseFailure = false) => {
+      clientDeleteMutationIdsRef.current.delete(client.id);
       setClients((previous) => previous.filter((item) => item.id !== client.id));
       setRecords((previous) => previous.filter((record) => (
         record.clientId !== client.id && !(Array.isArray(record.clientIds) && record.clientIds.includes(client.id))
@@ -5272,8 +5336,12 @@ function App() {
       if (currentDeletionState.inactive) {
         throw new Error('Klient je v neúplném stavu po předchozím mazání. Nejprve jej obnovte a načtěte znovu.');
       }
+      mutationRequestId = clientDeleteMutationIdsRef.current.get(client.id)
+        || createClientMutationRequestId('delete-client');
+      clientDeleteMutationIdsRef.current.set(client.id, mutationRequestId);
       const result = await postGoogleSheetAction({
         action: 'deleteClient',
+        request_id: mutationRequestId,
         client: {
           klient_id: client.id,
           expected_updated_at: client.expectedUpdatedAt || client.updatedAt || ''
@@ -5284,7 +5352,8 @@ function App() {
       applyConfirmedDeletion(result.deletion, result.verified_after_response_failure === true);
     } catch (error) {
       console.error('Google Sheets client delete error:', error);
-      const ambiguousResponse = /platnou JSON odpověď|uložení nelze potvrdit/i.test(String(error?.message || ''));
+      const ambiguousResponse = error?.code === 'MUTATION_PENDING'
+        || /platnou JSON odpověď|uložení nelze potvrdit|časový limit|trvá příliš dlouho/i.test(String(error?.message || ''));
       if (ambiguousResponse) {
         // Odpoved ContentService muze selhat i tesne pred dorucenim platneho JSON.
         // Overeni proto kratce opakujeme; okamzita jednorazova kontrola mohla
@@ -5344,6 +5413,7 @@ function App() {
           console.warn('Client deletion registry verification failed:', registryVerificationError);
         }
       }
+      if (!ambiguousResponse) clientDeleteMutationIdsRef.current.delete(client.id);
       const message = saveErrorMessage('Klient nebyl smazán', error);
       setSaveButtonNotice(noticeKey, 'error', message);
       setSaveButtonNotice('client-delete', 'error', message);

@@ -314,3 +314,165 @@ test('doPost cleanup cannot replace a JSON response with an uncaught cleanup err
   assert.match(appsScriptSource, /doPost lock release failed/);
   assert.match(appsScriptSource, /console\.error\('doPost ' \+ \(requestedAction \|\| 'unknown'\) \+ ' failed:/);
 });
+
+test('client create and delete persist a technical idempotency result before responding', () => {
+  assert.match(appsScriptSource, /CLIENT_MUTATION_RESULT_PREFIX_/);
+  assert.match(appsScriptSource, /CLIENT_MUTATION_PROCESSING_TTL_MS_/);
+  assert.match(appsScriptSource, /e\.parameter\.action === 'getClientMutationResult'/);
+  assert.match(appsScriptSource, /startClientMutation_\(clientMutationRequestId, requestedAction\)/);
+  assert.match(appsScriptSource, /storeClientMutationResult_\(clientMutationRequestId, requestedAction/);
+  assert.match(appsScriptSource, /existingMutation\.state === 'completed'/);
+  assert.match(appsScriptSource, /replayed: true/);
+});
+
+test('stored client mutation result contains no client name or contact data', () => {
+  const context = createContext();
+  const values = new Map();
+  const properties = {
+    getProperty: (key) => values.get(key) || null,
+    setProperty: (key, value) => values.set(key, value),
+    deleteProperty: (key) => values.delete(key),
+    getProperties: () => Object.fromEntries(values)
+  };
+  context.PropertiesService = { getScriptProperties: () => properties };
+
+  context.storeClientMutationResult_('create-client-1234567890abcdef', 'saveClient', {
+    klient_id: 'KLIENT-0055'
+  });
+
+  const raw = [...values.values()][0];
+  assert.match(raw, /KLIENT-0055/);
+  assert.doesNotMatch(raw, /jmeno|prijmeni|telefon|email/);
+  assert.equal(context.readStoredClientMutationResult_('create-client-1234567890abcdef').state, 'completed');
+});
+
+test('repeated create request id returns the original client without a second write', () => {
+  const context = createContext();
+  const values = new Map();
+  const properties = {
+    getProperty: (key) => values.get(key) || null,
+    setProperty: (key, value) => values.set(key, value),
+    deleteProperty: (key) => values.delete(key),
+    getProperties: () => Object.fromEntries(values)
+  };
+  let saveCalls = 0;
+  context.PropertiesService = { getScriptProperties: () => properties };
+  context.LockService = {
+    getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} })
+  };
+  context.assertToken_ = () => {};
+  context.invalidateReadActions_ = () => {};
+  context.json_ = (payload) => payload;
+  context.saveClient_ = () => {
+    saveCalls += 1;
+    return { klient_id: 'KLIENT-0055', jmeno: 'Test', prijmeni: 'Klient' };
+  };
+  context.findClientForMutationResult_ = () => ({
+    klient_id: 'KLIENT-0055', jmeno: 'Test', prijmeni: 'Klient'
+  });
+
+  const event = {
+    postData: {
+      contents: JSON.stringify({
+        token: 'secret',
+        action: 'saveClient',
+        request_id: 'create-client-1234567890abcdef',
+        client: { jmeno: 'Test', prijmeni: 'Klient' }
+      })
+    }
+  };
+  const first = context.doPost(event);
+  const second = context.doPost(event);
+
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.equal(second.replayed, true);
+  assert.equal(second.client.klient_id, 'KLIENT-0055');
+  assert.equal(saveCalls, 1);
+});
+
+test('repeated delete request id returns the original result without a second delete', () => {
+  const context = createContext();
+  const values = new Map();
+  const properties = {
+    getProperty: (key) => values.get(key) || null,
+    setProperty: (key, value) => values.set(key, value),
+    deleteProperty: (key) => values.delete(key),
+    getProperties: () => Object.fromEntries(values)
+  };
+  let deleteCalls = 0;
+  context.PropertiesService = { getScriptProperties: () => properties };
+  context.LockService = {
+    getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} })
+  };
+  context.assertToken_ = () => {};
+  context.invalidateReadActions_ = () => {};
+  context.json_ = (payload) => payload;
+  context.deleteClient_ = (client) => {
+    deleteCalls += 1;
+    return {
+      klient_id: client.klient_id,
+      deleted: true,
+      performances: 2,
+      meetings: 1,
+      individual_plans: 1
+    };
+  };
+
+  const event = {
+    postData: {
+      contents: JSON.stringify({
+        token: 'secret',
+        action: 'deleteClient',
+        request_id: 'delete-client-1234567890abcdef',
+        client: { klient_id: 'KLIENT-0056' },
+        requested_by_name: 'Mgr. Radka Vyslouzilova'
+      })
+    }
+  };
+  const first = context.doPost(event);
+  const second = context.doPost(event);
+
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.equal(second.replayed, true);
+  assert.equal(second.deletion.deleted, true);
+  assert.equal(deleteCalls, 1);
+});
+
+test('lock timeout keeps a client mutation pending instead of recording a false failure', () => {
+  const context = createContext();
+  const values = new Map();
+  context.PropertiesService = {
+    getScriptProperties: () => ({
+      getProperty: (key) => values.get(key) || null,
+      setProperty: (key, value) => values.set(key, value),
+      deleteProperty: (key) => values.delete(key),
+      getProperties: () => Object.fromEntries(values)
+    })
+  };
+  context.LockService = {
+    getScriptLock: () => ({
+      waitLock: () => { throw new Error('Lock timeout'); },
+      releaseLock: () => {}
+    })
+  };
+  context.assertToken_ = () => {};
+  context.invalidateReadActions_ = () => {};
+  context.json_ = (payload) => payload;
+
+  const result = context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        token: 'secret',
+        action: 'saveClient',
+        request_id: 'create-client-lock-1234567890',
+        client: { jmeno: 'Test', prijmeni: 'Klient' }
+      })
+    }
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'MUTATION_PENDING');
+  assert.equal(values.size, 0);
+});

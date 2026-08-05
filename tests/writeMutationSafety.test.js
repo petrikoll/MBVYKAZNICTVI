@@ -37,3 +37,23 @@ test('new records never send a browser-generated id as an existing Sheet row', (
   const persistedIdAssignments = source.match(/(?:partner_id|schuzka_site_id|vzdelavani_id|sepervize_id|plan_id|meeting_id|vykon_id): persistedSheetId/g) || [];
   assert.equal(persistedIdAssignments.length, 7);
 });
+
+test('client create and delete reuse an idempotent request id until confirmed', () => {
+  const createStart = source.indexOf('const handleClientCreate = async');
+  const createEnd = source.indexOf('const openClientEditForm =', createStart);
+  const deleteStart = source.indexOf('const handleClientDelete = async');
+  const deleteEnd = source.indexOf('const handleGenerateText = async', deleteStart);
+  const createHandler = source.slice(createStart, createEnd);
+  const deleteHandler = source.slice(deleteStart, deleteEnd);
+
+  assert.match(source, /function createClientMutationRequestId/);
+  assert.match(source, /clientCreateMutationIdsRef = useRef\(new Map\(\)\)/);
+  assert.match(source, /clientDeleteMutationIdsRef = useRef\(new Map\(\)\)/);
+  assert.match(createHandler, /request_id: mutationRequestId/);
+  assert.match(createHandler, /clientCreateMutationIdsRef\.current\.get\(pendingSignature\)/);
+  assert.match(createHandler, /saveMayAlreadyExist = error\?\.code === 'MUTATION_PENDING'/);
+  assert.match(deleteHandler, /request_id: mutationRequestId/);
+  assert.match(deleteHandler, /clientDeleteMutationIdsRef\.current\.get\(client\.id\)/);
+  assert.match(deleteHandler, /ambiguousResponse = error\?\.code === 'MUTATION_PENDING'/);
+  assert.match(deleteHandler, /časový limit\|trvá příliš dlouho/);
+});

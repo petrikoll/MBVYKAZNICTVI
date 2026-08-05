@@ -30,6 +30,9 @@ const RECORD_DOCUMENT_STATUS_PROPERTY_ = 'record-document-status-v1';
 const RECORD_DOCUMENT_TRIGGER_HANDLER_ = 'runQueuedRecordDocuments';
 const RECORD_DOCUMENT_MAX_ATTEMPTS_ = 3;
 const RECORD_DOCUMENT_BATCH_SIZE_ = 4;
+const CLIENT_MUTATION_RESULT_PREFIX_ = 'client-mutation-v1:';
+const CLIENT_MUTATION_RESULT_TTL_MS_ = 24 * 60 * 60 * 1000;
+const CLIENT_MUTATION_PROCESSING_TTL_MS_ = 10 * 60 * 1000;
 const DRIVE_AUDIT_SHEET_NAME_ = 'Audit_Drive';
 const DRIVE_REPAIR_LOG_SHEET_NAME_ = 'Drive_Repair_Log';
 const DRIVE_REPAIR_BACKUP_MAX_AGE_MS_ = 24 * 60 * 60 * 1000;
@@ -69,6 +72,138 @@ SHEET_READ_ACTIONS_[CONFIG.educationSheetName] = ['listEducation'];
 SHEET_READ_ACTIONS_[CONFIG.supervisionSheetName] = ['listSupervision'];
 SHEET_READ_ACTIONS_[CONFIG.statisticsSheetName] = ['listStatistics'];
 
+function normalizeClientMutationRequestId_(value) {
+  const requestId = String(value || '').trim();
+  return /^[A-Za-z0-9_-]{16,128}$/.test(requestId) ? requestId : '';
+}
+
+function clientMutationPropertyKey_(requestId) {
+  return CLIENT_MUTATION_RESULT_PREFIX_ + requestId;
+}
+
+function cleanupClientMutationResults_(properties, nowMs) {
+  const allProperties = properties.getProperties();
+  Object.keys(allProperties).forEach(function(key) {
+    if (key.indexOf(CLIENT_MUTATION_RESULT_PREFIX_) !== 0) return;
+    try {
+      const stored = JSON.parse(allProperties[key] || '{}');
+      const completedAtMs = Date.parse(stored.completed_at || '');
+      const maxAgeMs = stored.state === 'processing'
+        ? CLIENT_MUTATION_PROCESSING_TTL_MS_
+        : CLIENT_MUTATION_RESULT_TTL_MS_;
+      if (!completedAtMs || nowMs - completedAtMs > maxAgeMs) {
+        properties.deleteProperty(key);
+      }
+    } catch (error) {
+      properties.deleteProperty(key);
+    }
+  });
+}
+
+function readStoredClientMutationResult_(requestId) {
+  const normalizedRequestId = normalizeClientMutationRequestId_(requestId);
+  if (!normalizedRequestId) return null;
+  const properties = PropertiesService.getScriptProperties();
+  const key = clientMutationPropertyKey_(normalizedRequestId);
+  const raw = properties.getProperty(key);
+  if (!raw) return null;
+  try {
+    const stored = JSON.parse(raw);
+    const completedAtMs = Date.parse(stored.completed_at || '');
+    const maxAgeMs = stored.state === 'processing'
+      ? CLIENT_MUTATION_PROCESSING_TTL_MS_
+      : CLIENT_MUTATION_RESULT_TTL_MS_;
+    if (!completedAtMs || Date.now() - completedAtMs > maxAgeMs) {
+      properties.deleteProperty(key);
+      return null;
+    }
+    return stored;
+  } catch (error) {
+    properties.deleteProperty(key);
+    return null;
+  }
+}
+
+function storeClientMutationResult_(requestId, action, result) {
+  const normalizedRequestId = normalizeClientMutationRequestId_(requestId);
+  if (!normalizedRequestId || !['saveClient', 'deleteClient'].includes(action)) return;
+  const properties = PropertiesService.getScriptProperties();
+  const now = new Date();
+  cleanupClientMutationResults_(properties, now.getTime());
+  properties.setProperty(clientMutationPropertyKey_(normalizedRequestId), JSON.stringify(Object.assign({
+    request_id: normalizedRequestId,
+    action: action,
+    state: 'completed',
+    completed_at: now.toISOString()
+  }, result || {})));
+}
+
+function startClientMutation_(requestId, action) {
+  const normalizedRequestId = normalizeClientMutationRequestId_(requestId);
+  if (!normalizedRequestId || !['saveClient', 'deleteClient'].includes(action)) return null;
+  const existing = readStoredClientMutationResult_(normalizedRequestId);
+  if (existing) return existing;
+  const properties = PropertiesService.getScriptProperties();
+  const now = new Date();
+  cleanupClientMutationResults_(properties, now.getTime());
+  properties.setProperty(clientMutationPropertyKey_(normalizedRequestId), JSON.stringify({
+    request_id: normalizedRequestId,
+    action: action,
+    state: 'processing',
+    completed_at: now.toISOString()
+  }));
+  return null;
+}
+
+function storeClientMutationFailure_(requestId, action, error) {
+  const normalizedRequestId = normalizeClientMutationRequestId_(requestId);
+  if (!normalizedRequestId || !['saveClient', 'deleteClient'].includes(action)) return;
+  const existing = readStoredClientMutationResult_(normalizedRequestId);
+  if (existing && existing.action !== action) return;
+  if (existing && existing.state === 'completed') return;
+  const properties = PropertiesService.getScriptProperties();
+  const now = new Date();
+  cleanupClientMutationResults_(properties, now.getTime());
+  properties.setProperty(clientMutationPropertyKey_(normalizedRequestId), JSON.stringify({
+    request_id: normalizedRequestId,
+    action: action,
+    state: 'failed',
+    code: error && error.code ? String(error.code) : '',
+    error: action === 'saveClient' ? 'Zalozeni klienta selhalo.' : 'Smazani klienta selhalo.',
+    completed_at: now.toISOString()
+  }));
+}
+
+function findClientForMutationResult_(clientId) {
+  const id = String(clientId || '').trim();
+  if (!id) return null;
+  const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
+  if (!sheet) return null;
+  const headers = getHeaders_(sheet);
+  const idColumn = headers.indexOf('klient_id') + 1;
+  if (!idColumn) return null;
+  const rows = findClientRows_(sheet, idColumn, id);
+  if (rows.length !== 1) return null;
+  return rowToObject_(headers, sheet.getRange(rows[0], 1, 1, headers.length).getValues()[0]);
+}
+
+function getClientMutationResult_(requestId) {
+  const normalizedRequestId = normalizeClientMutationRequestId_(requestId);
+  if (!normalizedRequestId) throw new Error('Missing or invalid request_id');
+  const stored = readStoredClientMutationResult_(normalizedRequestId);
+  if (!stored) return { request_id: normalizedRequestId, state: 'pending' };
+  const result = Object.assign({}, stored);
+  if (result.state === 'completed' && result.action === 'saveClient' && result.klient_id) {
+    result.client = findClientForMutationResult_(result.klient_id);
+    if (!result.client) {
+      result.state = 'failed';
+      result.code = 'NOT_FOUND';
+      result.error = 'Ulozeny klient nebyl pri kontrole nalezen.';
+    }
+  }
+  return result;
+}
+
 function doGet(e) {
   try {
     assertToken_(e.parameter.token);
@@ -95,6 +230,9 @@ function doGet(e) {
     }
     if (e.parameter.action === 'verifyClientDeletion') {
       return json_({ ok: true, deletion: verifyClientDeletion_(e.parameter.klient_id) });
+    }
+    if (e.parameter.action === 'getClientMutationResult') {
+      return json_({ ok: true, mutation: getClientMutationResult_(e.parameter.request_id) });
     }
     if (e.parameter.action === 'listClientDirectory') {
       const clients = readCachedDataset_('listClients', () => listClients_());
@@ -154,22 +292,58 @@ function doPost(e) {
   let lock = null;
   let lockAcquired = false;
   let requestedAction = '';
+  let clientMutationRequestId = '';
   try {
     const payload = JSON.parse(e.postData.contents || '{}');
     assertToken_(payload.token);
     requestedAction = String(payload.action || '');
+    clientMutationRequestId = normalizeClientMutationRequestId_(payload.request_id);
     lock = LockService.getScriptLock();
     lock.waitLock(30000);
     lockAcquired = true;
 
+    if (clientMutationRequestId && ['saveClient', 'deleteClient'].includes(requestedAction)) {
+      const existingMutation = startClientMutation_(clientMutationRequestId, requestedAction);
+      if (existingMutation) {
+        if (existingMutation.action !== requestedAction) {
+          throw new Error('request_id byl pouzit pro jinou operaci.');
+        }
+        if (existingMutation.state === 'completed') {
+          const replayedMutation = getClientMutationResult_(clientMutationRequestId);
+          if (replayedMutation.state !== 'completed') {
+            return json_({ ok: false, code: replayedMutation.code || 'NOT_FOUND', error: replayedMutation.error || 'Vysledek operace se nepodarilo overit.', mutation: replayedMutation });
+          }
+          if (requestedAction === 'saveClient') {
+            return json_({ ok: true, client: replayedMutation.client, mutation: replayedMutation, replayed: true });
+          }
+          return json_({ ok: true, deletion: replayedMutation.deletion, mutation: replayedMutation, replayed: true });
+        }
+        if (existingMutation.state === 'failed') {
+          return json_({ ok: false, code: existingMutation.code || '', error: existingMutation.error || 'Operace selhala.', mutation: existingMutation });
+        }
+        return json_({ ok: false, code: 'MUTATION_PENDING', error: 'Operace se stejnym request_id se stale overuje.', mutation: existingMutation });
+      }
+    }
+
     if (payload.action === 'saveClient') {
       const client = saveClient_(payload.client || {});
-      return json_({ ok: true, client });
+      storeClientMutationResult_(clientMutationRequestId, requestedAction, { klient_id: String(client.klient_id || '') });
+      return json_({ ok: true, client, request_id: clientMutationRequestId });
     }
 
     if (payload.action === 'deleteClient') {
       const deletion = deleteClient_(payload.client || {}, payload.requested_by_name || payload.requested_by || '');
-      return json_({ ok: true, deletion });
+      storeClientMutationResult_(clientMutationRequestId, requestedAction, {
+        klient_id: String(deletion.klient_id || payload.client && payload.client.klient_id || ''),
+        deletion: {
+          deleted: deletion.deleted === true,
+          already_deleted: deletion.already_deleted === true,
+          performances: Number(deletion.performances || 0),
+          meetings: Number(deletion.meetings || 0),
+          individual_plans: Number(deletion.individual_plans || 0)
+        }
+      });
+      return json_({ ok: true, deletion, request_id: clientMutationRequestId });
     }
 
     if (payload.action === 'updateClientKeyWorker') {
@@ -274,6 +448,23 @@ function doPost(e) {
     return json_({ ok: false, error: 'Unknown action' });
   } catch (error) {
     console.error('doPost ' + (requestedAction || 'unknown') + ' failed: ' + String(error && (error.stack || error.message || error)));
+    if (
+      clientMutationRequestId
+      && ['saveClient', 'deleteClient'].includes(requestedAction)
+      && !lockAcquired
+    ) {
+      return json_({
+        ok: false,
+        code: 'MUTATION_PENDING',
+        error: 'Operace klienta ceka na dokonceni predchoziho zapisu. Zkuste stejny pozadavek znovu.',
+        request_id: clientMutationRequestId
+      });
+    }
+    try {
+      storeClientMutationFailure_(clientMutationRequestId, requestedAction, error);
+    } catch (mutationTrackingError) {
+      console.error('doPost mutation tracking failed: ' + String(mutationTrackingError.message || mutationTrackingError));
+    }
     return json_({ ok: false, code: error && error.code ? String(error.code) : '', error: String(error.message || error) });
   } finally {
     try {

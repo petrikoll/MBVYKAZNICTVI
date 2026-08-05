@@ -133,6 +133,79 @@ function isAmbiguousMutationSnapshot(snapshot) {
   return parseJsonSnapshot(snapshot) === null || snapshot.status >= 500;
 }
 
+async function verifyClientMutationResult(fetchImpl, appsScriptUrl, appsScriptToken, requestId, expectedAction, upstreamTimeoutMs) {
+  const normalizedRequestId = String(requestId || '').trim();
+  if (!normalizedRequestId || !['saveClient', 'deleteClient'].includes(expectedAction)) return null;
+
+  const verificationUrl = new URL(appsScriptUrl);
+  verificationUrl.searchParams.set('action', 'getClientMutationResult');
+  verificationUrl.searchParams.set('request_id', normalizedRequestId);
+  verificationUrl.searchParams.set('token', appsScriptToken);
+  const timeoutMs = Math.min(upstreamTimeoutMs, DELETE_CONFIRMATION_TIMEOUT_MS);
+
+  for (const delayMs of DELETE_CONFIRMATION_DELAYS_MS) {
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      const snapshot = await fetchUpstreamSnapshot(
+        fetchImpl,
+        verificationUrl,
+        { method: 'GET', redirect: 'follow' },
+        timeoutMs
+      );
+      if (isUnsupportedActionSnapshot(snapshot)) return null;
+      const payload = parseJsonSnapshot(snapshot);
+      const mutation = payload?.mutation;
+      if (
+        snapshot.status < 200
+        || snapshot.status >= 300
+        || payload?.ok !== true
+        || mutation?.request_id !== normalizedRequestId
+        || mutation?.action !== expectedAction
+      ) continue;
+
+      if (mutation.state === 'failed') {
+        return {
+          statusCode: mutation.code === 'CONFLICT' ? 409 : 400,
+          payload: {
+            ok: false,
+            code: mutation.code || '',
+            error: mutation.error || 'Operace klienta selhala.',
+            mutation,
+            verified_after_response_failure: true
+          }
+        };
+      }
+      if (mutation.state !== 'completed') continue;
+
+      if (expectedAction === 'saveClient' && mutation.client?.klient_id) {
+        return {
+          statusCode: 200,
+          payload: {
+            ok: true,
+            client: mutation.client,
+            mutation,
+            verified_after_response_failure: true
+          }
+        };
+      }
+      if (expectedAction === 'deleteClient' && mutation.deletion?.deleted === true) {
+        return {
+          statusCode: 200,
+          payload: {
+            ok: true,
+            deletion: mutation.deletion,
+            mutation,
+            verified_after_response_failure: true
+          }
+        };
+      }
+    } catch (error) {
+      console.warn('Client mutation confirmation retry failed:', expectedAction, error);
+    }
+  }
+  return null;
+}
+
 async function verifyDeletedClient(fetchImpl, appsScriptUrl, appsScriptToken, clientId, upstreamTimeoutMs) {
   const normalizedClientId = String(clientId || '').trim();
   if (!normalizedClientId) return null;
@@ -222,8 +295,11 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
     return;
   }
 
+  let incomingUrl = null;
+  let postPayload = null;
+  let action = '';
   try {
-    const incomingUrl = new URL(request.url || '/', 'http://localhost');
+    incomingUrl = new URL(request.url || '/', 'http://localhost');
     if (request.method === 'GET' && incomingUrl.searchParams.get('action') === 'getDataRevision') {
       sendJson(response, 200, { ok: true, revision: getDataRevision() });
       return;
@@ -234,7 +310,6 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
     });
 
     const fetchOptions = { method: request.method, redirect: 'follow' };
-    let postPayload = null;
     if (request.method === 'GET') {
       upstreamUrl.searchParams.set('token', appsScriptToken);
     } else {
@@ -245,7 +320,7 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
       fetchOptions.body = JSON.stringify({ ...payload, token: appsScriptToken });
     }
 
-    const action = incomingUrl.searchParams.get('action') || '';
+    action = incomingUrl.searchParams.get('action') || '';
     const canCacheRead = request.method === 'GET' && CACHEABLE_GET_ACTIONS.has(action) && readCacheTtlMs > 0;
     if (canCacheRead) {
       const cacheKey = buildReadCacheKey(upstreamUrl);
@@ -293,6 +368,27 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
     const snapshot = await fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs);
     if (
       request.method === 'POST'
+      && ['saveClient', 'deleteClient'].includes(postPayload?.action)
+      && postPayload?.request_id
+      && isAmbiguousMutationSnapshot(snapshot)
+    ) {
+      const confirmedMutation = await verifyClientMutationResult(
+        fetchImpl,
+        appsScriptUrl,
+        appsScriptToken,
+        postPayload.request_id,
+        postPayload.action,
+        upstreamTimeoutMs
+      );
+      if (confirmedMutation) {
+        sendJson(response, confirmedMutation.statusCode, confirmedMutation.payload, {
+          'X-Mutation-Verified': postPayload.action
+        });
+        return;
+      }
+    }
+    if (
+      request.method === 'POST'
       && postPayload?.action === 'deleteClient'
       && isAmbiguousMutationSnapshot(snapshot)
     ) {
@@ -317,7 +413,31 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
     }
     sendUpstreamSnapshot(response, snapshot);
   } catch (error) {
-    console.error('Google Apps Script proxy error:', error);
+    console.error('Google Apps Script proxy error:', postPayload?.action || action || 'unknown', error);
+    if (
+      request.method === 'POST'
+      && ['saveClient', 'deleteClient'].includes(postPayload?.action)
+      && postPayload?.request_id
+    ) {
+      try {
+        const confirmedMutation = await verifyClientMutationResult(
+          fetchImpl,
+          appsScriptUrl,
+          appsScriptToken,
+          postPayload.request_id,
+          postPayload.action,
+          upstreamTimeoutMs
+        );
+        if (confirmedMutation) {
+          sendJson(response, confirmedMutation.statusCode, confirmedMutation.payload, {
+            'X-Mutation-Verified': postPayload.action
+          });
+          return;
+        }
+      } catch (verificationError) {
+        console.warn('Client mutation confirmation failed after proxy error:', postPayload.action, verificationError);
+      }
+    }
     const timedOut = error?.name === 'AbortError';
     sendJson(response, timedOut ? 504 : 502, {
       ok: false,

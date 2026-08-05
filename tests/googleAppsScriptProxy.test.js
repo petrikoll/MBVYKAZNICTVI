@@ -405,3 +405,94 @@ test('invalid delete response is confirmed against the authoritative client row'
   assert.equal(payload.deletion.deleted, true);
   assert.equal(payload.verified_after_response_failure, true);
 });
+
+test('invalid create response is confirmed by its exact mutation request id', async () => {
+  const requestedActions = [];
+  const requestId = 'create-client-1234567890abcdef';
+  const response = createResponse();
+
+  await handleGoogleAppsScriptProxy(
+    createRequest('POST', '/api/google-sheets', JSON.stringify({
+      action: 'saveClient',
+      request_id: requestId,
+      client: { jmeno: 'Test', prijmeni: 'Klient' }
+    })),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/create-confirmation/exec',
+      appsScriptToken: 'server-secret',
+      fetchImpl: async (url, options) => {
+        if (options.method === 'POST') {
+          requestedActions.push('saveClient');
+          return new Response('<html>ContentService response failed</html>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' }
+          });
+        }
+        const action = new URL(url).searchParams.get('action');
+        requestedActions.push(action);
+        return new Response(JSON.stringify({
+          ok: true,
+          mutation: {
+            request_id: requestId,
+            action: 'saveClient',
+            state: 'completed',
+            klient_id: 'KLIENT-0055',
+            client: { klient_id: 'KLIENT-0055', jmeno: 'Test', prijmeni: 'Klient' }
+          }
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+  );
+
+  const payload = JSON.parse(response.body);
+  assert.deepEqual(requestedActions, ['saveClient', 'getClientMutationResult']);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers['X-Mutation-Verified'], 'saveClient');
+  assert.equal(payload.client.klient_id, 'KLIENT-0055');
+  assert.equal(payload.verified_after_response_failure, true);
+});
+
+test('timed out delete is confirmed by request id before returning an error', async () => {
+  const requestId = 'delete-client-1234567890abcdef';
+  const response = createResponse();
+  let mutationChecks = 0;
+
+  await handleGoogleAppsScriptProxy(
+    createRequest('POST', '/api/google-sheets', JSON.stringify({
+      action: 'deleteClient',
+      request_id: requestId,
+      client: { klient_id: 'KLIENT-0056' }
+    })),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/delete-timeout-confirmation/exec',
+      appsScriptToken: 'server-secret',
+      fetchImpl: async (url, options) => {
+        if (options.method === 'POST') throw new DOMException('timeout', 'AbortError');
+        mutationChecks += 1;
+        return new Response(JSON.stringify({
+          ok: true,
+          mutation: {
+            request_id: requestId,
+            action: 'deleteClient',
+            state: 'completed',
+            deletion: { klient_id: 'KLIENT-0056', deleted: true }
+          }
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+  );
+
+  const payload = JSON.parse(response.body);
+  assert.equal(mutationChecks, 1);
+  assert.equal(response.statusCode, 200);
+  assert.equal(payload.deletion.deleted, true);
+  assert.equal(payload.verified_after_response_failure, true);
+});
