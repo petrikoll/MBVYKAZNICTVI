@@ -13,10 +13,12 @@ import {
   Database,
   Download,
   DownloadCloud,
+  Eye,
   FileBadge,
   FileSpreadsheet,
   FileText,
   Filter,
+  FolderOpen,
   GraduationCap,
   History,
   Lightbulb,
@@ -2267,6 +2269,27 @@ function recordSourceAction(record) {
   return '';
 }
 
+function formatClientFolderFileSize(value) {
+  const bytes = Number(value || 0);
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} kB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
+}
+
+function formatClientFolderFileDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('cs-CZ', {
+    day: 'numeric',
+    month: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
+}
+
 function App() {
   const [mainView, setMainView] = useState('clients');
   const [searchQuery, setSearchQuery] = useState('');
@@ -2305,6 +2328,20 @@ function App() {
   const isEsfExportRequestRef = useRef(0);
   const isEsfSupportExportRequestRef = useRef(0);
   const [isProvisioningClientFolder, setIsProvisioningClientFolder] = useState(false);
+  const [clientFolderViewer, setClientFolderViewer] = useState({
+    open: false,
+    clientId: '',
+    clientName: '',
+    folder: null,
+    files: [],
+    loading: false,
+    error: '',
+    selectedFileId: '',
+    preview: null,
+    previewLoading: false,
+    previewError: ''
+  });
+  const clientFolderViewerRequestRef = useRef(0);
   const [isSummarizingCase, setIsSummarizingCase] = useState(false);
   const [isExportingClientCaseDocx, setIsExportingClientCaseDocx] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -3091,6 +3128,22 @@ function App() {
     setSelectedJourneyPrintIds([]);
   }, [selectedClientId]);
 
+  useEffect(() => {
+    if (!clientFolderViewer.open) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      clientFolderViewerRequestRef.current += 1;
+      setClientFolderViewer((current) => ({ ...current, open: false }));
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [clientFolderViewer.open]);
+
   const recordsByType = useMemo(() => groupRecordsByType(records), [records]);
 
   const isReportingViewActive = mainView === 'dashboard';
@@ -3570,6 +3623,95 @@ function App() {
       }
     };
   }, [records, selectedClient]);
+
+  const closeClientFolderViewer = () => {
+    clientFolderViewerRequestRef.current += 1;
+    setClientFolderViewer((current) => ({ ...current, open: false }));
+  };
+
+  const loadClientFolderFilePreview = async (clientId, file) => {
+    if (!clientId || !file?.id) return;
+    const requestId = ++clientFolderViewerRequestRef.current;
+    setClientFolderViewer((current) => ({
+      ...current,
+      selectedFileId: file.id,
+      preview: null,
+      previewLoading: true,
+      previewError: ''
+    }));
+    try {
+      const result = await fetchGoogleSheetAction(
+        'getClientFolderFilePreview',
+        1,
+        45000,
+        { klient_id: clientId, file_id: file.id }
+      );
+      if (clientFolderViewerRequestRef.current !== requestId) return;
+      setClientFolderViewer((current) => ({
+        ...current,
+        preview: result?.preview || null,
+        previewLoading: false,
+        previewError: result?.preview ? '' : 'Náhled dokumentu není dostupný.'
+      }));
+    } catch (error) {
+      if (clientFolderViewerRequestRef.current !== requestId) return;
+      setClientFolderViewer((current) => ({
+        ...current,
+        preview: null,
+        previewLoading: false,
+        previewError: error.message || 'Náhled dokumentu se nepodařilo načíst.'
+      }));
+    }
+  };
+
+  const openClientFolderViewer = async () => {
+    if (!selectedClient?.id) return;
+    const clientId = selectedClient.id;
+    const requestId = ++clientFolderViewerRequestRef.current;
+    setClientFolderViewer({
+      open: true,
+      clientId,
+      clientName: selectedClient.fullName || selectedClient.id,
+      folder: null,
+      files: [],
+      loading: true,
+      error: '',
+      selectedFileId: '',
+      preview: null,
+      previewLoading: false,
+      previewError: ''
+    });
+    try {
+      const result = await fetchGoogleSheetAction(
+        'listClientFolderFiles',
+        1,
+        30000,
+        { klient_id: clientId }
+      );
+      if (clientFolderViewerRequestRef.current !== requestId) return;
+      const folder = result?.folder || null;
+      const files = Array.isArray(folder?.files) ? folder.files : [];
+      setClientFolderViewer((current) => ({
+        ...current,
+        folder,
+        files,
+        loading: false,
+        error: ''
+      }));
+      if (files[0]) await loadClientFolderFilePreview(clientId, files[0]);
+    } catch (error) {
+      if (clientFolderViewerRequestRef.current !== requestId) return;
+      setClientFolderViewer((current) => ({
+        ...current,
+        loading: false,
+        error: error.message || 'Obsah složky se nepodařilo načíst.'
+      }));
+    }
+  };
+
+  const selectedClientFolderFile = clientFolderViewer.files.find(
+    (file) => file.id === clientFolderViewer.selectedFileId
+  ) || null;
 
   const tpmRecords = useMemo(
     () =>
@@ -7839,31 +7981,33 @@ ${rawPlanOutput}` }] }],
                     <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-2">
                       {selectedClientDriveBundle?.payload ?(
                         <div className="grid gap-1.5 md:grid-cols-2">
-                          {[
-                            {
-                              key: 'folder',
-                              title: 'Klientská složka - ZDE',
-                              url: selectedClientDriveBundle.payload.clientFolderUrl,
-                              caption: selectedClientDriveBundle.payload.clientFolderName
-                            },
-                            {
-                              key: 'monlist',
-                              title: 'Monitorovací list - ZDE',
-                              url: selectedClientDriveBundle.payload.monListFileUrl,
-                              caption: selectedClientDriveBundle.payload.monListFileName
-                            }
-                          ].map((item) => (
-                            <a
-                              key={item.key}
-                              href={item.url || '#'}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 transition hover:border-emerald-300 hover:bg-emerald-50"
-                            >
-                              <div className="text-xs font-semibold text-slate-900">{item.title}</div>
-                              <div className="truncate text-[11px] text-slate-500">{item.caption || 'Bez odkazu'}</div>
-                            </a>
-                          ))}
+                          <button
+                            type="button"
+                            onClick={openClientFolderViewer}
+                            className="flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 text-left transition hover:border-emerald-400 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                          >
+                            <FolderOpen className="h-4 w-4 shrink-0 text-emerald-700" />
+                            <span className="min-w-0">
+                              <span className="block text-xs font-semibold text-slate-900">Otevřít složku klienta</span>
+                              <span className="block truncate text-[11px] text-slate-500">
+                                {selectedClientDriveBundle.payload.clientFolderName || 'Dokumenty klienta'}
+                              </span>
+                            </span>
+                          </button>
+                          <a
+                            href={selectedClientDriveBundle.payload.monListFileUrl || '#'}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 transition hover:border-emerald-300 hover:bg-emerald-50"
+                          >
+                            <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-700" />
+                            <span className="min-w-0">
+                              <span className="block text-xs font-semibold text-slate-900">Monitorovací list</span>
+                              <span className="block truncate text-[11px] text-slate-500">
+                                {selectedClientDriveBundle.payload.monListFileName || 'Bez odkazu'}
+                              </span>
+                            </span>
+                          </a>
                         </div>
                       ) : (
                         <div className="mt-3 text-sm text-emerald-800">
@@ -8578,6 +8722,195 @@ ${rawPlanOutput}` }] }],
               handleInstallWeeklyBackup={handleInstallWeeklyBackup}
             />
           </React.Suspense>
+        )}
+
+        {clientFolderViewer.open && (
+          <div
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/65 p-2 backdrop-blur-sm sm:p-5"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) closeClientFolderViewer();
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="client-folder-viewer-title"
+              className="flex h-[min(92vh,820px)] w-[min(98vw,1320px)] flex-col overflow-hidden rounded-2xl border border-slate-300 bg-slate-100 shadow-2xl"
+            >
+              <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <FolderOpen className="h-5 w-5 shrink-0 text-emerald-700" />
+                    <h2 id="client-folder-viewer-title" className="truncate text-base font-bold text-slate-950">
+                      Dokumenty klienta · {clientFolderViewer.clientName}
+                    </h2>
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {clientFolderViewer.folder?.name || 'Načítám obsah klientské složky…'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeClientFolderViewer}
+                  aria-label="Zavřít náhled složky"
+                  className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </header>
+
+              {clientFolderViewer.loading ? (
+                <div className="flex flex-1 items-center justify-center gap-3 text-sm font-semibold text-slate-600">
+                  <Loader2 className="h-5 w-5 animate-spin text-emerald-700" />
+                  Načítám dokumenty…
+                </div>
+              ) : clientFolderViewer.error ? (
+                <div className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
+                  {clientFolderViewer.error}
+                </div>
+              ) : clientFolderViewer.files.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 px-5 text-center text-slate-600">
+                  <FolderOpen className="h-10 w-10 text-slate-400" />
+                  <p className="font-semibold">Složka zatím neobsahuje žádné dokumenty.</p>
+                </div>
+              ) : (
+                <div className="grid min-h-0 flex-1 grid-rows-[minmax(150px,32vh)_minmax(0,1fr)] lg:grid-cols-[330px_minmax(0,1fr)] lg:grid-rows-1">
+                  <aside className="min-h-0 overflow-y-auto border-b border-slate-200 bg-white p-2 lg:border-b-0 lg:border-r">
+                    <div className="mb-2 px-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                      Dokumenty ({clientFolderViewer.files.length})
+                    </div>
+                    <div className="space-y-1">
+                      {clientFolderViewer.files.map((file) => {
+                        const FileIcon = file.mimeType === 'application/vnd.google-apps.spreadsheet'
+                          ? FileSpreadsheet
+                          : FileText;
+                        const isSelected = file.id === clientFolderViewer.selectedFileId;
+                        return (
+                          <button
+                            key={file.id}
+                            type="button"
+                            onClick={() => loadClientFolderFilePreview(clientFolderViewer.clientId, file)}
+                            className={`flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                              isSelected
+                                ? 'border-emerald-300 bg-emerald-50 text-emerald-950'
+                                : 'border-transparent bg-white text-slate-800 hover:border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <FileIcon className={`mt-0.5 h-4 w-4 shrink-0 ${isSelected ? 'text-emerald-700' : 'text-slate-400'}`} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block break-words text-xs font-semibold leading-4">{file.name}</span>
+                              <span className="mt-0.5 block text-[10px] text-slate-500">
+                                {[formatClientFolderFileDate(file.updatedAt), formatClientFolderFileSize(file.size)].filter(Boolean).join(' · ')}
+                              </span>
+                            </span>
+                            {file.previewable && <Eye className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </aside>
+
+                  <div className="flex min-h-0 flex-col bg-slate-100">
+                    <div className="flex min-h-[52px] shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-bold text-slate-900">
+                          {selectedClientFolderFile?.name || 'Vyberte dokument'}
+                        </div>
+                        {selectedClientFolderFile && (
+                          <div className="text-[11px] text-slate-500">Náhled pouze pro čtení</div>
+                        )}
+                      </div>
+                      {selectedClientFolderFile?.url && (
+                        <a
+                          href={selectedClientFolderFile.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="shrink-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Otevřít originál
+                        </a>
+                      )}
+                    </div>
+
+                    <div className="min-h-0 flex-1 overflow-auto p-3">
+                      {clientFolderViewer.previewLoading ? (
+                        <div className="flex h-full items-center justify-center gap-3 text-sm font-semibold text-slate-600">
+                          <Loader2 className="h-5 w-5 animate-spin text-emerald-700" />
+                          Připravuji náhled…
+                        </div>
+                      ) : clientFolderViewer.previewError ? (
+                        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
+                          {clientFolderViewer.previewError}
+                        </div>
+                      ) : clientFolderViewer.preview?.type === 'pdf' ? (
+                        <iframe
+                          title={`Náhled ${clientFolderViewer.preview.name || 'dokumentu'}`}
+                          src={clientFolderViewer.preview.dataUrl}
+                          className="h-full min-h-[440px] w-full rounded-lg border border-slate-300 bg-white"
+                        />
+                      ) : clientFolderViewer.preview?.type === 'image' ? (
+                        <div className="flex min-h-full items-start justify-center rounded-lg border border-slate-200 bg-white p-3">
+                          <img
+                            src={clientFolderViewer.preview.dataUrl}
+                            alt={clientFolderViewer.preview.name || 'Náhled dokumentu'}
+                            className="max-h-full max-w-full object-contain"
+                          />
+                        </div>
+                      ) : clientFolderViewer.preview?.type === 'text' ? (
+                        <div className="rounded-lg border border-slate-200 bg-white p-4">
+                          <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-slate-800">
+                            {clientFolderViewer.preview.text || 'Dokument je prázdný.'}
+                          </pre>
+                          {clientFolderViewer.preview.truncated && (
+                            <p className="mt-3 border-t border-amber-200 pt-3 text-xs font-semibold text-amber-800">
+                              Náhled je zkrácený. Celý dokument otevřete tlačítkem nahoře.
+                            </p>
+                          )}
+                        </div>
+                      ) : clientFolderViewer.preview?.type === 'tables' ? (
+                        <div className="space-y-3">
+                          {(clientFolderViewer.preview.tables || []).map((table) => (
+                            <section key={table.name} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                              <h3 className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">{table.name}</h3>
+                              <div className="overflow-auto">
+                                <table className="min-w-full border-collapse text-xs">
+                                  <tbody>
+                                    {(table.rows || []).map((row, rowIndex) => (
+                                      <tr key={`${table.name}-${rowIndex}`} className={rowIndex === 0 ? 'bg-slate-50 font-semibold' : ''}>
+                                        {row.map((cell, columnIndex) => (
+                                          <td key={`${rowIndex}-${columnIndex}`} className="max-w-[320px] border-b border-r border-slate-100 px-2 py-1.5 align-top">
+                                            <span className="whitespace-pre-wrap break-words">{cell}</span>
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              {table.truncated && (
+                                <p className="border-t border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
+                                  Zobrazuje se pouze část rozsáhlého listu.
+                                </p>
+                              )}
+                            </section>
+                          ))}
+                        </div>
+                      ) : clientFolderViewer.preview?.type === 'unavailable' ? (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+                          {clientFolderViewer.preview.message || 'Náhled tohoto dokumentu není dostupný.'}
+                        </div>
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                          Vyberte dokument vlevo.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
         )}
       </main>
     </div>

@@ -100,6 +100,15 @@ function doGet(e) {
       const clients = readCachedDataset_('listClients', () => listClients_());
       return json_({ ok: true, clients: buildClientDirectory_(clients) });
     }
+    if (e.parameter.action === 'listClientFolderFiles') {
+      return json_({ ok: true, folder: listClientFolderFiles_(e.parameter.klient_id) });
+    }
+    if (e.parameter.action === 'getClientFolderFilePreview') {
+      return json_({
+        ok: true,
+        preview: getClientFolderFilePreview_(e.parameter.klient_id, e.parameter.file_id)
+      });
+    }
     if (e.parameter.action === 'listPartners') {
       return json_({ ok: true, partners: readCachedDataset_('listPartners', () => listPartners_()) });
     }
@@ -1644,6 +1653,180 @@ function listClients_(spreadsheet) {
     .filter((row) => row.some((cell) => cell !== ''))
     .map((row) => rowToObject_(headers, row))
     .filter((client) => !normalizeDuplicateText_(client.status).startsWith('smaz'));
+}
+
+const CLIENT_FILE_PREVIEW_MAX_BYTES_ = 4 * 1024 * 1024;
+const CLIENT_FILE_PREVIEW_MAX_TEXT_LENGTH_ = 200000;
+const CLIENT_FILE_PREVIEW_MAX_SHEETS_ = 6;
+const CLIENT_FILE_PREVIEW_MAX_ROWS_ = 100;
+const CLIENT_FILE_PREVIEW_MAX_COLUMNS_ = 30;
+
+function isDirectChildFolder_(folder, parentId) {
+  const expectedParentId = String(parentId || '').trim();
+  if (!folder || !expectedParentId) return false;
+  const parents = folder.getParents();
+  while (parents.hasNext()) {
+    if (parents.next().getId() === expectedParentId) return true;
+  }
+  return false;
+}
+
+function getClientFolderForBrowse_(clientId) {
+  const id = String(clientId || '').trim();
+  if (!id) throw new Error('Chybi klient_id.');
+
+  const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
+  if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
+  const headers = getHeaders_(sheet);
+  const idColumn = headers.indexOf('klient_id') + 1;
+  if (!idColumn) throw new Error('Missing klient_id column');
+  const matchingRows = findClientRows_(sheet, idColumn, id);
+  if (matchingRows.length !== 1) {
+    throw new Error(matchingRows.length > 1
+      ? 'Klient ma duplicitni zaznam; slozku nelze bezpecne zobrazit.'
+      : 'Klient nebyl nalezen.');
+  }
+
+  const client = rowToObject_(
+    headers,
+    sheet.getRange(matchingRows[0], 1, 1, headers.length).getValues()[0]
+  );
+  if (normalizeDuplicateText_(client.status).startsWith('smaz')) {
+    throw new Error('Slozku smazaneho klienta nelze zobrazit.');
+  }
+
+  const root = getClientFolderParent_();
+  const linkedFolderId = extractDriveId_(client.drive_folder_url);
+  let folder = null;
+  if (linkedFolderId) {
+    try {
+      const linkedFolder = DriveApp.getFolderById(linkedFolderId);
+      if (
+        folderMatchesClientIdentity_(linkedFolder.getName(), client)
+        && isDirectChildFolder_(linkedFolder, root.getId())
+      ) folder = linkedFolder;
+    } catch (error) {
+      // Neplatny nebo zastaraly odkaz se bez zapisu dohleda podle klient_id.
+    }
+  }
+  if (!folder) folder = findUniqueClientFolderById_(root, id);
+  if (!folder) throw new Error('Slozka klienta nebyla nalezena.');
+  if (!folderMatchesClientIdentity_(folder.getName(), client)) {
+    throw new Error('Slozka neodpovida vybranemu klientovi. Nahled byl z bezpecnostnich duvodu zablokovan.');
+  }
+  return { client: client, folder: folder };
+}
+
+function clientFolderFileMetadata_(file) {
+  const mimeType = String(file.getMimeType() || '');
+  return {
+    id: file.getId(),
+    name: file.getName(),
+    mimeType: mimeType,
+    size: Number(file.getSize() || 0),
+    updatedAt: file.getLastUpdated() ? file.getLastUpdated().toISOString() : '',
+    url: file.getUrl(),
+    previewable: mimeType === 'application/vnd.google-apps.document'
+      || mimeType === 'application/vnd.google-apps.spreadsheet'
+      || mimeType === 'application/pdf'
+      || mimeType.indexOf('image/') === 0
+      || mimeType.indexOf('text/') === 0
+  };
+}
+
+function listClientFolderFiles_(clientId) {
+  const context = getClientFolderForBrowse_(clientId);
+  const files = [];
+  const iterator = context.folder.getFiles();
+  while (iterator.hasNext()) files.push(clientFolderFileMetadata_(iterator.next()));
+  files.sort(function(left, right) {
+    return String(right.updatedAt || '').localeCompare(String(left.updatedAt || ''))
+      || String(left.name || '').localeCompare(String(right.name || ''), 'cs');
+  });
+  return {
+    clientId: String(clientId || '').trim(),
+    name: context.folder.getName(),
+    url: context.folder.getUrl(),
+    files: files
+  };
+}
+
+function findClientFolderFile_(folder, fileId) {
+  const id = String(fileId || '').trim();
+  if (!id) throw new Error('Chybi file_id.');
+  const files = folder.getFiles();
+  while (files.hasNext()) {
+    const file = files.next();
+    if (file.getId() === id) return file;
+  }
+  throw new Error('Dokument nepatri do slozky vybraneho klienta. Nahled byl zablokovan.');
+}
+
+function blobPreviewData_(blob, mimeType) {
+  const bytes = blob.getBytes();
+  if (bytes.length > CLIENT_FILE_PREVIEW_MAX_BYTES_) {
+    return {
+      type: 'unavailable',
+      message: 'Dokument je pro nahled v aplikaci prilis velky.'
+    };
+  }
+  return {
+    type: mimeType === 'application/pdf' ? 'pdf' : 'image',
+    dataUrl: 'data:' + mimeType + ';base64,' + Utilities.base64Encode(bytes)
+  };
+}
+
+function getClientFolderFilePreview_(clientId, fileId) {
+  const context = getClientFolderForBrowse_(clientId);
+  const file = findClientFolderFile_(context.folder, fileId);
+  const metadata = clientFolderFileMetadata_(file);
+  const mimeType = metadata.mimeType;
+  let content;
+
+  if (mimeType === 'application/vnd.google-apps.document') {
+    try {
+      content = blobPreviewData_(file.getAs('application/pdf'), 'application/pdf');
+    } catch (error) {
+      const text = String(DocumentApp.openById(file.getId()).getBody().getText() || '');
+      content = {
+        type: 'text',
+        text: text.slice(0, CLIENT_FILE_PREVIEW_MAX_TEXT_LENGTH_),
+        truncated: text.length > CLIENT_FILE_PREVIEW_MAX_TEXT_LENGTH_
+      };
+    }
+  } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
+    const workbook = SpreadsheetApp.openById(file.getId());
+    content = {
+      type: 'tables',
+      tables: workbook.getSheets().slice(0, CLIENT_FILE_PREVIEW_MAX_SHEETS_).map(function(sheet) {
+        const rowCount = Math.min(Math.max(sheet.getLastRow(), 1), CLIENT_FILE_PREVIEW_MAX_ROWS_);
+        const columnCount = Math.min(Math.max(sheet.getLastColumn(), 1), CLIENT_FILE_PREVIEW_MAX_COLUMNS_);
+        return {
+          name: sheet.getName(),
+          rows: sheet.getRange(1, 1, rowCount, columnCount).getDisplayValues(),
+          truncated: sheet.getLastRow() > rowCount || sheet.getLastColumn() > columnCount
+        };
+      })
+    };
+  } else if (mimeType === 'application/pdf') {
+    content = blobPreviewData_(file.getBlob(), 'application/pdf');
+  } else if (mimeType.indexOf('image/') === 0) {
+    content = blobPreviewData_(file.getBlob(), mimeType);
+  } else if (mimeType.indexOf('text/') === 0) {
+    const text = String(file.getBlob().getDataAsString('UTF-8') || '');
+    content = {
+      type: 'text',
+      text: text.slice(0, CLIENT_FILE_PREVIEW_MAX_TEXT_LENGTH_),
+      truncated: text.length > CLIENT_FILE_PREVIEW_MAX_TEXT_LENGTH_
+    };
+  } else {
+    content = {
+      type: 'unavailable',
+      message: 'Tento typ souboru zatim nema nahled v aplikaci.'
+    };
+  }
+
+  return Object.assign({}, metadata, content);
 }
 
 // Prime autoritativni kontrola jednoho radku. Zamerne nevyuziva CacheService,
