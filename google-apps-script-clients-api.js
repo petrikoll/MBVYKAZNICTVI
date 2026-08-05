@@ -1865,7 +1865,7 @@ function verifyClientDeletion_(clientId) {
 function saveClient_(client) {
   const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
   if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
-  const headers = ensureHeaders_(sheet, ['klicovy_pracovnik', 'rodina']);
+  const headers = ensureHeaders_(sheet, ['klicovy_pracovnik', 'rodina', 'address_mode']);
   const klientIdColumn = headers.indexOf('klient_id') + 1;
   if (!klientIdColumn) throw new Error('Missing klient_id column');
 

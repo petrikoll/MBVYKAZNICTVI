@@ -245,7 +245,7 @@ const REPORTING_PERIODS = [
 ];
 
 const emptyClientDraft = {
-  jmeno: '', prijmeni: '', datumNarozeni: '', ulice: '', cisloPopisne: '', mesto: '', psc: '', spadoveMesto: '',
+  jmeno: '', prijmeni: '', datumNarozeni: '', ulice: '', cisloPopisne: '', mesto: '', psc: '', addressMode: 'full', spadoveMesto: '',
   email: '', datovaSchranka: '', telefon: '', pohlavi: '', postaveniNaTrhu: '', vzdelani: '', znevyhodneni: '',
   datumVstupu: todayIso(), datumVystupu: '', stavKlienta: 'Aktivn\u00ed', keyWorker: '', caseManagementPotreba: 'Ne',
   caseManagementDuvod: '', caseManagementOd: '', poznamka: '', situacePoUkonceni: '', projectStatus: 'active',

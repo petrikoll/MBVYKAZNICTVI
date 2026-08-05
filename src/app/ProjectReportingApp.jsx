@@ -88,6 +88,7 @@ import {
   TopMetric
 } from '../components/ui.jsx';
 import IdleFlyScreensaver from '../components/IdleFlyScreensaver.jsx';
+import RuianAddressFields from '../components/RuianAddressFields.jsx';
 import { buildSensitiveTerms, parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
 import { parseGoogleSheetResponse, requireSavedGoogleSheetRecord } from '../lib/googleSheetApi.js';
 import {
@@ -104,6 +105,7 @@ import { buildClientSelectionPool } from '../lib/clientSelection.js';
 import { buildClientCaseAiPrompt, buildClientCaseSummaryPrintHtml, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
 import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
 import { buildIsEsfPersonExport, serializeIsEsfPersonCsv } from '../lib/isEsfExport.js';
+import { validateClientAddress } from '../lib/ruianAddress.js';
 import {
   buildIsEsfSupportExport,
   matchClientsToIsEsfPersonRows,
@@ -1794,6 +1796,7 @@ function mapClientDraftToSheetClient(draft, klientId = '') {
     cislo_popisne: String(draft.cisloPopisne || '').trim(),
     mesto: String(draft.mesto || '').trim(),
     psc: String(draft.psc || '').trim(),
+    address_mode: draft.addressMode === 'municipalityOnly' ? 'municipalityOnly' : 'full',
     email: String(draft.email || '').trim(),
     datova_schranka: String(draft.datovaSchranka || '').trim(),
     telefon: String(draft.telefon || '').trim(),
@@ -1857,12 +1860,7 @@ function ClientRegistrationFields({ draft, setDraft, compact = false }) {
 
         <div className={sectionBox}>
           <div className={sectionTitle}>Adresa a kontakt</div>
-          <InputField label="Ulice" value={draft.ulice} onChange={(value) => update('ulice', value)} />
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-            <InputField label="Číslo popisné" value={draft.cisloPopisne} onChange={(value) => update('cisloPopisne', value)} />
-            <InputField label="PSČ" value={draft.psc} onChange={(value) => update('psc', value)} />
-          </div>
-          <InputField label="Město / obec" value={draft.mesto} onChange={(value) => update('mesto', value)} />
+          <RuianAddressFields draft={draft} setDraft={setDraft} compact />
           <InputField label="Telefon" type="tel" value={draft.telefon} onChange={(value) => update('telefon', value)} />
           <InputField label="E-mail" type="email" value={draft.email} onChange={(value) => update('email', value)} />
           <InputField label="Datová schránka" value={draft.datovaSchranka} onChange={(value) => update('datovaSchranka', value)} />
@@ -1906,11 +1904,9 @@ function ClientRegistrationFields({ draft, setDraft, compact = false }) {
         <SelectField label="Pohlaví" value={draft.pohlavi} onChange={(value) => update('pohlavi', value)} options={optionItems(CLIENT_GENDER_OPTIONS, 'Vyberte pohlaví')} />
       </div>
 
+      <RuianAddressFields draft={draft} setDraft={setDraft} />
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <InputField label="Ulice" value={draft.ulice} onChange={(value) => update('ulice', value)} />
-        <InputField label="Číslo popisné" value={draft.cisloPopisne} onChange={(value) => update('cisloPopisne', value)} />
-        <InputField label="Město / obec" value={draft.mesto} onChange={(value) => update('mesto', value)} />
-        <InputField label="PSČ" value={draft.psc} onChange={(value) => update('psc', value)} />
         <InputField label="Telefon" type="tel" value={draft.telefon} onChange={(value) => update('telefon', value)} />
         <InputField label="E-mail" type="email" value={draft.email} onChange={(value) => update('email', value)} />
         <InputField label="Datová schránka" value={draft.datovaSchranka} onChange={(value) => update('datovaSchranka', value)} />
@@ -4881,7 +4877,28 @@ function App() {
       return;
     }
 
-    const clientToSave = { ...clientDraft, keyWorker: clientDraft.keyWorker || currentWorker };
+    setSaveButtonNotice('client-create', 'progress', 'Ověřuji adresu v RÚIAN…');
+    let addressValidation;
+    try {
+      addressValidation = await validateClientAddress(clientDraft);
+    } catch (error) {
+      const message = saveErrorMessage('Adresu se nepodařilo ověřit', error);
+      setSaveButtonNotice('client-create', 'error', message);
+      setFlash(message);
+      return;
+    }
+    if (!addressValidation.valid) {
+      const message = `Klient nebyl uložen: ${addressValidation.reason}`;
+      setSaveButtonNotice('client-create', 'error', message);
+      setFlash(message);
+      return;
+    }
+
+    const clientToSave = {
+      ...clientDraft,
+      ...addressValidation.normalizedAddress,
+      keyWorker: clientDraft.keyWorker || currentWorker
+    };
 
     const duplicateClient = findDuplicateClient(clientToSave);
     if (duplicateClient) {
@@ -5053,8 +5070,29 @@ function App() {
       return;
     }
 
+    setSaveButtonNotice('client-update', 'progress', 'Ověřuji adresu v RÚIAN…');
+    let addressValidation;
+    try {
+      addressValidation = await validateClientAddress(clientEditDraft);
+    } catch (error) {
+      const message = saveErrorMessage('Adresu se nepodařilo ověřit', error);
+      setSaveButtonNotice('client-update', 'error', message);
+      setFlash(message);
+      return;
+    }
+    if (!addressValidation.valid) {
+      const message = `Klient nebyl uložen: ${addressValidation.reason}`;
+      setSaveButtonNotice('client-update', 'error', message);
+      setFlash(message);
+      return;
+    }
+
+    const normalizedClientEditDraft = {
+      ...clientEditDraft,
+      ...addressValidation.normalizedAddress
+    };
     const targetClientId = clientEditDraft.id || selectedClient.id;
-    const duplicateClient = findDuplicateClient(clientEditDraft, targetClientId);
+    const duplicateClient = findDuplicateClient(normalizedClientEditDraft, targetClientId);
     if (duplicateClient) {
       const message = `Klient s t\u011bmito \u00fadaji u\u017e v registru existuje: ${duplicateClient.fullName || 'bez jm\u00e9na'}.`;
       setSaveButtonNotice('client-update', 'error', message);
@@ -5075,7 +5113,7 @@ function App() {
     try {
       const result = await postGoogleSheetAction({
         action: 'saveClient',
-        client: mapClientDraftToSheetClient(clientEditDraft, targetClientId)
+        client: mapClientDraftToSheetClient(normalizedClientEditDraft, targetClientId)
       });
       if (!result?.client?.klient_id) throw new Error('Google Sheet nevr\u00e1til ID klienta.');
       const savedClient = mapSheetRowToClient(result.client, clients.findIndex((client) => client.id === targetClientId));

@@ -53,6 +53,30 @@ test('import objektu správně mapuje neaktivní stavy klienta', () => {
   assert.equal(pending.projectStatus, 'waiting');
 });
 
+test('import klienta zachová režim adresy pouze na úrovni obce', () => {
+  const explicit = mapSheetRowToClient({
+    klient_id: 'KLIENT-0100',
+    jmeno: 'Jan',
+    prijmeni: 'Novák',
+    mesto: 'Moravský Beroun',
+    address_mode: 'municipalityOnly',
+    stav_klienta: 'Aktivní'
+  }, 0);
+  const inferred = mapSheetRowToClient({
+    klient_id: 'KLIENT-0101',
+    jmeno: 'Eva',
+    prijmeni: 'Nová',
+    mesto: 'Dvorce',
+    ulice: '',
+    cislo_popisne: '',
+    psc: '',
+    stav_klienta: 'Aktivní'
+  }, 1);
+
+  assert.equal(explicit.addressMode, 'municipalityOnly');
+  assert.equal(inferred.addressMode, 'municipalityOnly');
+});
+
 test('klient se v aplikaci zobrazuje jednotně jako příjmení a jméno', () => {
   const client = mapSheetRowToClient({
     klient_id: 'KLIENT-0018',

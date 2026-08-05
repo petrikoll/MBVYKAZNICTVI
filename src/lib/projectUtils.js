@@ -97,6 +97,14 @@ function mapSheetRowToClient(row, index) {
       cisloPopisne: row.cislo_popisne || '',
       mesto: row.mesto || row.obec_cast || '',
       psc: row.psc || '',
+      addressMode: String(row.address_mode || '').trim() === 'municipalityOnly'
+        || (
+          !String(row.ulice || row.trvale_bydliste_ulice || '').trim()
+          && !String(row.cislo_popisne || '').trim()
+          && !String(row.psc || '').trim()
+        )
+        ? 'municipalityOnly'
+        : 'full',
       spadoveMesto: row.spadove_mesto || row.mesto || '',
       email: row.email || '',
       datovaSchranka: row.datova_schranka || '',
