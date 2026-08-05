@@ -57,3 +57,21 @@ test('client create and delete reuse an idempotent request id until confirmed', 
   assert.match(deleteHandler, /ambiguousResponse = error\?\.code === 'MUTATION_PENDING'/);
   assert.match(deleteHandler, /časový limit\|trvá příliš dlouho/);
 });
+
+test('client writes reverify an unavailable authoritative registry before deciding', () => {
+  const createStart = source.indexOf('const handleClientCreate = async');
+  const createEnd = source.indexOf('const openClientEditForm =', createStart);
+  const deleteStart = source.indexOf('const handleClientDelete = async');
+  const deleteEnd = source.indexOf('const handleGenerateText = async', deleteStart);
+  const createHandler = source.slice(createStart, createEnd);
+  const deleteHandler = source.slice(deleteStart, deleteEnd);
+
+  assert.match(source, /const refreshClientRegistryForWrite = async/);
+  assert.match(source, /hasAuthoritativeClientSnapshotRef = useRef\(false\)/);
+  assert.match(source, /write_verification_nonce/);
+  assert.match(createHandler, /await refreshClientRegistryForWrite\(\)/);
+  assert.match(createHandler, /findDuplicateClient\(clientToSave, '', clientsForWrite\)/);
+  assert.match(createHandler, /registryVerified: true/);
+  assert.match(deleteHandler, /await refreshClientRegistryForWrite\(\)/);
+  assert.match(deleteHandler, /client = refreshedClient/);
+});

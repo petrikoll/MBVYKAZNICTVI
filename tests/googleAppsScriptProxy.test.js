@@ -65,6 +65,34 @@ test('GET proxy odstraní token klienta a použije serverový token', async () =
   assert.equal(response.statusCode, 200);
 });
 
+test('proxy retries a transient 404 while loading the authoritative client registry', async () => {
+  const requestedUrls = [];
+  const response = createResponse();
+
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listClients'),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/transient-clients/exec',
+      appsScriptToken: 'server-secret',
+      fetchImpl: async (url) => {
+        requestedUrls.push(String(url));
+        if (requestedUrls.length === 1) return new Response('Page Not Found', { status: 404 });
+        return new Response(JSON.stringify({ ok: true, clients: [{ klient_id: 'KLIENT-0001' }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+  );
+
+  assert.equal(requestedUrls.length, 2);
+  assert.equal(new URL(requestedUrls[1]).searchParams.get('action'), 'listClients');
+  assert.ok(new URL(requestedUrls[1]).searchParams.get('proxy_registry_retry'));
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.body).clients[0].klient_id, 'KLIENT-0001');
+});
+
 test('POST proxy přepíše token v těle serverovým tokenem', async () => {
   let forwardedBody = null;
   const request = createRequest('POST', '/api/google-sheets', JSON.stringify({ action: 'saveClient', token: 'attacker' }));

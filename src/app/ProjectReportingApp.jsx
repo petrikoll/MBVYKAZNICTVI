@@ -2271,6 +2271,14 @@ function recordSourceAction(record) {
   return '';
 }
 
+function extractClientRows(response) {
+  if (Array.isArray(response)) return response;
+  if (response && Array.isArray(response.clients)) return response.clients;
+  if (response && Array.isArray(response.data)) return response.data;
+  if (response && Array.isArray(response.items)) return response.items;
+  return null;
+}
+
 function formatClientFolderFileSize(value) {
   const bytes = Number(value || 0);
   if (!bytes) return '';
@@ -2325,6 +2333,7 @@ function App() {
   const pendingClientSaveSignaturesRef = useRef(new Set());
   const clientCreateMutationIdsRef = useRef(new Map());
   const clientDeleteMutationIdsRef = useRef(new Map());
+  const hasAuthoritativeClientSnapshotRef = useRef(false);
   const clientDriveProvisionAttemptsRef = useRef(new Set());
   const prefetchedSheetActionsRef = useRef(new Map());
   const currentDataRevisionRef = useRef(readSafeRecordIndex().revision);
@@ -2582,7 +2591,10 @@ function App() {
     let hasDirectorySnapshot = false;
     const applyClientSnapshot = (parsed, authoritative) => {
       if (cancelled) return;
-      if (authoritative) setIsClientRegistryAvailable(true);
+      if (authoritative) {
+        hasAuthoritativeClientSnapshotRef.current = true;
+        setIsClientRegistryAvailable(true);
+      }
       setClients((current) => (haveSameClientSnapshot(current, parsed) ? current : parsed));
       const firstClientId = parsed[0]?.id || '';
       setSelectedClientId((current) => parsed.some((client) => client.id === current) ? current : firstClientId);
@@ -2646,11 +2658,8 @@ function App() {
         currentDataRevisionRef.current = json?.__dataRevision || currentDataRevisionRef.current;
         consecutiveFailures = 0;
         setSheetError('');
-        let rows = [];
-        if (Array.isArray(json)) rows = json;
-        else if (json && Array.isArray(json.clients)) rows = json.clients;
-        else if (json && Array.isArray(json.data)) rows = json.data;
-        else if (json && Array.isArray(json.items)) rows = json.items;
+        const rows = extractClientRows(json);
+        if (!Array.isArray(rows)) throw new Error('Google Sheet nevrátil úplný klientský registr.');
 
         const parsed = rows
           .map((row, index) => mapSheetRowToClient(row, index))
@@ -2661,7 +2670,10 @@ function App() {
         if (cancelled) return;
         consecutiveFailures += 1;
         console.warn('Google Sheets client load retry:', error);
-        setIsClientRegistryAvailable(false);
+        if (!hasAuthoritativeClientSnapshotRef.current || consecutiveFailures >= 2) {
+          hasAuthoritativeClientSnapshotRef.current = false;
+          setIsClientRegistryAvailable(false);
+        }
         if (!hasDirectorySnapshot) {
           setClients([]);
           setSelectedClientId('');
@@ -2684,6 +2696,34 @@ function App() {
       if (retryTimeoutId) window.clearTimeout(retryTimeoutId);
     };
   }, []);
+
+  const refreshClientRegistryForWrite = async () => {
+    try {
+      const response = await fetchGoogleSheetAction(
+        'listClients',
+        2,
+        GOOGLE_SHEET_REQUEST_TIMEOUT_MS,
+        { write_verification_nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}` }
+      );
+      const rows = extractClientRows(response);
+      if (!Array.isArray(rows)) throw new Error('Google Sheet nevrátil úplný klientský registr.');
+      const parsed = rows
+        .map((row, index) => mapSheetRowToClient(row, index))
+        .filter(Boolean);
+      currentDataRevisionRef.current = response?.__dataRevision || currentDataRevisionRef.current;
+      hasAuthoritativeClientSnapshotRef.current = true;
+      setIsClientRegistryAvailable(true);
+      setSheetError('');
+      setClients((current) => (haveSameClientSnapshot(current, parsed) ? current : parsed));
+      writeSafeClientIndex(parsed, currentDataRevisionRef.current);
+      return parsed;
+    } catch (error) {
+      console.warn('Client registry write verification failed:', error);
+      hasAuthoritativeClientSnapshotRef.current = false;
+      setIsClientRegistryAvailable(false);
+      return null;
+    }
+  };
 
   const clientIndex = useMemo(() => {
     const map = {};
@@ -4080,8 +4120,8 @@ function App() {
     return true;
   };
 
-  const findDuplicateClient = (draft = {}, excludedClientId = '') =>
-    clients.find((client) => client.id !== excludedClientId && isSameClientIdentity(draft, client));
+  const findDuplicateClient = (draft = {}, excludedClientId = '', sourceClients = clients) =>
+    sourceClients.find((client) => client.id !== excludedClientId && isSameClientIdentity(draft, client));
 
   const getDuplicateSaveMessage = (payload) => {
     if (payload.entityType === 'plans' && payload.clientId) {
@@ -4162,7 +4202,7 @@ function App() {
     });
   };
 
-  const provisionClientDriveFolder = async (client, { silent = false } = {}) => {
+  const provisionClientDriveFolder = async (client, { silent = false, registryVerified = false } = {}) => {
     const applyProvisionedClientFolder = (provisionedClient) => {
       const bundleResult = {
         clientFolderUrl: provisionedClient.drive_folder_url || provisionedClient.driveFolderUrl || '',
@@ -4913,12 +4953,6 @@ function App() {
   };
 
   const handleClientCreate = async () => {
-    if (!isClientRegistryAvailable) {
-      const message = 'Klientský registr není dostupný. Uložení klienta bylo zablokováno.';
-      setSaveButtonNotice('client-create', 'error', message);
-      setFlash(message);
-      return;
-    }
     clearSaveButtonNotice('client-create');
     if (!clientDraft.jmeno.trim() || !clientDraft.prijmeni.trim()) {
       const message = 'Vyplň alespoň jméno a příjmení klienta.';
@@ -4950,7 +4984,20 @@ function App() {
       keyWorker: clientDraft.keyWorker || currentWorker
     };
 
-    const duplicateClient = findDuplicateClient(clientToSave);
+    let clientsForWrite = clients;
+    if (!isClientRegistryAvailable) {
+      setSaveButtonNotice('client-create', 'progress', 'Ověřuji aktuální klientský registr…');
+      const refreshedClients = await refreshClientRegistryForWrite();
+      if (!Array.isArray(refreshedClients)) {
+        const message = 'Klientský registr se nyní nepodařilo ověřit. Uložení zůstalo bezpečně zablokované; při dalším kliknutí se ověření zopakuje.';
+        setSaveButtonNotice('client-create', 'error', message);
+        setFlash(message);
+        return;
+      }
+      clientsForWrite = refreshedClients;
+    }
+
+    const duplicateClient = findDuplicateClient(clientToSave, '', clientsForWrite);
     if (duplicateClient) {
       setSelectedClientId(duplicateClient.id);
       const message = `Klient už v registru existuje: ${duplicateClient.fullName || 'bez jména'}.`;
@@ -4982,7 +5029,7 @@ function App() {
       setSaveButtonNotice('client-create', 'progress', 'Klient byl v registru dohledán jako uložený. Připravuji složku a monitorovací list…');
       setFlash('Klient byl uložen. Připravuji složku a monitorovací list…');
       clientDriveProvisionAttemptsRef.current.add(savedClient.id);
-      void provisionClientDriveFolder(savedClient, { silent: true }).then((folderReady) => {
+      void provisionClientDriveFolder(savedClient, { silent: true, registryVerified: true }).then((folderReady) => {
         const message = folderReady
           ? 'Klient uložen. Složka a monitorovací list jsou připravené.'
           : 'Klient byl uložen, ale složku a monitorovací list se nepodařilo připravit. Příprava se zopakuje při prvním uloženém výkonu.';
@@ -4998,7 +5045,7 @@ function App() {
         client: mapClientDraftToSheetClient(clientToSave)
       });
       if (!result?.client?.klient_id) throw new Error('Google Sheet nevr\u00e1til ID klienta.');
-      const savedClient = mapSheetRowToClient(result.client, clients.length);
+      const savedClient = mapSheetRowToClient(result.client, clientsForWrite.length);
       if (!savedClient) throw new Error('Ulo\u017een\u00e9ho klienta se nepoda\u0159ilo na\u010d\u00edst.');
       clientCreateMutationIdsRef.current.delete(pendingSignature);
 
@@ -5010,7 +5057,7 @@ function App() {
       setSaveButtonNotice('client-create', 'progress', 'Klient uložen. Připravuji složku a monitorovací list…');
       setFlash('Klient uložen. Připravuji složku a monitorovací list…');
       clientDriveProvisionAttemptsRef.current.add(savedClient.id);
-      void provisionClientDriveFolder(savedClient, { silent: true }).then((folderReady) => {
+      void provisionClientDriveFolder(savedClient, { silent: true, registryVerified: true }).then((folderReady) => {
         const message = folderReady
           ? 'Klient uložen. Složka a monitorovací list jsou připravené.'
           : 'Klient byl uložen, ale složku a monitorovací list se nepodařilo připravit. Příprava se zopakuje při prvním uloženém výkonu.';
@@ -5091,7 +5138,7 @@ function App() {
       setSaveButtonNotice(noticeKey, 'error', 'Změnu proveďte v otevřeném detailu klienta.');
       return;
     }
-    if (!isClientRegistryAvailable) {
+    if (!isClientRegistryAvailable && !registryVerified) {
       setSaveButtonNotice(noticeKey, 'error', 'Klientský registr není dostupný. Změna byla zablokována.');
       return;
     }
@@ -5273,8 +5320,16 @@ function App() {
       return;
     }
     if (!isClientRegistryAvailable) {
-      setSaveButtonNotice(noticeKey, 'error', 'Klientský registr není dostupný. Smazání bylo zablokováno.');
-      return;
+      setSaveButtonNotice(noticeKey, 'progress', 'Ověřuji aktuální klientský registr…');
+      const refreshedClients = await refreshClientRegistryForWrite();
+      const refreshedClient = refreshedClients?.find((item) => item.id === client.id);
+      if (!refreshedClient) {
+        setSaveButtonNotice(noticeKey, 'error', Array.isArray(refreshedClients)
+          ? 'Klient už není v aktuálním aktivním registru. Smazání nebylo odesláno.'
+          : 'Klientský registr se nyní nepodařilo ověřit. Smazání zůstalo bezpečně zablokované; při dalším kliknutí se ověření zopakuje.');
+        return;
+      }
+      client = refreshedClient;
     }
 
     const confirmed = window.confirm(

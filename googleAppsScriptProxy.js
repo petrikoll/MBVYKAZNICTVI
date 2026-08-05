@@ -5,6 +5,7 @@ const DEFAULT_UPSTREAM_TIMEOUT_MS = 60000;
 const DEFAULT_READ_CACHE_TTL_MS = 60000;
 const DELETE_CONFIRMATION_DELAYS_MS = [0, 500, 1500, 3000];
 const DELETE_CONFIRMATION_TIMEOUT_MS = 15000;
+const CLIENT_REGISTRY_NOT_FOUND_RETRY_DELAYS_MS = [250, 750];
 const CACHEABLE_GET_ACTIONS = new Set([
   'bootstrap',
   'bootstrapFast',
@@ -268,13 +269,27 @@ function buildClientDirectorySnapshot(snapshot) {
 }
 
 async function fetchCompatibleReadSnapshot(fetchImpl, upstreamUrl, fetchOptions, timeoutMs, action) {
-  const snapshot = await fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, timeoutMs);
+  const fetchStableAction = async (targetUrl, targetAction) => {
+    let snapshot = await fetchUpstreamSnapshot(fetchImpl, targetUrl, fetchOptions, timeoutMs);
+    if (targetAction !== 'listClients' || snapshot.status !== 404) return snapshot;
+
+    for (let index = 0; index < CLIENT_REGISTRY_NOT_FOUND_RETRY_DELAYS_MS.length; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, CLIENT_REGISTRY_NOT_FOUND_RETRY_DELAYS_MS[index]));
+      const retryUrl = new URL(targetUrl);
+      retryUrl.searchParams.set('proxy_registry_retry', `${Date.now()}-${index + 1}`);
+      snapshot = await fetchUpstreamSnapshot(fetchImpl, retryUrl, fetchOptions, timeoutMs);
+      if (snapshot.status !== 404) break;
+    }
+    return snapshot;
+  };
+
+  const snapshot = await fetchStableAction(upstreamUrl, action);
   const legacyAction = LEGACY_READ_ACTIONS.get(action);
   if (!legacyAction || !isUnsupportedActionSnapshot(snapshot)) return snapshot;
 
   const legacyUrl = new URL(upstreamUrl);
   legacyUrl.searchParams.set('action', legacyAction);
-  const legacySnapshot = await fetchUpstreamSnapshot(fetchImpl, legacyUrl, fetchOptions, timeoutMs);
+  const legacySnapshot = await fetchStableAction(legacyUrl, legacyAction);
   if (action === 'listClientDirectory') return buildClientDirectorySnapshot(legacySnapshot);
   return legacySnapshot;
 }

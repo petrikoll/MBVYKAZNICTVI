@@ -135,7 +135,7 @@ test('timeout při vytvoření klienta se ověří v registru a dokončí příp
   assert.match(createHandler, /verification_nonce/);
   assert.match(createHandler, /matchingClients\.length === 1/);
   assert.match(createHandler, /applyRecoveredClientCreate\(matchingClients\[0\]\)/);
-  assert.match(createHandler, /provisionClientDriveFolder\(savedClient, \{ silent: true \}\)/);
+  assert.match(createHandler, /provisionClientDriveFolder\(savedClient, \{ silent: true, registryVerified: true \}\)/);
 });
 
 test('client card update refreshes the existing monitoring list automatically', () => {
