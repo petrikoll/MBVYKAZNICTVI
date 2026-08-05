@@ -115,6 +115,22 @@ test('client deletion soft-deletes the client and all linked records', () => {
   assert.deepEqual(cancelled, ['performance:VYKON-0001', 'meeting:SETKANI-0001']);
 });
 
+test('derived statistic cleanup cannot interrupt the main client deletion', () => {
+  const section = appsScriptSource.match(/function deleteClient_\(request, requestedBy\)[\s\S]*?function assertClientDeletionManager_\(/)?.[0] || '';
+  assert.ok(section);
+  assert.match(section, /try\s*\{\s*deactivatePerformanceStatistics_\(id\)/);
+  assert.match(section, /cleanupWarnings\.push/);
+  assert.match(section, /archive_warning: cleanupWarnings\.join/);
+});
+
+test('statistics use the Ano Ne values required by the Sheet validation', () => {
+  const upsertSection = appsScriptSource.match(/function upsertPerformanceStatistics_\(performance\)[\s\S]*?function parseJsonObject_\(/)?.[0] || '';
+  const deactivateSection = appsScriptSource.match(/function deactivatePerformanceStatistics_\(performanceId\)[\s\S]*?function buildStatisticsPeriod_\(/)?.[0] || '';
+  assert.match(upsertSection, /status: 'Ano'/);
+  assert.match(upsertSection, /updateStatisticStatus_\(sheet, headers, existingRow, 'Ne'\)/);
+  assert.match(deactivateSection, /updateStatisticStatus_\(sheet, headers, rowNumber, 'Ne'\)/);
+});
+
 test('deleted clients are not mapped back into the application', () => {
   assert.equal(mapSheetRowToClient({
     klient_id: 'KLIENT-0001',

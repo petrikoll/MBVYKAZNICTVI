@@ -1366,7 +1366,7 @@ function normalizeStatisticsRow(row = {}) {
 
 function isActiveStatistic(row = {}) {
   const status = String(row.status || '').toLowerCase();
-  return !status.includes('smaz') && !status.includes('neaktiv');
+  return status !== 'ne' && !status.includes('smaz') && !status.includes('neaktiv');
 }
 
 function isDateWithinRange(dateValue, dateFrom, dateTo) {

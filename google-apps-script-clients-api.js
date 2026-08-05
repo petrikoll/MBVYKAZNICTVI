@@ -2065,7 +2065,7 @@ function upsertPerformanceStatistics_(performance) {
   const existingRow = findStatisticRow_(sheet, headers, sourceId, KU_SUPPORT_STAT_TYPE_);
   const isDefault = !selectedCode || selectedCode === KU_SUPPORT_DEFAULT_CODE_;
   if (isDefault) {
-    if (existingRow) updateStatisticStatus_(sheet, headers, existingRow, 'smazany');
+    if (existingRow) updateStatisticStatus_(sheet, headers, existingRow, 'Ne');
     return;
   }
 
@@ -2094,7 +2094,8 @@ function upsertPerformanceStatistics_(performance) {
     skupina: type.group,
     nazev: type.name,
     hodnota_text: type.group ? type.group + ' / ' + type.name : type.name,
-    status: 'Platny',
+    // Sloupec status na existujicim listu Statistiky ma validaci Ano/Ne.
+    status: 'Ano',
     created_at: existing.created_at || now,
     created_by: existing.created_by || performance.created_by || performance.updated_by || '',
     updated_at: now,
@@ -2141,7 +2142,7 @@ function deactivatePerformanceStatistics_(performanceId) {
   const sheet = getOrCreateSheet_(CONFIG.statisticsSheetName, STATISTICS_HEADERS_);
   const headers = getHeaders_(sheet);
   const rowNumber = findStatisticRow_(sheet, headers, sourceId, KU_SUPPORT_STAT_TYPE_);
-  if (rowNumber) updateStatisticStatus_(sheet, headers, rowNumber, 'smazany');
+  if (rowNumber) updateStatisticStatus_(sheet, headers, rowNumber, 'Ne');
 }
 
 function buildStatisticsPeriod_(dateValue) {
@@ -2242,11 +2243,28 @@ function deleteClient_(request, requestedBy) {
     spreadsheet, CONFIG.individualPlanSheetName, 'plan_id', clientId, now, actor
   );
 
+  // Statistiky a dokumentova fronta jsou pomocne oblasti. Jejich chyba nesmi
+  // prerusit hlavni soft-delete klienta a zanechat jej v napul smazanem stavu.
+  const cleanupWarnings = [];
   performances.ids.forEach(function(id) {
-    deactivatePerformanceStatistics_(id);
-    cancelRecordDocument_('performance', id);
+    try {
+      deactivatePerformanceStatistics_(id);
+    } catch (error) {
+      cleanupWarnings.push('Statistiku vykonu ' + id + ' se nepodarilo deaktivovat: ' + String(error.message || error));
+    }
+    try {
+      cancelRecordDocument_('performance', id);
+    } catch (error) {
+      cleanupWarnings.push('Frontu dokumentu vykonu ' + id + ' se nepodarilo zrusit: ' + String(error.message || error));
+    }
   });
-  meetings.ids.forEach(function(id) { cancelRecordDocument_('meeting', id); });
+  meetings.ids.forEach(function(id) {
+    try {
+      cancelRecordDocument_('meeting', id);
+    } catch (error) {
+      cleanupWarnings.push('Frontu dokumentu zaznamu ' + id + ' se nepodarilo zrusit: ' + String(error.message || error));
+    }
+  });
 
   if (!alreadyDeleted) {
     const previousStatusColumn = headers.indexOf('stav_pred_smazanim');
@@ -2269,6 +2287,7 @@ function deleteClient_(request, requestedBy) {
   }
 
   const archive = archiveDeletedClientFolder_(existing.drive_folder_url);
+  if (archive.warning) cleanupWarnings.push(archive.warning);
   return {
     klient_id: clientId,
     deleted: true,
@@ -2277,7 +2296,7 @@ function deleteClient_(request, requestedBy) {
     meetings: meetings.count,
     individual_plans: plans.count,
     archived_folder_url: archive.url || '',
-    archive_warning: archive.warning || ''
+    archive_warning: cleanupWarnings.join(' ')
   };
 }
 
