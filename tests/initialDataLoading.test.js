@@ -14,6 +14,8 @@ test('startup loads clients independently while keeping other areas staged', () 
   const startupPrefetchBlock = source.slice(source.indexOf('const prefetchAction ='), clientsStart);
   assert.match(startupPrefetchBlock, /const clientsPrefetch = prefetchAction\('listClients'\)/);
   assert.match(startupPrefetchBlock, /prefetchedSheetActionsRef\.current\.set\('startupClientReady', clientsPrefetch\)/);
+  assert.match(startupPrefetchBlock, /\['listPerformances', 'listIndividualPlans'\]\.forEach/);
+  assert.match(startupPrefetchBlock, /prefetchedSheetActionsRef\.current\.set\(action, prefetchAction\(action\)\)/);
   assert.doesNotMatch(startupPrefetchBlock, /prefetchAction\('bootstrapFast'/);
   assert.match(clientsBlock, /const clientOutcome = await clientsPrefetch/);
   assert.match(clientsBlock, /Array\.isArray\(clientOutcome\.result\.clients\)/);

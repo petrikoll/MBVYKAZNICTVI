@@ -2557,15 +2557,18 @@ function App() {
     let retryTimeoutId = null;
     let consecutiveFailures = 0;
 
-    // Klientsky registr nacitame samostatne hned. Pomalý nebo studeny spolecny
-    // bootstrap tak uz nemuze blokovat prvni pouzitelne zobrazeni aplikace.
-    // Ostatni oblasti se spusti az po klientskem registru a po prioritach, aby
-    // Apps Script nezahltily soubeznymi studenymi ctenimi.
+    // Klientsky registr, vykony a individualni plany spoustime soucasne hned
+    // po startu. Po nacteni klientu se hotove vysledky pouze prevezmou; drahe
+    // cteni planu tak uz nezacina az se zpozdenim za klientskym registrem.
+    // Zbyvajici oblasti se nadale nacitaji s omezenou soubeznosti.
     const prefetchAction = (action, timeoutMs = GOOGLE_SHEET_REQUEST_TIMEOUT_MS) => fetchGoogleSheetAction(action, 1, timeoutMs)
       .then((result) => ({ action, result }))
       .catch((error) => ({ action, error }));
     const clientsPrefetch = prefetchAction('listClients');
     prefetchedSheetActionsRef.current.set('startupClientReady', clientsPrefetch);
+    ['listPerformances', 'listIndividualPlans'].forEach((action) => {
+      prefetchedSheetActionsRef.current.set(action, prefetchAction(action));
+    });
     void fetchGoogleSheetAction('getDataRevision', 1, 5000).then((result) => {
       if (result?.__dataRevision || result?.revision) {
         currentDataRevisionRef.current = result.__dataRevision || result.revision;
