@@ -29,6 +29,17 @@ function createCachedContext() {
         getDataAsString: () => bytes.toString('utf8')
       };
     },
+    gzip: (blob) => {
+      const bytes = Buffer.from(blob.getBytes());
+      return { getBytes: () => [...bytes] };
+    },
+    ungzip: (blob) => {
+      const bytes = Buffer.from(blob.getBytes());
+      return {
+        getBytes: () => [...bytes],
+        getDataAsString: () => bytes.toString('utf8')
+      };
+    },
     base64EncodeWebSafe: (bytes) => Buffer.from(bytes).toString('base64url'),
     base64DecodeWebSafe: (encoded) => [...Buffer.from(encoded, 'base64url')],
     getUuid: () => `uuid-${++uuid}`
@@ -118,7 +129,7 @@ test('dílčí bootstrap načte jen vyžádané oblasti', () => {
 });
 
 test('rychly startovni balik neobsahuje individualni plany', () => {
-  assert.match(source, /action === 'bootstrapFast'[\s\S]*?'listPerformances', 'listMeetings', 'listPartners'/);
+  assert.match(source, /BOOTSTRAP_FAST_READ_ACTIONS_[\s\S]*?'listClients', 'listPerformances', 'listMeetings', 'listPartners'/);
   const fastBlock = source.slice(
     source.indexOf("if (e.parameter.action === 'bootstrapFast')"),
     source.indexOf("if (e.parameter.action === 'bootstrapCore')")
@@ -126,13 +137,13 @@ test('rychly startovni balik neobsahuje individualni plany', () => {
   assert.doesNotMatch(fastBlock, /listIndividualPlans/);
 });
 
-test('pomocny startovni balik nacte individualni plany bez dalsiho otevreni Sheetu', () => {
+test('pomocny startovni balik neceka na individualni plany', () => {
+  assert.match(source, /BOOTSTRAP_AUXILIARY_READ_ACTIONS_[\s\S]*?'listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'/);
   const auxiliaryBlock = source.slice(
     source.indexOf("if (e.parameter.action === 'bootstrapAuxiliary')"),
     source.indexOf("if (e.parameter.action === 'listClients')")
   );
-  assert.match(auxiliaryBlock, /'listIndividualPlans'/);
-  assert.match(auxiliaryBlock, /'listNetworkMeetings'/);
+  assert.doesNotMatch(auxiliaryBlock, /'listIndividualPlans'/);
 });
 
 test('lehky adresar klientu vraci jen udaje nutne pro rychly seznam', () => {
@@ -157,9 +168,11 @@ test('lehky adresar klientu vraci jen udaje nutne pro rychly seznam', () => {
   }]);
 });
 
-test('malý list individuálních plánů obchází poruchovou segmentovanou cache', () => {
-  assert.match(source, /individualPlans: listIndividualPlans_\(\)/);
-  assert.match(source, /action === 'listIndividualPlans'[\s\S]*loader\(sharedSpreadsheet\(\)\)/);
+test('individualni plany maji vlastni komprimovanou cache mimo startovni balik', () => {
+  assert.match(source, /individualPlans: readCachedDataset_\('listIndividualPlans'/);
+  assert.match(source, /READ_CACHE_ENCODING_ = 'gzip-base64url-v1'/);
+  assert.match(source, /Utilities\.gzip/);
+  assert.match(source, /Utilities\.ungzip/);
 });
 
 test('Apps Script cache zvládne i datovou sadu větší než limit jednoho klíče', () => {
@@ -188,6 +201,37 @@ test('zápisová invalidace vynutí nové načtení pouze dotčené oblasti', ()
   assert.equal(context.readCachedDataset_('listPartners', load)[0].version, 1);
   context.invalidateReadActions_(['listPartners']);
   assert.equal(context.readCachedDataset_('listPartners', load)[0].version, 2);
+});
+
+test('invalidace oblasti zrusi take zavisly startovni balik', () => {
+  const context = createCachedContext();
+  assert.deepEqual(
+    Array.from(context.expandReadInvalidationActions_(['listPerformances'])).sort(),
+    ['bootstrapFast', 'listPerformances']
+  );
+  assert.deepEqual(
+    Array.from(context.expandReadInvalidationActions_(['listEducation'])).sort(),
+    ['bootstrapAuxiliary', 'listEducation']
+  );
+  assert.deepEqual(
+    Array.from(context.expandReadInvalidationActions_(['listIndividualPlans'])).sort(),
+    ['listIndividualPlans']
+  );
+});
+
+test('necely startovni balik se po docasne chybe neulozi do cache', () => {
+  const context = createCachedContext();
+  let loads = 0;
+  const load = () => ({
+    ok: true,
+    errors: [{ action: 'listMeetings', error: 'temporary' }],
+    version: ++loads
+  });
+  const shouldCache = (payload) => !payload.errors || payload.errors.length === 0;
+
+  assert.equal(context.readCachedDataset_('bootstrapFast', load, shouldCache).version, 1);
+  assert.equal(context.readCachedDataset_('bootstrapFast', load, shouldCache).version, 2);
+  assert.equal(loads, 2);
 });
 
 test('výsledek načtený souběžně se zápisem se nevrátí zpět do cache', () => {

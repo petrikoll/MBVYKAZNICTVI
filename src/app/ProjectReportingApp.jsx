@@ -2186,6 +2186,8 @@ function actorSheetRowMatchesPayload(row, partner) {
 // Prohlizec musi cekat o neco dele nez Render proxy. Jinak ukonci pozadavek,
 // ktery na serveru stale uspesne probiha, a uzivatel uvidi falesnou chybu.
 const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 65000;
+const STARTUP_BOOTSTRAP_TIMEOUT_MS = 45000;
+const DEFERRED_DATA_TIMEOUT_MS = 30000;
 
 function createClientMutationRequestId(operation) {
   const prefix = String(operation || 'client').replace(/[^a-z0-9_-]/gi, '').slice(0, 24) || 'client';
@@ -2557,27 +2559,15 @@ function App() {
     let retryTimeoutId = null;
     let consecutiveFailures = 0;
 
-    // Rychle a pomocne oblasti startuji soubezne. Individualni plany jsou
-    // soucasti pomocneho baliku; starsi Apps Script dostane samostatny fallback.
-    const prefetchAction = (action) => fetchGoogleSheetAction(action, 1)
+    // Jeden autoritativni rychly balik nacte klienty i bezne zaznamy. Teprve po
+    // jeho dokonceni spustime pomocne oblasti a plany, aby nezahltily Apps Script
+    // soubeznymi studenymi ctenimi a neblokovaly prvni pouzitelne zobrazeni.
+    const prefetchAction = (action, timeoutMs = DEFERRED_DATA_TIMEOUT_MS) => fetchGoogleSheetAction(action, 1, timeoutMs)
       .then((result) => ({ action, result }))
       .catch((error) => ({ action, error }));
-    const corePrefetch = prefetchAction('bootstrapFast');
-    const auxiliaryPrefetch = prefetchAction('bootstrapAuxiliary');
-    const plansPrefetch = auxiliaryPrefetch.then((outcome) => {
-      const plansFailedInBundle = (outcome?.result?.errors || []).some((item) => item?.action === 'listIndividualPlans');
-      if (!plansFailedInBundle && Array.isArray(outcome?.result?.individualPlans)) {
-        return {
-          action: 'listIndividualPlans',
-          result: {
-            ok: true,
-            individualPlans: outcome.result.individualPlans,
-            __dataRevision: outcome.result.__dataRevision || ''
-          }
-        };
-      }
-      return prefetchAction('listIndividualPlans');
-    });
+    const corePrefetch = prefetchAction('bootstrapFast', STARTUP_BOOTSTRAP_TIMEOUT_MS);
+    const auxiliaryPrefetch = corePrefetch.then(() => prefetchAction('bootstrapAuxiliary'));
+    const plansPrefetch = corePrefetch.then(() => prefetchAction('listIndividualPlans'));
     prefetchedSheetActionsRef.current.set('bootstrapFast', corePrefetch);
     prefetchedSheetActionsRef.current.set('bootstrapAuxiliary', auxiliaryPrefetch);
     prefetchedSheetActionsRef.current.set('listIndividualPlans', plansPrefetch);
@@ -2589,13 +2579,15 @@ function App() {
       // Revize pouze urychluje kontrolu. Jeji selhani nesmi zablokovat data.
     });
 
-    let hasDirectorySnapshot = false;
+    let hasClientSnapshot = false;
+    let startupBootstrapConsumed = false;
     const applyClientSnapshot = (parsed, authoritative) => {
       if (cancelled) return;
       if (authoritative) {
         hasAuthoritativeClientSnapshotRef.current = true;
         setIsClientRegistryAvailable(true);
       }
+      hasClientSnapshot = true;
       setClients((current) => (haveSameClientSnapshot(current, parsed) ? current : parsed));
       const firstClientId = parsed[0]?.id || '';
       setSelectedClientId((current) => parsed.some((client) => client.id === current) ? current : firstClientId);
@@ -2634,27 +2626,17 @@ function App() {
     const fetchClients = async () => {
       setIsLoadingClients(true);
       try {
-        if (!hasDirectorySnapshot) {
-          try {
-            const directory = await fetchGoogleSheetAction('listClientDirectory', 1, 30000);
-            if (cancelled) return;
-            currentDataRevisionRef.current = directory?.__dataRevision || currentDataRevisionRef.current;
-            const directoryRows = Array.isArray(directory?.clients) ? directory.clients : [];
-            const parsedDirectory = directoryRows
-              .map((row, index) => mapSheetRowToClient(row, index))
-              .filter(Boolean)
-              .map((client) => ({ ...client, isDirectoryOnly: true }));
-            if (parsedDirectory.length) {
-              hasDirectorySnapshot = true;
-              applyClientSnapshot(parsedDirectory, false);
-            }
-          } catch (directoryError) {
-            if (directoryError?.httpStatus !== 404) {
-              console.warn('Google Sheets client directory skipped:', directoryError);
-            }
+        let json = null;
+        if (!startupBootstrapConsumed) {
+          startupBootstrapConsumed = true;
+          const bootstrapOutcome = await corePrefetch;
+          if (bootstrapOutcome?.result && Array.isArray(bootstrapOutcome.result.clients)) {
+            json = bootstrapOutcome.result;
+          } else if (bootstrapOutcome?.error) {
+            console.warn('Google Sheets startup bootstrap skipped for clients:', bootstrapOutcome.error);
           }
         }
-        const json = await fetchGoogleSheetAction('listClients', 1);
+        if (!json) json = await fetchGoogleSheetAction('listClients', 1, DEFERRED_DATA_TIMEOUT_MS);
         if (cancelled) return;
         currentDataRevisionRef.current = json?.__dataRevision || currentDataRevisionRef.current;
         consecutiveFailures = 0;
@@ -2675,7 +2657,7 @@ function App() {
           hasAuthoritativeClientSnapshotRef.current = false;
           setIsClientRegistryAvailable(false);
         }
-        if (!hasDirectorySnapshot) {
+        if (!hasClientSnapshot) {
           setClients([]);
           setSelectedClientId('');
           setGeneratorDraft((prev) => ({ ...prev, clientId: '' }));
@@ -2872,7 +2854,7 @@ function App() {
             const recovered = await Promise.all(
               pendingSources.map(async ([action, bundleKey, fallback]) => {
                 const recoveryTimeoutMs = action === 'listIndividualPlans'
-                  ? GOOGLE_SHEET_REQUEST_TIMEOUT_MS
+                  ? DEFERRED_DATA_TIMEOUT_MS
                   : 20000;
                 return {
                   action,
@@ -2947,7 +2929,7 @@ function App() {
       };
       const loadSingleProgressiveSource = async ([action, bundleKey, fallback]) => {
         const sourceTimeoutMs = action === 'listIndividualPlans'
-          ? GOOGLE_SHEET_REQUEST_TIMEOUT_MS
+          ? DEFERRED_DATA_TIMEOUT_MS
           : 20000;
         const result = await loadAction(action, fallback, { retry: false, timeoutMs: sourceTimeoutMs });
         if (!cancelled && loadedActions.has(action)) {
@@ -3000,13 +2982,18 @@ function App() {
         ['listPerformances', 'listMeetings', 'listPartners'].includes(action)
       ));
       const auxiliarySources = progressiveSources.filter(([action]) => (
-        ['listIndividualPlans', 'listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'].includes(action)
+        ['listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'].includes(action)
       ));
+      const plansSource = progressiveSources.find(([action]) => action === 'listIndividualPlans');
 
-      // Side effects inside each promise publish a completed area immediately.
+      // Nejprve zverejnime klienty a bezne zaznamy z jednoho rychleho baliku.
+      // Pomocne oblasti a dlouhe texty planu se doplnuji az pote a prvni
+      // pouzitelne zobrazeni proto neblokuji.
+      await processProgressiveBootstrap('bootstrapFast', coreSources);
+      if (cancelled) return;
       await Promise.all([
-        processProgressiveBootstrap('bootstrapFast', coreSources),
-        processProgressiveBootstrap('bootstrapAuxiliary', auxiliarySources)
+        processProgressiveBootstrap('bootstrapAuxiliary', auxiliarySources),
+        loadSingleProgressiveSource(plansSource)
       ]);
       if (cancelled) return;
       // Prvni prechodne selhani jeste nehlasime. Automaticka obnova probehne

@@ -22,9 +22,17 @@ const CONFIG = {
   beneficiaryName: 'Město Moravský Beroun'
 };
 
-const READ_CACHE_VERSION_ = 'read-v1';
+const READ_CACHE_VERSION_ = 'read-v2-gzip';
+const READ_CACHE_ENCODING_ = 'gzip-base64url-v1';
 const READ_CACHE_TTL_SECONDS_ = 21600;
 const READ_CACHE_CHUNK_SIZE_ = 85000;
+const READ_CACHE_MAX_CHUNKS_ = 40;
+const BOOTSTRAP_FAST_READ_ACTIONS_ = [
+  'listClients', 'listPerformances', 'listMeetings', 'listPartners'
+];
+const BOOTSTRAP_AUXILIARY_READ_ACTIONS_ = [
+  'listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'
+];
 const RECORD_DOCUMENT_QUEUE_PROPERTY_ = 'record-document-queue-v1';
 const RECORD_DOCUMENT_STATUS_PROPERTY_ = 'record-document-status-v1';
 const RECORD_DOCUMENT_TRIGGER_HANDLER_ = 'runQueuedRecordDocuments';
@@ -211,19 +219,25 @@ function doGet(e) {
       return json_(buildBootstrapPayload_());
     }
     if (e.parameter.action === 'bootstrapFast') {
-      return json_(buildBootstrapPayload_([
-        'listPerformances', 'listMeetings', 'listPartners'
-      ]));
+      return json_(readCachedDataset_(
+        'bootstrapFast',
+        () => buildBootstrapPayload_(BOOTSTRAP_FAST_READ_ACTIONS_),
+        (payload) => !payload.errors || payload.errors.length === 0
+      ));
     }
     if (e.parameter.action === 'bootstrapCore') {
-      return json_(buildBootstrapPayload_([
-        'listPerformances', 'listMeetings', 'listPartners'
-      ]));
+      return json_(readCachedDataset_(
+        'bootstrapFast',
+        () => buildBootstrapPayload_(BOOTSTRAP_FAST_READ_ACTIONS_),
+        (payload) => !payload.errors || payload.errors.length === 0
+      ));
     }
     if (e.parameter.action === 'bootstrapAuxiliary') {
-      return json_(buildBootstrapPayload_([
-        'listIndividualPlans', 'listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'
-      ]));
+      return json_(readCachedDataset_(
+        'bootstrapAuxiliary',
+        () => buildBootstrapPayload_(BOOTSTRAP_AUXILIARY_READ_ACTIONS_),
+        (payload) => !payload.errors || payload.errors.length === 0
+      ));
     }
     if (e.parameter.action === 'listClients') {
       return json_({ ok: true, clients: readCachedDataset_('listClients', () => listClients_()) });
@@ -251,9 +265,10 @@ function doGet(e) {
       return json_({ ok: true, partners: readCachedDataset_('listPartners', () => listPartners_()) });
     }
     if (e.parameter.action === 'listIndividualPlans') {
-      // Tento list je maly, ale obsahuje dlouhe JSON/textove bunky. Prime cteni je
-      // spolehlivejsi nez skladani odpovedi z limitovane CacheService.
-      return json_({ ok: true, individualPlans: listIndividualPlans_() });
+      return json_({
+        ok: true,
+        individualPlans: readCachedDataset_('listIndividualPlans', () => listIndividualPlans_())
+      });
     }
     if (e.parameter.action === 'listPerformances') {
       return json_({ ok: true, performances: readCachedDataset_('listPerformances', () => listPerformances_()) });
@@ -1556,12 +1571,15 @@ function getCachedDataset_(action) {
     const meta = JSON.parse(metaRaw);
     if (String(meta.generation || '') !== readCacheGeneration_(cache, action)) return null;
     const count = Number(meta && meta.count);
-    if (!Number.isInteger(count) || count < 1) return null;
+    if (!Number.isInteger(count) || count < 1 || count > READ_CACHE_MAX_CHUNKS_) return null;
     const keys = Array.from({ length: count }, (_, index) => baseKey + ':' + index);
     const chunks = cache.getAll(keys);
     if (!chunks || keys.some((key) => typeof chunks[key] !== 'string')) return null;
     const encoded = keys.map((key) => chunks[key]).join('');
-    const json = Utilities.newBlob(Utilities.base64DecodeWebSafe(encoded)).getDataAsString('UTF-8');
+    const encodedBytes = Utilities.base64DecodeWebSafe(encoded);
+    const json = meta.encoding === READ_CACHE_ENCODING_
+      ? Utilities.ungzip(Utilities.newBlob(encodedBytes)).getDataAsString('UTF-8')
+      : Utilities.newBlob(encodedBytes).getDataAsString('UTF-8');
     return JSON.parse(json);
   } catch (error) {
     console.warn('Read cache miss for ' + action + ': ' + String(error.message || error));
@@ -1573,12 +1591,14 @@ function putCachedDataset_(action, value, generation) {
   try {
     const cache = CacheService.getScriptCache();
     const baseKey = readCacheBaseKey_(action);
-    const encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(JSON.stringify(value)).getBytes());
+    const compressed = Utilities.gzip(Utilities.newBlob(JSON.stringify(value), 'application/json'));
+    const encoded = Utilities.base64EncodeWebSafe(compressed.getBytes());
     const chunks = [];
     for (let offset = 0; offset < encoded.length; offset += READ_CACHE_CHUNK_SIZE_) {
       chunks.push(encoded.slice(offset, offset + READ_CACHE_CHUNK_SIZE_));
     }
     if (chunks.length === 0) chunks.push('');
+    if (chunks.length > READ_CACHE_MAX_CHUNKS_) return;
     const entries = {};
     chunks.forEach((chunk, index) => {
       entries[baseKey + ':' + index] = chunk;
@@ -1586,7 +1606,8 @@ function putCachedDataset_(action, value, generation) {
     entries[baseKey + ':meta'] = JSON.stringify({
       count: chunks.length,
       cachedAt: Date.now(),
-      generation: generation || ''
+      generation: generation || '',
+      encoding: READ_CACHE_ENCODING_
     });
     cache.putAll(entries, READ_CACHE_TTL_SECONDS_);
   } catch (error) {
@@ -1594,7 +1615,7 @@ function putCachedDataset_(action, value, generation) {
   }
 }
 
-function readCachedDataset_(action, loader) {
+function readCachedDataset_(action, loader, shouldCache) {
   const cached = getCachedDataset_(action);
   if (cached !== null) return cached;
   let generationBefore = '';
@@ -1610,11 +1631,29 @@ function readCachedDataset_(action, loader) {
   } catch {
     // Bez cache se výsledek pouze vrátí volajícímu.
   }
-  if (generationBefore === generationAfter) putCachedDataset_(action, value, generationAfter);
+  const cacheable = typeof shouldCache !== 'function' || shouldCache(value);
+  if (generationBefore === generationAfter && cacheable) {
+    putCachedDataset_(action, value, generationAfter);
+  }
   return value;
 }
 
+function expandReadInvalidationActions_(actions) {
+  const expanded = {};
+  (actions || []).forEach((action) => {
+    expanded[action] = true;
+    if (BOOTSTRAP_FAST_READ_ACTIONS_.includes(action)) {
+      expanded.bootstrapFast = true;
+    }
+    if (BOOTSTRAP_AUXILIARY_READ_ACTIONS_.includes(action)) {
+      expanded.bootstrapAuxiliary = true;
+    }
+  });
+  return Object.keys(expanded);
+}
+
 function invalidateReadActions_(actions) {
+  actions = expandReadInvalidationActions_(actions);
   if (!actions || actions.length === 0) return;
   try {
     const cache = CacheService.getScriptCache();
@@ -1635,7 +1674,9 @@ function invalidateReadActions_(actions) {
         // Poškozená metadata stačí odstranit; osiřelé bloky samy vyprší.
       }
     });
-    cache.removeAll(keysToRemove);
+    for (let offset = 0; offset < keysToRemove.length; offset += 80) {
+      cache.removeAll(keysToRemove.slice(offset, offset + 80));
+    }
   } catch (error) {
     console.warn('Read cache invalidation skipped: ' + String(error.message || error));
   }
@@ -2867,9 +2908,7 @@ function buildBootstrapPayload_(requestedActions) {
   const errors = [];
   const load = (action, fallback, loader) => {
     try {
-      return action === 'listIndividualPlans'
-        ? loader(sharedSpreadsheet())
-        : readCachedDataset_(action, () => loader(sharedSpreadsheet()));
+      return readCachedDataset_(action, () => loader(sharedSpreadsheet()));
     } catch (error) {
       errors.push({ action: action, error: String(error.message || error) });
       return fallback;
