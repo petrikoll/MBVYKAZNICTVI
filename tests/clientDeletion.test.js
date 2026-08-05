@@ -293,6 +293,10 @@ test('ambiguous deletion response is verified against the authoritative client r
   assert.match(handler, /verificationDelays = \[0, 800, 1800, 3200\]/);
   assert.match(handler, /for \(const delayMs of verificationDelays\)/);
   assert.match(handler, /verification\?\.deletion\?\.found === true && verification\?\.deletion\?\.deleted === true/);
+  assert.match(handler, /verificationError\?\.httpStatus === 404/);
+  assert.match(handler, /fetchGoogleSheetAction\(\s*'listClients'/);
+  assert.match(handler, /verification_nonce/);
+  assert.match(handler, /registryIsComplete && !clientStillActive/);
   assert.match(handler, /applyConfirmedDeletion\(\{ deleted: true, archive_warning: '' \}, true\)/);
   assert.match(handler, /result\.verified_after_response_failure === true/);
 });

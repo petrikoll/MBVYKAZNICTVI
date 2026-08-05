@@ -5225,6 +5225,7 @@ function App() {
         // Overeni proto kratce opakujeme; okamzita jednorazova kontrola mohla
         // predbehnout dokonceni zapisu v Apps Scriptu.
         const verificationDelays = [0, 800, 1800, 3200];
+        let deletionVerificationUnavailable = false;
         for (const delayMs of verificationDelays) {
           if (delayMs) await new Promise((resolve) => window.setTimeout(resolve, delayMs));
           try {
@@ -5241,7 +5242,41 @@ function App() {
             }
           } catch (verificationError) {
             console.warn('Client deletion verification failed:', verificationError);
+            if (verificationError?.httpStatus === 404) {
+              deletionVerificationUnavailable = true;
+              break;
+            }
           }
+        }
+
+        // Nektera nasazeni Apps Scriptu mohou po uspesnem zapisu docasne vratit
+        // 404 pro specialni kontrolni akci. Pred zapisem jsme klienta jednoznacne
+        // overili, proto je jeho absence v cerstvem uplnem registru spolehlivym
+        // potvrzenim, ze mazani probehlo. Nonce obchazi cteci cache Render proxy.
+        try {
+          const refreshedRegistry = await fetchGoogleSheetAction(
+            'listClients',
+            deletionVerificationUnavailable ? 2 : 1,
+            GOOGLE_SHEET_REQUEST_TIMEOUT_MS,
+            { verification_nonce: `${Date.now()}-${client.id}` }
+          );
+          const refreshedRows = Array.isArray(refreshedRegistry)
+            ? refreshedRegistry
+            : (Array.isArray(refreshedRegistry?.clients)
+              ? refreshedRegistry.clients
+              : (Array.isArray(refreshedRegistry?.data)
+                ? refreshedRegistry.data
+                : (Array.isArray(refreshedRegistry?.items) ? refreshedRegistry.items : null)));
+          const registryIsComplete = Array.isArray(refreshedRows);
+          const clientStillActive = registryIsComplete && refreshedRows.some((row) => (
+            String(row?.klient_id || row?.id || '').trim() === client.id
+          ));
+          if (registryIsComplete && !clientStillActive) {
+            applyConfirmedDeletion({ deleted: true, archive_warning: '' }, true);
+            return;
+          }
+        } catch (registryVerificationError) {
+          console.warn('Client deletion registry verification failed:', registryVerificationError);
         }
       }
       const message = saveErrorMessage('Klient nebyl smazán', error);
