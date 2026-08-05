@@ -12,7 +12,6 @@ import {
   Clock,
   Database,
   Download,
-  DownloadCloud,
   Eye,
   FileBadge,
   FileSpreadsheet,
@@ -2317,13 +2316,13 @@ function App() {
   const pendingRecordSaveSignaturesRef = useRef(new Set());
   const pendingRecordMutationIdsRef = useRef(new Set());
   const pendingClientSaveSignaturesRef = useRef(new Set());
+  const clientDriveProvisionAttemptsRef = useRef(new Set());
   const prefetchedSheetActionsRef = useRef(new Map());
   const currentDataRevisionRef = useRef(readSafeRecordIndex().revision);
   const ka01ActorEditVersionRef = useRef('');
   const generatedOutputSaveLockRef = useRef(false);
   const isEsfExportRequestRef = useRef(0);
   const isEsfSupportExportRequestRef = useRef(0);
-  const [isProvisioningClientFolder, setIsProvisioningClientFolder] = useState(false);
   const [clientFolderViewer, setClientFolderViewer] = useState({
     open: false,
     clientId: '',
@@ -4115,10 +4114,7 @@ function App() {
     }
   };
 
-  const persistClientDriveBundleRecord = async (client, bundleResult) => {
-    const existingRecord = records.find(
-      (record) => record.entityType === 'client_folder_bundle' && record.clientId === client.id
-    );
+  const persistClientDriveBundleRecord = (client, bundleResult) => {
     const payload = {
       entityType: 'client_folder_bundle',
       ka: '',
@@ -4136,16 +4132,20 @@ function App() {
       indicatorFlags: {}
     };
 
-    const nextRecord = existingRecord
-      ? { ...existingRecord, ...payload, createdAt: existingRecord.createdAt || Date.now() }
-      : { ...payload, id: `local-drive-bundle-${client.id}`, createdAt: Date.now() };
-    const nextRecords = existingRecord
-      ? records.map((record) => (record.id === existingRecord.id ? nextRecord : record))
-      : [nextRecord, ...records];
-    setRecords(nextRecords);
+    setRecords((previousRecords) => {
+      const existingRecord = previousRecords.find(
+        (record) => record.entityType === 'client_folder_bundle' && record.clientId === client.id
+      );
+      const nextRecord = existingRecord
+        ? { ...existingRecord, ...payload, createdAt: existingRecord.createdAt || Date.now() }
+        : { ...payload, id: `local-drive-bundle-${client.id}`, createdAt: Date.now() };
+      return existingRecord
+        ? previousRecords.map((record) => (record.id === existingRecord.id ? nextRecord : record))
+        : [nextRecord, ...previousRecords];
+    });
   };
 
-  const provisionClientDriveFolder = async (client, { silent = false, manageState = true } = {}) => {
+  const provisionClientDriveFolder = async (client, { silent = false } = {}) => {
     if (!isClientRegistryAvailable) {
       if (!silent) setFlash('Klientský registr není dostupný. Vytvoření složky bylo zablokováno.');
       return false;
@@ -4155,7 +4155,6 @@ function App() {
       return false;
     }
 
-    if (manageState) setIsProvisioningClientFolder(true);
     try {
       const response = await fetch(GOOGLE_SHEET_MACRO_URL, {
         method: 'POST',
@@ -4188,44 +4187,32 @@ function App() {
           }
           : item
       )));
-      await persistClientDriveBundleRecord(client, bundleResult);
+      persistClientDriveBundleRecord(client, bundleResult);
       if (!silent) setFlash('Slo\u017eka klienta a monitorovac\u00ed list byly p\u0159ipraveny.');
       return true;
     } catch (error) {
       console.error('Client Drive folder provisioning error:', error);
       if (!silent) setFlash(error.message || 'Slo\u017eku klienta se nepoda\u0159ilo vytvo\u0159it.');
       return false;
-    } finally {
-      if (manageState) setIsProvisioningClientFolder(false);
     }
   };
 
-  const provisionAllClientDriveFolders = async () => {
-    if (!GOOGLE_SHEET_MACRO_URL) {
-      setFlash('Google Drive propojení zatím není nastavené.');
-      return;
-    }
+  useEffect(() => {
+    if (
+      !selectedClient?.id
+      || hasCompleteSelectedClientDriveBundle
+      || !isClientRegistryAvailable
+      || !GOOGLE_SHEET_MACRO_URL
+      || clientDriveProvisionAttemptsRef.current.has(selectedClient.id)
+    ) return;
 
-    const clientsWithoutFolder = clients.filter(
-      (client) => !client.driveFolderUrl && !records.some((record) => record.entityType === 'client_folder_bundle' && record.clientId === client.id)
-    );
-    if (!clientsWithoutFolder.length) {
-      setFlash('Všichni klienti už mají založenou Drive složku.');
-      return;
-    }
-
-    setIsProvisioningClientFolder(true);
-    let createdCount = 0;
-    try {
-      for (const client of clientsWithoutFolder) {
-        const ok = await provisionClientDriveFolder(client, { silent: true, manageState: false });
-        if (ok) createdCount += 1;
+    clientDriveProvisionAttemptsRef.current.add(selectedClient.id);
+    void provisionClientDriveFolder(selectedClient, { silent: true }).then((folderReady) => {
+      if (!folderReady) {
+        setFlash('Automatická příprava složky a monitorovacího listu se nezdařila. Znovu se spustí při prvním uloženém výkonu.');
       }
-      setFlash(`Drive složky byly vytvořeny pro ${createdCount} z ${clientsWithoutFolder.length} klientů.`);
-    } finally {
-      setIsProvisioningClientFolder(false);
-    }
-  };
+    });
+  }, [hasCompleteSelectedClientDriveBundle, isClientRegistryAvailable, selectedClient?.id]);
 
 
   const postGoogleSheetAction = async (payload) => {
@@ -4934,8 +4921,16 @@ function App() {
       setSelectedClientId(savedClient.id);
       setClientDraft({ ...emptyClientDraft, datumVstupu: todayIso(), keyWorker: isGarantWorker(currentWorker) ? '' : currentWorker });
       setSheetError('');
-      setSaveButtonNotice('client-create', 'success', 'Klient uložen');
-      setFlash('Klient uložen');
+      setSaveButtonNotice('client-create', 'progress', 'Klient uložen. Připravuji složku a monitorovací list…');
+      setFlash('Klient uložen. Připravuji složku a monitorovací list…');
+      clientDriveProvisionAttemptsRef.current.add(savedClient.id);
+      void provisionClientDriveFolder(savedClient, { silent: true }).then((folderReady) => {
+        const message = folderReady
+          ? 'Klient uložen. Složka a monitorovací list jsou připravené.'
+          : 'Klient byl uložen, ale složku a monitorovací list se nepodařilo připravit. Příprava se zopakuje při prvním uloženém výkonu.';
+        setSaveButtonNotice('client-create', folderReady ? 'success' : 'error', message);
+        setFlash(message);
+      });
     } catch (error) {
       console.error('Google Sheets client save error:', error);
       const message = saveErrorMessage('Klient nebyl uložen', error);
@@ -7921,21 +7916,6 @@ ${rawPlanOutput}` }] }],
                           Shrnout zakázku AI
                         </button>
                         <HelpIcon help={HELP.clientsAiSummary} />
-                        {!hasCompleteSelectedClientDriveBundle && (
-                          <>
-                            <button
-                              onClick={() => provisionClientDriveFolder(selectedClient)}
-                              disabled={isProvisioningClientFolder}
-                              className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isProvisioningClientFolder ?<Loader2 className="h-4 w-4 animate-spin" /> : <DownloadCloud className="h-4 w-4" />}
-                              {selectedClientDriveBundle?.payload?.clientFolderUrl
-                                ? 'Doplnit monitorovací list'
-                                : 'Vytvoř složku klienta'}
-                            </button>
-                            <HelpIcon help={HELP.clientsDriveFolder} />
-                          </>
-                        )}
                         <button
                           onClick={openClientEditForm}
                           disabled={isSaving}
@@ -8075,26 +8055,19 @@ ${rawPlanOutput}` }] }],
                               </span>
                             </a>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => provisionClientDriveFolder(selectedClient)}
-                              disabled={isProvisioningClientFolder}
-                              className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-left text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
-                            >
-                              {isProvisioningClientFolder
-                                ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                                : <FileSpreadsheet className="h-4 w-4 shrink-0" />}
+                            <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-left text-amber-900">
+                              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
                               <span className="min-w-0">
-                                <span className="block text-xs font-semibold">Doplnit monitorovací list</span>
-                                <span className="block text-[11px]">Ve složce zatím chybí.</span>
+                                <span className="block text-xs font-semibold">Monitorovací list se připravuje</span>
+                                <span className="block text-[11px]">Probíhá automaticky na pozadí.</span>
                               </span>
-                            </button>
+                            </div>
                           )}
                         </div>
                       ) : (
-                        <div className="mt-3 text-sm text-emerald-800">
-                          Po kliknutí na <strong>Vytvoř složku klienta</strong> se založí složka klienta
-                          a vytvoří nebo aktualizuje monitorovací list.
+                        <div className="flex items-center gap-2 text-sm text-emerald-800">
+                          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                          Složka klienta a monitorovací list se připravují automaticky.
                         </div>
                       )}
                     </div>

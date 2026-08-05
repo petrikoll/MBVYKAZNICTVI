@@ -111,7 +111,11 @@ test('folder created by a document job is reflected in the open client card', ()
   assert.match(appSource, /const applyClientFolderState = \(status\) =>/);
   assert.match(appSource, /driveFolderUrl: clientFolderUrl \|\| client\.driveFolderUrl \|\| ''/);
   assert.match(appSource, /if \(status\.state === 'ready'\) \{\s*applyClientFolderState\(status\)/);
-  assert.match(appSource, /hasCompleteSelectedClientDriveBundle/);
-  assert.match(appSource, /Doplnit monitorovací list/);
+  assert.match(appSource, /void provisionClientDriveFolder\(savedClient, \{ silent: true \}\)/);
+  assert.match(appSource, /clientDriveProvisionAttemptsRef\.current\.has\(selectedClient\.id\)/);
+  assert.match(appSource, /void provisionClientDriveFolder\(selectedClient, \{ silent: true \}\)/);
+  assert.match(appSource, /Složka klienta a monitorovací list se připravují automaticky/);
+  assert.doesNotMatch(appSource, /Doplnit monitorovací list|Vytvoř složku klienta/);
+  assert.doesNotMatch(appSource, /onClick=\{\(\) => provisionClientDriveFolder\(selectedClient\)\}/);
   assert.match(appSource, /15000, 15000, 15000, 15000/);
 });
