@@ -2186,7 +2186,6 @@ function actorSheetRowMatchesPayload(row, partner) {
 // Prohlizec musi cekat o neco dele nez Render proxy. Jinak ukonci pozadavek,
 // ktery na serveru stale uspesne probiha, a uzivatel uvidi falesnou chybu.
 const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 65000;
-const STARTUP_BOOTSTRAP_TIMEOUT_MS = 45000;
 const DEFERRED_DATA_TIMEOUT_MS = 30000;
 
 function createClientMutationRequestId(operation) {
@@ -2894,31 +2893,6 @@ function App() {
         supervision: { supervision: [] },
         statistics: { statistics: [] }
       };
-      const bootstrapValue = (bundleKey, data) => {
-        const revision = data.__dataRevision || '';
-        if (bundleKey === 'performances') return { performances: data.performances || [], __dataRevision: revision };
-        if (bundleKey === 'meetings') return { meetings: data.meetings || [], __dataRevision: revision };
-        if (bundleKey === 'partners') return { partners: data.partners || [], __dataRevision: revision };
-        if (bundleKey === 'networkMeetings') return { networkMeetings: data.networkMeetings || [], __dataRevision: revision };
-        if (bundleKey === 'education') return { education: data.education || [], __dataRevision: revision };
-        if (bundleKey === 'supervision') return { supervision: data.supervision || [], __dataRevision: revision };
-        if (bundleKey === 'statistics') return { statistics: data.statistics || [], __dataRevision: revision };
-        return { individualPlans: data.individualPlans || [], __dataRevision: revision };
-      };
-      const bootstrapContainsAction = (action, data) => {
-        const propertyByAction = {
-          listPerformances: 'performances',
-          listMeetings: 'meetings',
-          listIndividualPlans: 'individualPlans',
-          listNetworkMeetings: 'networkMeetings',
-          listPartners: 'partners',
-          listEducation: 'education',
-          listSupervision: 'supervision',
-          listStatistics: 'statistics'
-        };
-        const property = propertyByAction[action];
-        return Boolean(property && Array.isArray(data?.[property]));
-      };
       const applySingleProgressiveSource = (action, bundleKey, result) => {
         progressiveBundle[bundleKey] = result;
         if (action === 'listStatistics') setStatisticsRows(result.statistics || []);
@@ -2933,76 +2907,16 @@ function App() {
           applySingleProgressiveSource(action, bundleKey, result);
         }
       };
-      const processProgressiveBootstrap = async (groupAction, sources) => {
-        const prefetched = prefetchedSheetActionsRef.current.get(groupAction);
-        if (prefetched) prefetchedSheetActionsRef.current.delete(groupAction);
-        const outcome = prefetched
-          ? await prefetched
-          : await fetchGoogleSheetAction(groupAction, 1).then(
-            (result) => ({ action: groupAction, result }),
-            (error) => ({ action: groupAction, error })
-          );
-
-        if (!outcome?.result) {
-          console.warn('Google Sheets progressive bootstrap skipped:', groupAction, outcome?.error);
-          await Promise.all(sources.map(loadSingleProgressiveSource));
-          return;
-        }
-
-        currentDataRevisionRef.current = outcome.result.__dataRevision || currentDataRevisionRef.current;
-        const groupFailures = new Set(
-          (Array.isArray(outcome.result.errors) ? outcome.result.errors : [])
-            .map((item) => item?.action)
-            .filter(Boolean)
-        );
-        sources.forEach(([action]) => {
-          if (!bootstrapContainsAction(action, outcome.result)) groupFailures.add(action);
-        });
-        const successfulActions = new Set();
-        sources.forEach(([action, bundleKey]) => {
-          if (groupFailures.has(action)) return;
-          const result = bootstrapValue(bundleKey, outcome.result);
-          progressiveBundle[bundleKey] = result;
-          acceptLoadedAction(action, result);
-          successfulActions.add(action);
-        });
-        if (successfulActions.has('listStatistics')) {
-          setStatisticsRows(progressiveBundle.statistics.statistics || []);
-        }
-        if (successfulActions.size) applyLoadedResults(progressiveBundle, successfulActions);
-        await Promise.all(
-          sources.filter(([action]) => groupFailures.has(action)).map(loadSingleProgressiveSource)
-        );
-      };
-
-      const coreSources = progressiveSources.filter(([action]) => (
-        ['listPerformances', 'listMeetings', 'listPartners'].includes(action)
-      ));
-      const auxiliarySources = progressiveSources.filter(([action]) => (
-        ['listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'].includes(action)
-      ));
-      const plansSource = progressiveSources.find(([action]) => action === 'listIndividualPlans');
-      const performancesSource = coreSources.find(([action]) => action === 'listPerformances');
-      const remainingCoreSources = coreSources.filter(([action]) => action !== 'listPerformances');
-
-      // Klientsky registr ma vzdy prednost. Po nem nacteme nejprve vykony,
-      // potom mensi bezne oblasti, plany a nakonec pomocne evidence. Jednotlive
-      // akce maji vlastni cache a jedna pomala oblast tak nezablokuje ostatni.
+      // Klientsky registr ma vzdy prednost. Po nem spustime vsechny nezavisle
+      // oblasti soubezne. Kazda se zverejni ihned po sve odpovedi a jedna pomala
+      // nebo docasne nedostupna oblast tak uz nezablokuje zadnou jinou.
       const startupClientReady = prefetchedSheetActionsRef.current.get('startupClientReady');
       if (startupClientReady) {
         prefetchedSheetActionsRef.current.delete('startupClientReady');
         await startupClientReady;
       }
       if (cancelled) return;
-      await loadSingleProgressiveSource(performancesSource);
-      if (cancelled) return;
-      await Promise.all(remainingCoreSources.map(loadSingleProgressiveSource));
-      if (cancelled) return;
-      await loadSingleProgressiveSource(plansSource);
-      if (cancelled) return;
-      await Promise.all([
-        ...auxiliarySources.map(loadSingleProgressiveSource)
-      ]);
+      await Promise.all(progressiveSources.map(loadSingleProgressiveSource));
       if (cancelled) return;
       // Prvni prechodne selhani jeste nehlasime. Automaticka obnova probehne
       // za osm sekund a zprava se zobrazi jen tehdy, pokud selze i ona.
