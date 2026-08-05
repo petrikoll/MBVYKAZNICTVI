@@ -2819,11 +2819,16 @@ function App() {
             const pendingSources = sources.filter(([action]) => failedActions.has(action));
             if (!pendingSources.length) return;
             const recovered = await Promise.all(
-              pendingSources.map(async ([action, bundleKey, fallback]) => ({
-                action,
-                bundleKey,
-                result: await loadAction(action, fallback, { retry: false, timeoutMs: 20000 })
-              }))
+              pendingSources.map(async ([action, bundleKey, fallback]) => {
+                const recoveryTimeoutMs = action === 'listIndividualPlans'
+                  ? GOOGLE_SHEET_REQUEST_TIMEOUT_MS
+                  : 20000;
+                return {
+                  action,
+                  bundleKey,
+                  result: await loadAction(action, fallback, { retry: false, timeoutMs: recoveryTimeoutMs })
+                };
+              })
             );
             recovered.forEach(({ bundleKey, result }) => {
               bundle[bundleKey] = result;
@@ -2876,7 +2881,10 @@ function App() {
         applyLoadedResults(progressiveBundle, new Set([action]));
       };
       const loadSingleProgressiveSource = async ([action, bundleKey, fallback]) => {
-        const result = await loadAction(action, fallback, { retry: false, timeoutMs: 20000 });
+        const sourceTimeoutMs = action === 'listIndividualPlans'
+          ? GOOGLE_SHEET_REQUEST_TIMEOUT_MS
+          : 20000;
+        const result = await loadAction(action, fallback, { retry: false, timeoutMs: sourceTimeoutMs });
         if (!cancelled && loadedActions.has(action)) {
           applySingleProgressiveSource(action, bundleKey, result);
         }

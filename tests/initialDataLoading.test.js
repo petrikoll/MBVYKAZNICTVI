@@ -28,7 +28,9 @@ test('clients and record batches start concurrently with bounded retries', () =>
   assert.match(recordsBlock, /loadSingleProgressiveSource\(plansSource\)/);
   assert.match(recordsBlock, /applySingleProgressiveSource/);
   assert.match(recordsBlock, /scheduleFailedActionRecovery/);
-  assert.match(recordsBlock, /timeoutMs: 20000/);
+  assert.match(recordsBlock, /action === 'listIndividualPlans'[\s\S]*?GOOGLE_SHEET_REQUEST_TIMEOUT_MS[\s\S]*?: 20000/);
+  assert.match(recordsBlock, /sourceTimeoutMs/);
+  assert.match(recordsBlock, /recoveryTimeoutMs/);
   assert.match(recordsBlock, /fetchGoogleSheetAction\(action, 1, timeoutMs\)/);
   assert.match(recordsBlock, /const progressiveSources = \[/);
   assert.match(recordsBlock, /prefetchedSheetActionsRef\.current\.get\(groupAction\)/);
