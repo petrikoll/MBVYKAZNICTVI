@@ -361,3 +361,47 @@ test('ready document with a new folder invalidates the proxied client cache', as
 
   assert.equal(clientReads, 2);
 });
+
+test('invalid delete response is confirmed against the authoritative client row', async () => {
+  const requestedActions = [];
+  const request = createRequest('POST', '/api/google-sheets', JSON.stringify({
+    action: 'deleteClient',
+    client: { klient_id: 'KLIENT-0054' }
+  }));
+  const response = createResponse();
+
+  await handleGoogleAppsScriptProxy(request, response, {
+    appsScriptUrl: 'https://example.test/macros/s/delete-confirmation/exec',
+    appsScriptToken: 'server-secret',
+    fetchImpl: async (url, options) => {
+      if (options.method === 'POST') {
+        requestedActions.push('deleteClient');
+        return new Response('<html>ContentService response failed</html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' }
+        });
+      }
+      const action = new URL(url).searchParams.get('action');
+      requestedActions.push(action);
+      return new Response(JSON.stringify({
+        ok: true,
+        deletion: {
+          klient_id: 'KLIENT-0054',
+          found: true,
+          deleted: true
+        }
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  });
+
+  const payload = JSON.parse(response.body);
+  assert.deepEqual(requestedActions, ['deleteClient', 'verifyClientDeletion']);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers['X-Mutation-Verified'], 'deleteClient');
+  assert.equal(payload.ok, true);
+  assert.equal(payload.deletion.deleted, true);
+  assert.equal(payload.verified_after_response_failure, true);
+});

@@ -5214,7 +5214,7 @@ function App() {
         requested_by_name: currentWorker
       });
       if (!result?.deletion?.deleted) throw new Error('Google Sheet nepotvrdil smazání klienta.');
-      applyConfirmedDeletion(result.deletion);
+      applyConfirmedDeletion(result.deletion, result.verified_after_response_failure === true);
     } catch (error) {
       console.error('Google Sheets client delete error:', error);
       const ambiguousResponse = /platnou JSON odpověď|uložení nelze potvrdit/i.test(String(error?.message || ''));

@@ -294,6 +294,7 @@ test('ambiguous deletion response is verified against the authoritative client r
   assert.match(handler, /for \(const delayMs of verificationDelays\)/);
   assert.match(handler, /verification\?\.deletion\?\.found === true && verification\?\.deletion\?\.deleted === true/);
   assert.match(handler, /applyConfirmedDeletion\(\{ deleted: true, archive_warning: '' \}, true\)/);
+  assert.match(handler, /result\.verified_after_response_failure === true/);
 });
 
 test('client deletion verification bypasses the cached client list', () => {

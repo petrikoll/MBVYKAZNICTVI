@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 60000;
 const DEFAULT_READ_CACHE_TTL_MS = 60000;
+const DELETE_CONFIRMATION_DELAYS_MS = [0, 500, 1500, 3000];
+const DELETE_CONFIRMATION_TIMEOUT_MS = 15000;
 const CACHEABLE_GET_ACTIONS = new Set([
   'bootstrap',
   'bootstrapFast',
@@ -127,6 +129,54 @@ function isUnsupportedActionSnapshot(snapshot) {
   return payload?.ok === false && /unknown action|nezn[aá]m[aá] akce/i.test(String(payload.error || ''));
 }
 
+function isAmbiguousMutationSnapshot(snapshot) {
+  return parseJsonSnapshot(snapshot) === null || snapshot.status >= 500;
+}
+
+async function verifyDeletedClient(fetchImpl, appsScriptUrl, appsScriptToken, clientId, upstreamTimeoutMs) {
+  const normalizedClientId = String(clientId || '').trim();
+  if (!normalizedClientId) return null;
+
+  const verificationUrl = new URL(appsScriptUrl);
+  verificationUrl.searchParams.set('action', 'verifyClientDeletion');
+  verificationUrl.searchParams.set('klient_id', normalizedClientId);
+  verificationUrl.searchParams.set('token', appsScriptToken);
+  const timeoutMs = Math.min(upstreamTimeoutMs, DELETE_CONFIRMATION_TIMEOUT_MS);
+
+  for (const delayMs of DELETE_CONFIRMATION_DELAYS_MS) {
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      const snapshot = await fetchUpstreamSnapshot(
+        fetchImpl,
+        verificationUrl,
+        { method: 'GET', redirect: 'follow' },
+        timeoutMs
+      );
+      const payload = parseJsonSnapshot(snapshot);
+      if (
+        snapshot.status >= 200
+        && snapshot.status < 300
+        && payload?.ok === true
+        && payload?.deletion?.found === true
+        && payload?.deletion?.deleted === true
+      ) {
+        return {
+          ok: true,
+          deletion: {
+            ...payload.deletion,
+            deleted: true,
+            archive_warning: ''
+          },
+          verified_after_response_failure: true
+        };
+      }
+    } catch (error) {
+      console.warn('Client deletion confirmation retry failed:', error);
+    }
+  }
+  return null;
+}
+
 function buildClientDirectorySnapshot(snapshot) {
   const payload = parseJsonSnapshot(snapshot);
   if (!isSuccessfulJsonSnapshot(snapshot) || !Array.isArray(payload?.clients)) return snapshot;
@@ -184,11 +234,13 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
     });
 
     const fetchOptions = { method: request.method, redirect: 'follow' };
+    let postPayload = null;
     if (request.method === 'GET') {
       upstreamUrl.searchParams.set('token', appsScriptToken);
     } else {
       const rawBody = await readRequestBody(request);
       const payload = rawBody ? JSON.parse(rawBody) : {};
+      postPayload = payload;
       fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
       fetchOptions.body = JSON.stringify({ ...payload, token: appsScriptToken });
     }
@@ -239,6 +291,23 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
     }
 
     const snapshot = await fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs);
+    if (
+      request.method === 'POST'
+      && postPayload?.action === 'deleteClient'
+      && isAmbiguousMutationSnapshot(snapshot)
+    ) {
+      const confirmedDeletion = await verifyDeletedClient(
+        fetchImpl,
+        appsScriptUrl,
+        appsScriptToken,
+        postPayload?.client?.klient_id || postPayload?.client?.id,
+        upstreamTimeoutMs
+      );
+      if (confirmedDeletion) {
+        sendJson(response, 200, confirmedDeletion, { 'X-Mutation-Verified': 'deleteClient' });
+        return;
+      }
+    }
     if (request.method === 'GET' && action === 'getRecordDocumentStatus') {
       const payload = parseJsonSnapshot(snapshot);
       if (payload?.document?.state === 'ready' && payload.document.clientFolderUrl) {
