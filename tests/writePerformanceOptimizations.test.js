@@ -120,6 +120,21 @@ test('folder created by a document job is reflected in the open client card', ()
   assert.match(appSource, /15000, 15000, 15000, 15000/);
 });
 
+test('timeout při vytvoření klienta se ověří v registru a dokončí přípravu Drive', () => {
+  const createStart = appSource.indexOf('const handleClientCreate = async');
+  const updateStart = appSource.indexOf('const openClientEditForm =', createStart);
+  const createHandler = appSource.slice(createStart, updateStart);
+
+  assert.match(createHandler, /saveMayAlreadyExist/);
+  assert.match(createHandler, /prekrocilo casovy limit/);
+  assert.match(createHandler, /uz v registru existuje/);
+  assert.match(createHandler, /fetchGoogleSheetAction\(\s*'listClients'/);
+  assert.match(createHandler, /verification_nonce/);
+  assert.match(createHandler, /matchingClients\.length === 1/);
+  assert.match(createHandler, /applyRecoveredClientCreate\(matchingClients\[0\]\)/);
+  assert.match(createHandler, /provisionClientDriveFolder\(savedClient, \{ silent: true \}\)/);
+});
+
 test('client card update refreshes the existing monitoring list automatically', () => {
   const updateStart = appSource.indexOf('const handleClientUpdate = async');
   const deleteStart = appSource.indexOf('const handleClientDelete = async', updateStart);

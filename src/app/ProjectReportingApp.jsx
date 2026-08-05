@@ -4906,6 +4906,23 @@ function App() {
 
     pendingClientSaveSignaturesRef.current.add(pendingSignature);
     setIsSaving(true);
+    const applyRecoveredClientCreate = (savedClient) => {
+      setClients((prev) => [savedClient, ...prev.filter((client) => client.id !== savedClient.id)]);
+      setShowClientForm(false);
+      setSelectedClientId(savedClient.id);
+      setClientDraft({ ...emptyClientDraft, datumVstupu: todayIso(), keyWorker: isGarantWorker(currentWorker) ? '' : currentWorker });
+      setSheetError('');
+      setSaveButtonNotice('client-create', 'progress', 'Klient byl v registru dohledán jako uložený. Připravuji složku a monitorovací list…');
+      setFlash('Klient byl uložen. Připravuji složku a monitorovací list…');
+      clientDriveProvisionAttemptsRef.current.add(savedClient.id);
+      void provisionClientDriveFolder(savedClient, { silent: true }).then((folderReady) => {
+        const message = folderReady
+          ? 'Klient uložen. Složka a monitorovací list jsou připravené.'
+          : 'Klient byl uložen, ale složku a monitorovací list se nepodařilo připravit. Příprava se zopakuje při prvním uloženém výkonu.';
+        setSaveButtonNotice('client-create', folderReady ? 'success' : 'error', message);
+        setFlash(message);
+      });
+    };
     setSaveButtonNotice('client-create', 'progress', 'Ukládám klienta…');
     try {
       const result = await postGoogleSheetAction({
@@ -4933,6 +4950,46 @@ function App() {
       });
     } catch (error) {
       console.error('Google Sheets client save error:', error);
+      const normalizedSaveError = normalizeDuplicateText(error?.message || '');
+      const saveMayAlreadyExist = [
+        'prekrocilo casovy limit',
+        'trva prilis dlouho',
+        'nevratil platnou json odpoved',
+        'ulozeni nelze potvrdit',
+        'uz v registru existuje'
+      ].some((fragment) => normalizedSaveError.includes(fragment));
+      if (saveMayAlreadyExist) {
+        setSaveButtonNotice('client-create', 'progress', 'Ověřuji, zda už byl klient uložen…');
+        const verificationDelays = [0, 1200];
+        for (const delayMs of verificationDelays) {
+          if (delayMs) await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+          try {
+            const refreshedRegistry = await fetchGoogleSheetAction(
+              'listClients',
+              1,
+              GOOGLE_SHEET_REQUEST_TIMEOUT_MS,
+              { verification_nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}` }
+            );
+            const refreshedRows = Array.isArray(refreshedRegistry)
+              ? refreshedRegistry
+              : (Array.isArray(refreshedRegistry?.clients)
+                ? refreshedRegistry.clients
+                : (Array.isArray(refreshedRegistry?.data)
+                  ? refreshedRegistry.data
+                  : (Array.isArray(refreshedRegistry?.items) ? refreshedRegistry.items : null)));
+            if (!Array.isArray(refreshedRows)) continue;
+            const matchingClients = refreshedRows
+              .map((row, index) => mapSheetRowToClient(row, index))
+              .filter((candidate) => candidate?.id && isSameClientIdentity(clientToSave, candidate));
+            if (matchingClients.length === 1) {
+              applyRecoveredClientCreate(matchingClients[0]);
+              return;
+            }
+          } catch (verificationError) {
+            console.warn('Client create verification failed:', verificationError);
+          }
+        }
+      }
       const message = saveErrorMessage('Klient nebyl uložen', error);
       setSaveButtonNotice('client-create', 'error', message);
       setFlash(message);
