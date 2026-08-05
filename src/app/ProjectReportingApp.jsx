@@ -2590,24 +2590,69 @@ function App() {
     let retryTimeoutId = null;
     let consecutiveFailures = 0;
 
-    // Klientsky registr, vykony a individualni plany spoustime soucasne hned
-    // po startu. Po nacteni klientu se hotove vysledky pouze prevezmou; drahe
-    // cteni planu tak uz nezacina az se zpozdenim za klientskym registrem.
-    // Zbyvajici oblasti se nadale nacitaji s omezenou soubeznosti.
+    // Studeny Apps Script nesmi pri startu dostat nekolik soubeznych otevreni
+    // stejne tabulky. Nejprve proto bezi jediny zakladni balik. Teprve po
+    // autoritativnim nacteni klientu se spusti jeden pomocny balik a samostatne IP.
     const prefetchAction = (action, timeoutMs = GOOGLE_SHEET_REQUEST_TIMEOUT_MS) => fetchGoogleSheetAction(action, 1, timeoutMs)
       .then((result) => ({ action, result }))
       .catch((error) => ({ action, error }));
-    const clientsPrefetch = prefetchAction('listClients');
-    prefetchedSheetActionsRef.current.set('startupClientReady', clientsPrefetch);
-    ['listPerformances', 'listIndividualPlans'].forEach((action) => {
-      prefetchedSheetActionsRef.current.set(action, prefetchAction(action));
-    });
-    void fetchGoogleSheetAction('getDataRevision', 1, 5000).then((result) => {
-      if (result?.__dataRevision || result?.revision) {
-        currentDataRevisionRef.current = result.__dataRevision || result.revision;
+    const bundleActionPrefetch = (bundlePromise, action, responseKey) => bundlePromise.then((outcome) => {
+      if (outcome?.error) return { action, error: outcome.error };
+      const actionError = Array.isArray(outcome?.result?.errors)
+        ? outcome.result.errors.find((item) => item?.action === action)
+        : null;
+      if (actionError) return { action, error: new Error(actionError.error || `${action} se nepodařilo načíst.`) };
+      if (!Array.isArray(outcome?.result?.[responseKey])) {
+        return { action, error: new Error(`${action} nevrátil úplná data.`) };
       }
-    }).catch(() => {
-      // Revize pouze urychluje kontrolu. Jeji selhani nesmi zablokovat data.
+      return {
+        action,
+        result: {
+          ok: true,
+          [responseKey]: outcome.result[responseKey],
+          __dataRevision: outcome.result.__dataRevision || ''
+        }
+      };
+    });
+    let resolveStartupClientReady = () => {};
+    let startupClientReadyResolved = false;
+    const startupClientReady = new Promise((resolve) => {
+      resolveStartupClientReady = () => {
+        if (startupClientReadyResolved) return;
+        startupClientReadyResolved = true;
+        resolve();
+      };
+    });
+    prefetchedSheetActionsRef.current.set('startupClientReady', startupClientReady);
+
+    const corePrefetch = prefetchAction('bootstrapFast');
+    const clientsPrefetch = bundleActionPrefetch(corePrefetch, 'listClients', 'clients');
+    prefetchedSheetActionsRef.current.set(
+      'listPerformances',
+      bundleActionPrefetch(corePrefetch, 'listPerformances', 'performances')
+    );
+    prefetchedSheetActionsRef.current.set(
+      'listMeetings',
+      bundleActionPrefetch(corePrefetch, 'listMeetings', 'meetings')
+    );
+    prefetchedSheetActionsRef.current.set(
+      'listPartners',
+      bundleActionPrefetch(corePrefetch, 'listPartners', 'partners')
+    );
+
+    const individualPlansPrefetch = startupClientReady.then(() => prefetchAction('listIndividualPlans'));
+    prefetchedSheetActionsRef.current.set('listIndividualPlans', individualPlansPrefetch);
+    const auxiliaryPrefetch = startupClientReady.then(() => prefetchAction('bootstrapAuxiliary'));
+    [
+      ['listNetworkMeetings', 'networkMeetings'],
+      ['listEducation', 'education'],
+      ['listSupervision', 'supervision'],
+      ['listStatistics', 'statistics']
+    ].forEach(([action, responseKey]) => {
+      prefetchedSheetActionsRef.current.set(
+        action,
+        bundleActionPrefetch(auxiliaryPrefetch, action, responseKey)
+      );
     });
 
     let hasClientSnapshot = false;
@@ -2680,6 +2725,7 @@ function App() {
           .filter(Boolean);
         applyClientSnapshot(parsed, true);
         writeSafeClientIndex(parsed, currentDataRevisionRef.current);
+        resolveStartupClientReady();
       } catch (error) {
         if (cancelled) return;
         consecutiveFailures += 1;
@@ -2899,7 +2945,7 @@ function App() {
             if (!pendingSources.length) return;
             const recovered = await mapSourcesWithConcurrency(
               pendingSources,
-              3,
+              1,
               async ([action, bundleKey, fallback]) => {
                 return {
                   action,
@@ -2959,16 +3005,16 @@ function App() {
           applySingleProgressiveSource(action, bundleKey, result);
         }
       };
-      // Klientsky registr ma vzdy prednost. Po nem zpracovavame nezavisle oblasti
-      // nejvyse po trech. Tim se Google Apps Script nezahlti soubeznymi otevrenimi
-      // tabulky; vykony a plany jsou pritom prvni a kazdy vysledek se zverejni hned.
+      // Po autoritativnim registru zpracovavame vysledky nejvyse po dvou.
+      // Sitove, vzdelavaci, supervizni a statisticke hodnoty pritom sdileji
+      // jediny auxiliary pozadavek, takze nejde o ctyri otevreni tabulky.
       const startupClientReady = prefetchedSheetActionsRef.current.get('startupClientReady');
       if (startupClientReady) {
         prefetchedSheetActionsRef.current.delete('startupClientReady');
         await startupClientReady;
       }
       if (cancelled) return;
-      await mapSourcesWithConcurrency(progressiveSources, 3, loadSingleProgressiveSource);
+      await mapSourcesWithConcurrency(progressiveSources, 2, loadSingleProgressiveSource);
       if (cancelled) return;
       // Prvni prechodne selhani jeste nehlasime. Automaticka obnova probehne
       // za osm sekund a zprava se zobrazi jen tehdy, pokud selze i ona.
