@@ -434,3 +434,51 @@ test('actor update with an unknown id fails closed', () => {
   );
   assert.equal(sheet.rows.length, 0);
 });
+
+test('a soft-deleted duplicate does not confirm a new record create', () => {
+  const context = createContext();
+  const headers = ['vykon_id', 'klient_id', 'datum', 'popis', 'status', 'updated_at'];
+  const deletedRow = [
+    'VYKON-0001',
+    'KLIENT-0001',
+    '2026-08-05',
+    'Podpora klienta',
+    'Smazan\u00fd',
+    new Date('2026-08-05T10:00:00.000Z')
+  ];
+  const sheet = {
+    getLastRow: () => 2,
+    getRange: () => ({ getValues: () => [deletedRow] })
+  };
+
+  const duplicateRow = context.findDuplicateRecordRow_(sheet, headers, {
+    klient_id: 'KLIENT-0001',
+    datum: '2026-08-05',
+    popis: 'Podpora klienta',
+    status: 'Platn\u00fd'
+  }, 'vykon_id');
+
+  assert.equal(duplicateRow, null);
+});
+
+test('manual Sheet edit invalidates cache only after the row version is flushed', () => {
+  const context = createContext();
+  const events = [];
+  const sheet = {
+    getName: () => 'Klienti',
+    getRange: () => ({ setValues: () => events.push('version-written') })
+  };
+  context.getHeaders_ = () => ['klient_id', 'updated_at'];
+  context.invalidateReadActions_ = () => events.push('cache-invalidated');
+  context.SpreadsheetApp = { flush: () => events.push('flushed') };
+
+  context.onEdit({
+    range: {
+      getSheet: () => sheet,
+      getRow: () => 2,
+      getNumRows: () => 1
+    }
+  });
+
+  assert.deepEqual(events, ['version-written', 'flushed', 'cache-invalidated']);
+});

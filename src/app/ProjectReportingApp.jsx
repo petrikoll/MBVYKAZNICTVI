@@ -2147,7 +2147,9 @@ function withSheetVersion(record, row) {
     ...cleanRecord,
     ...(updatedAt ? { updatedAt } : {}),
     ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
-    ...(row?.document_pending === true ? { documentSyncPending: true } : {})
+    ...(row?.document_pending === true ? { documentSyncPending: true } : {}),
+    ...(row?.document_state ? { documentSyncState: String(row.document_state) } : {}),
+    ...(row?.document_warning ? { documentSyncError: String(row.document_warning) } : {})
   };
 }
 
@@ -2186,6 +2188,36 @@ function actorSheetRowMatchesPayload(row, partner) {
 // Prohlizec musi cekat o neco dele nez Render proxy. Jinak ukonci pozadavek,
 // ktery na serveru stale uspesne probiha, a uzivatel uvidi falesnou chybu.
 const GOOGLE_SHEET_REQUEST_TIMEOUT_MS = 65000;
+const IDEMPOTENT_GOOGLE_SHEET_ACTIONS = new Set([
+  'saveClient', 'deleteClient', 'updateClientKeyWorker',
+  'savePartner', 'deletePartner',
+  'saveIndividualPlan', 'deleteIndividualPlan',
+  'savePerformance', 'deletePerformance',
+  'saveMeeting', 'deleteMeeting',
+  'saveNetworkMeeting', 'deleteNetworkMeeting',
+  'saveEducation', 'deleteEducation',
+  'saveSupervision', 'deleteSupervision'
+]);
+
+function canonicalMutationPayload(value) {
+  if (Array.isArray(value)) return value.map(canonicalMutationPayload);
+  if (!value || typeof value !== 'object') return value;
+  return Object.keys(value).sort().reduce((result, key) => {
+    if (key === 'request_id' || key === 'token') return result;
+    result[key] = canonicalMutationPayload(value[key]);
+    return result;
+  }, {});
+}
+
+function mutationPayloadSignature(payload) {
+  const text = JSON.stringify(canonicalMutationPayload(payload || {}));
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${String(payload?.action || 'mutation')}:${text.length.toString(36)}:${(hash >>> 0).toString(16)}`;
+}
 
 function createClientMutationRequestId(operation) {
   const prefix = String(operation || 'client').replace(/[^a-z0-9_-]/gi, '').slice(0, 24) || 'client';
@@ -2333,6 +2365,7 @@ function App() {
   const pendingClientSaveSignaturesRef = useRef(new Set());
   const clientCreateMutationIdsRef = useRef(new Map());
   const clientDeleteMutationIdsRef = useRef(new Map());
+  const genericMutationIdsRef = useRef(new Map());
   const hasAuthoritativeClientSnapshotRef = useRef(false);
   const clientDriveProvisionAttemptsRef = useRef(new Set());
   const prefetchedSheetActionsRef = useRef(new Map());
@@ -4264,16 +4297,33 @@ function App() {
 
 
   const postGoogleSheetAction = async (payload) => {
+    const shouldTrackMutation = IDEMPOTENT_GOOGLE_SHEET_ACTIONS.has(payload?.action);
+    const mutationSignature = shouldTrackMutation ? mutationPayloadSignature(payload) : '';
+    let mutationRequestId = String(payload?.request_id || '').trim();
+    if (shouldTrackMutation && !mutationRequestId) {
+      mutationRequestId = genericMutationIdsRef.current.get(mutationSignature)
+        || createClientMutationRequestId(payload.action);
+      genericMutationIdsRef.current.set(mutationSignature, mutationRequestId);
+      while (genericMutationIdsRef.current.size > 100) {
+        const oldestKey = genericMutationIdsRef.current.keys().next().value;
+        if (!oldestKey) break;
+        genericMutationIdsRef.current.delete(oldestKey);
+      }
+    }
+    const requestPayload = mutationRequestId && !payload.request_id
+      ? { ...payload, request_id: mutationRequestId }
+      : payload;
     if (!GOOGLE_SHEET_MACRO_URL) throw new Error('Propojení s Google Sheetem není nastavené.');
     const response = await fetch(GOOGLE_SHEET_MACRO_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(requestPayload)
     });
     const result = await parseGoogleSheetResponse(response);
     currentDataRevisionRef.current = String(
       response.headers.get('x-data-revision') || currentDataRevisionRef.current
     );
+    if (mutationSignature) genericMutationIdsRef.current.delete(mutationSignature);
     return result;
   };
 
@@ -4341,6 +4391,20 @@ function App() {
     };
     applyRecordDocumentStatus(record.id, { state: 'queued' });
     showStatus('progress', `${successText}. Dokument se připravuje na pozadí…`);
+
+    if (record?.documentSyncState === 'queue_error') {
+      try {
+        await postGoogleSheetAction({
+          action: 'retryRecordDocument',
+          record_type: descriptor.recordType,
+          record_id: descriptor.recordId
+        });
+      } catch (error) {
+        console.warn('Document queue retry remains pending:', error);
+        showStatus('error', `${successText}. Data v Sheetu jsou bezpečně uložená; dokument se zatím nepodařilo zařadit do fronty.`);
+        return;
+      }
+    }
 
     const delays = [1200, 1800, 2500, 3500, 5000, 7000, 9000, 12000, 15000, 15000, 15000, 15000];
     for (const delay of delays) {

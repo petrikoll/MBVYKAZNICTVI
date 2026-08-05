@@ -131,7 +131,7 @@ test('client deletion soft-deletes the client and all linked records', () => {
 });
 
 test('derived statistic cleanup cannot interrupt the main client deletion', () => {
-  const section = appsScriptSource.match(/function deleteClient_\(request, requestedBy\)[\s\S]*?function assertClientDeletionManager_\(/)?.[0] || '';
+  const section = appsScriptSource.match(/function deleteClient_\(request, requestedBy, reportProgress\)[\s\S]*?function assertClientDeletionManager_\(/)?.[0] || '';
   assert.ok(section);
   assert.match(section, /try\s*\{\s*deactivatePerformanceStatistics_\(id\)/);
   assert.match(section, /cleanupWarnings\.push/);
@@ -320,9 +320,9 @@ test('client create and delete persist a technical idempotency result before res
   assert.match(appsScriptSource, /CLIENT_MUTATION_RESULT_PREFIX_/);
   assert.match(appsScriptSource, /CLIENT_MUTATION_PROCESSING_TTL_MS_/);
   assert.match(appsScriptSource, /e\.parameter\.action === 'getClientMutationResult'/);
-  assert.match(appsScriptSource, /startClientMutation_\(clientMutationRequestId, requestedAction\)/);
+  assert.match(appsScriptSource, /startClientMutation_\(clientMutationRequestId, requestedAction, fingerprint\)/);
   assert.match(appsScriptSource, /storeClientMutationResult_\(clientMutationRequestId, requestedAction/);
-  assert.match(appsScriptSource, /existingMutation\.state === 'completed'/);
+  assert.match(appsScriptSource, /buildMutationReplayResponse_\(clientMutationRequestId\)/);
   assert.match(appsScriptSource, /replayed: true/);
 });
 
@@ -439,6 +439,82 @@ test('repeated delete request id returns the original result without a second de
   assert.equal(second.replayed, true);
   assert.equal(second.deletion.deleted, true);
   assert.equal(deleteCalls, 1);
+});
+
+test('interrupted client deletion remains resumable and the same request id continues it', () => {
+  const context = createContext();
+  const values = new Map();
+  const properties = {
+    getProperty: (key) => values.get(key) || null,
+    setProperty: (key, value) => values.set(key, value),
+    deleteProperty: (key) => values.delete(key),
+    getProperties: () => Object.fromEntries(values)
+  };
+  let deleteCalls = 0;
+  context.PropertiesService = { getScriptProperties: () => properties };
+  context.LockService = {
+    getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} })
+  };
+  context.assertToken_ = () => {};
+  context.invalidateReadActions_ = () => {};
+  context.json_ = (payload) => payload;
+  context.deleteClient_ = (client, _worker, progress) => {
+    deleteCalls += 1;
+    progress({ phase: 'performances_deleted' });
+    if (deleteCalls === 1) throw new Error('temporary sheet failure');
+    return {
+      klient_id: client.klient_id,
+      deleted: true,
+      performances: 1,
+      meetings: 1,
+      individual_plans: 1
+    };
+  };
+
+  const event = {
+    postData: {
+      contents: JSON.stringify({
+        token: 'secret',
+        action: 'deleteClient',
+        request_id: 'delete-client-resume-1234567890',
+        client: { klient_id: 'KLIENT-0057' },
+        requested_by_name: 'Mgr. Radka Vyslouzilova'
+      })
+    }
+  };
+  const first = context.doPost(event);
+  const pending = context.readStoredClientMutationResult_('delete-client-resume-1234567890');
+  const second = context.doPost(event);
+
+  assert.equal(first.ok, false);
+  assert.equal(pending.state, 'processing');
+  assert.equal(pending.phase, 'performances_deleted');
+  assert.equal(pending.retry_pending, true);
+  assert.equal(second.ok, true);
+  assert.equal(second.deletion.deleted, true);
+  assert.equal(deleteCalls, 2);
+});
+
+test('repeated cascade reports every linked record even if an earlier attempt already soft-deleted it', () => {
+  const context = createContext();
+  const headers = ['vykon_id', 'klient_id', 'status', 'updated_at', 'updated_by', 'deleted_at', 'deleted_by'];
+  const sheet = createSheet(headers, [[
+    'VYKON-0001', 'KLIENT-0001', 'Smazaný', new Date(), 'Radka', new Date(), 'Radka'
+  ]]);
+  const spreadsheet = { getSheetByName: () => sheet };
+
+  const result = context.softDeleteClientRows_(
+    spreadsheet,
+    'Vykony_KA1',
+    'vykon_id',
+    'KLIENT-0001',
+    new Date(),
+    'Radka'
+  );
+
+  assert.equal(result.count, 1);
+  assert.equal(result.changed, 0);
+  assert.deepEqual(Array.from(result.ids), ['VYKON-0001']);
 });
 
 test('lock timeout keeps a client mutation pending instead of recording a false failure', () => {

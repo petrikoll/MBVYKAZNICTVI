@@ -13,11 +13,13 @@ async function parseGoogleSheetResponse(response) {
   if (!response.ok) {
     const error = new Error(result?.error || `Google Sheet akce selhala se stavem ${response.status}.`);
     error.code = result?.code || '';
+    error.status = response.status;
     throw error;
   }
   if (result?.ok !== true) {
     const error = new Error(result?.error || 'Google Sheet nepotvrdil úspěšné provedení akce.');
     error.code = result?.code || '';
+    error.status = response.status;
     throw error;
   }
   return result;

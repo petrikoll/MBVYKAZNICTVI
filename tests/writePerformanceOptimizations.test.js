@@ -35,12 +35,57 @@ test('zápisové funkce vrací právě zapsaná data bez následného čtení ř
 test('výkon a case management pouze zařadí dokument do trvalé fronty', () => {
   const performanceBody = functionBody(appsScriptSource, 'savePerformance_', 'listStatistics_');
   const meetingBody = functionBody(appsScriptSource, 'saveMeeting_', 'listNetworkMeetings_');
-  assert.match(performanceBody, /queueRecordDocument_\('performance', normalized\.vykon_id\)/);
-  assert.match(meetingBody, /queueRecordDocument_\('meeting', normalized\.meeting_id\)/);
+  assert.match(performanceBody, /finalizePerformanceAfterSheetCommit_/);
+  assert.match(meetingBody, /finalizeMeetingAfterSheetCommit_/);
+  assert.match(appsScriptSource, /queueRecordDocumentAfterSheetCommit_\('performance', saved\)/);
+  assert.match(appsScriptSource, /queueRecordDocumentAfterSheetCommit_\('meeting', saved\)/);
   assert.doesNotMatch(performanceBody, /upsertClientRecordDocument_/);
   assert.doesNotMatch(meetingBody, /upsertClientRecordDocument_/);
   assert.match(appsScriptSource, /const RECORD_DOCUMENT_MAX_ATTEMPTS_ = 3/);
   assert.match(appsScriptSource, /function runQueuedRecordDocuments\(\)/);
+});
+
+test('selhání odvozené statistiky nebo fronty dokumentu nezmění potvrzený zápis výkonu v chybu', () => {
+  let storedValues = null;
+  const sheet = {
+    getLastRow: () => 1,
+    getRange: () => ({
+      getValues: () => [],
+      setValues: ([values]) => { storedValues = values; }
+    })
+  };
+  const context = vm.createContext({ console });
+  vm.runInContext(appsScriptSource, context);
+  context.getOrCreateSheet_ = () => sheet;
+  context.getHeaders_ = () => [
+    'vykon_id', 'klient_id', 'dokument_text', 'document_url', 'document_error',
+    'status', 'created_at', 'created_by', 'updated_at', 'updated_by'
+  ];
+  context.findRowById_ = () => null;
+  context.findDuplicateRecordRow_ = () => null;
+  context.upsertPerformanceStatistics_ = () => { throw new Error('statistics unavailable'); };
+  context.queueRecordDocument_ = () => { throw new Error('properties unavailable'); };
+  context.writeRecordDocumentStatus_ = () => { throw new Error('status unavailable'); };
+
+  const saved = context.savePerformance_({
+    klient_id: 'KLIENT-0001',
+    dokument_text: 'Text dokumentu',
+    status: 'Platný'
+  });
+
+  assert.ok(storedValues, 'primární řádek musí být zapsán');
+  assert.equal(saved.vykon_id, 'VYKON-0001');
+  assert.equal(saved.sheet_committed, true);
+  assert.equal(saved.statistics_state, 'repair_pending');
+  assert.equal(saved.document_pending, true);
+  assert.equal(saved.document_state, 'queue_error');
+});
+
+test('běh fronty dohledá záznamy s textem, kterým stále chybí dokument', () => {
+  const runnerBody = functionBody(appsScriptSource, 'runQueuedRecordDocuments', 'upsertClientRecordDocument_');
+  assert.match(runnerBody, /reconcileMissingRecordDocumentJobs_\(RECORD_DOCUMENT_BATCH_SIZE_\)/);
+  assert.match(appsScriptSource, /function reconcileMissingRecordDocumentJobs_\(maxJobs\)/);
+  assert.match(appsScriptSource, /!String\(record\.document_url \|\| ''\)\.trim\(\)/);
 });
 
 test('spuštění fronty dokumentů používá existující správu triggerů', () => {

@@ -75,3 +75,11 @@ test('client writes reverify an unavailable authoritative registry before decidi
   assert.match(deleteHandler, /await refreshClientRegistryForWrite\(\)/);
   assert.match(deleteHandler, /client = refreshedClient/);
 });
+
+test('all ordinary Sheet mutations receive a reusable operation id', () => {
+  assert.match(source, /const IDEMPOTENT_GOOGLE_SHEET_ACTIONS = new Set/);
+  assert.match(source, /genericMutationIdsRef = useRef\(new Map\(\)\)/);
+  assert.match(source, /mutationPayloadSignature\(payload\)/);
+  assert.match(source, /\{ \.\.\.payload, request_id: mutationRequestId \}/);
+  assert.match(source, /genericMutationIdsRef\.current\.delete\(mutationSignature\)/);
+});

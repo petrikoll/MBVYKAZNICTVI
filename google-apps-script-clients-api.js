@@ -69,6 +69,33 @@ const MUTATION_READ_ACTIONS_ = {
   deleteSupervision: ['listSupervision'],
   retryRecordDocument: ['listPerformances', 'listMeetings']
 };
+const IDEMPOTENT_MUTATION_ACTIONS_ = new Set([
+  'saveClient', 'deleteClient', 'updateClientKeyWorker',
+  'savePartner', 'deletePartner',
+  'saveIndividualPlan', 'deleteIndividualPlan',
+  'savePerformance', 'deletePerformance',
+  'saveMeeting', 'deleteMeeting',
+  'saveNetworkMeeting', 'deleteNetworkMeeting',
+  'saveEducation', 'deleteEducation',
+  'saveSupervision', 'deleteSupervision'
+]);
+const MUTATION_ENTITY_CONFIG_ = {
+  updateClientKeyWorker: { sheetName: CONFIG.sheetName, idHeader: 'klient_id', responseKey: 'client' },
+  savePartner: { sheetName: CONFIG.partnerSheetName, idHeader: 'partner_id', responseKey: 'partner' },
+  deletePartner: { sheetName: CONFIG.partnerSheetName, idHeader: 'partner_id', deleted: true },
+  saveIndividualPlan: { sheetName: CONFIG.individualPlanSheetName, idHeader: 'plan_id', responseKey: 'individualPlan' },
+  deleteIndividualPlan: { sheetName: CONFIG.individualPlanSheetName, idHeader: 'plan_id', deleted: true },
+  savePerformance: { sheetName: CONFIG.performanceSheetName, idHeader: 'vykon_id', responseKey: 'performance' },
+  deletePerformance: { sheetName: CONFIG.performanceSheetName, idHeader: 'vykon_id', deleted: true },
+  saveMeeting: { sheetName: CONFIG.meetingSheetName, idHeader: 'meeting_id', responseKey: 'meeting' },
+  deleteMeeting: { sheetName: CONFIG.meetingSheetName, idHeader: 'meeting_id', deleted: true },
+  saveNetworkMeeting: { sheetName: CONFIG.networkMeetingSheetName, idHeader: 'schuzka_site_id', responseKey: 'networkMeeting' },
+  deleteNetworkMeeting: { sheetName: CONFIG.networkMeetingSheetName, idHeader: 'schuzka_site_id', deleted: true },
+  saveEducation: { sheetName: CONFIG.educationSheetName, idHeader: 'vzdelavani_id', responseKey: 'education' },
+  deleteEducation: { sheetName: CONFIG.educationSheetName, idHeader: 'vzdelavani_id', deleted: true },
+  saveSupervision: { sheetName: CONFIG.supervisionSheetName, idHeader: 'sepervize_id', responseKey: 'supervision' },
+  deleteSupervision: { sheetName: CONFIG.supervisionSheetName, idHeader: 'sepervize_id', deleted: true }
+};
 const SHEET_READ_ACTIONS_ = {};
 SHEET_READ_ACTIONS_[CONFIG.sheetName] = ['listClients'];
 SHEET_READ_ACTIONS_[CONFIG.partnerSheetName] = ['listPartners'];
@@ -134,21 +161,23 @@ function readStoredClientMutationResult_(requestId) {
 
 function storeClientMutationResult_(requestId, action, result) {
   const normalizedRequestId = normalizeClientMutationRequestId_(requestId);
-  if (!normalizedRequestId || !['saveClient', 'deleteClient'].includes(action)) return;
+  if (!normalizedRequestId || !isIdempotentMutationAction_(action)) return;
   const properties = PropertiesService.getScriptProperties();
   const now = new Date();
   cleanupClientMutationResults_(properties, now.getTime());
+  const existing = readStoredClientMutationResult_(normalizedRequestId);
   properties.setProperty(clientMutationPropertyKey_(normalizedRequestId), JSON.stringify(Object.assign({
     request_id: normalizedRequestId,
     action: action,
     state: 'completed',
+    fingerprint: existing && existing.fingerprint || '',
     completed_at: now.toISOString()
   }, result || {})));
 }
 
-function startClientMutation_(requestId, action) {
+function startClientMutation_(requestId, action, fingerprint) {
   const normalizedRequestId = normalizeClientMutationRequestId_(requestId);
-  if (!normalizedRequestId || !['saveClient', 'deleteClient'].includes(action)) return null;
+  if (!normalizedRequestId || !isIdempotentMutationAction_(action)) return null;
   const existing = readStoredClientMutationResult_(normalizedRequestId);
   if (existing) return existing;
   const properties = PropertiesService.getScriptProperties();
@@ -158,14 +187,38 @@ function startClientMutation_(requestId, action) {
     request_id: normalizedRequestId,
     action: action,
     state: 'processing',
+    fingerprint: String(fingerprint || ''),
     completed_at: now.toISOString()
   }));
   return null;
 }
 
+function storeClientDeletionProgress_(requestId, clientId, progress) {
+  const normalizedRequestId = normalizeClientMutationRequestId_(requestId);
+  if (!normalizedRequestId) return;
+  const existing = readStoredClientMutationResult_(normalizedRequestId);
+  if (existing && existing.action && existing.action !== 'deleteClient') return;
+  const safeProgress = progress || {};
+  const retryPending = safeProgress.phase === 'retry_pending';
+  const properties = PropertiesService.getScriptProperties();
+  properties.setProperty(clientMutationPropertyKey_(normalizedRequestId), JSON.stringify({
+    request_id: normalizedRequestId,
+    action: 'deleteClient',
+    state: 'processing',
+    fingerprint: existing && existing.fingerprint || '',
+    klient_id: String(clientId || existing && existing.klient_id || ''),
+    phase: String(retryPending
+      ? existing && existing.phase || 'retry_pending'
+      : safeProgress.phase || existing && existing.phase || 'processing'),
+    retry_pending: retryPending,
+    code: String(safeProgress.code || ''),
+    completed_at: new Date().toISOString()
+  }));
+}
+
 function storeClientMutationFailure_(requestId, action, error) {
   const normalizedRequestId = normalizeClientMutationRequestId_(requestId);
-  if (!normalizedRequestId || !['saveClient', 'deleteClient'].includes(action)) return;
+  if (!normalizedRequestId || !isIdempotentMutationAction_(action)) return;
   const existing = readStoredClientMutationResult_(normalizedRequestId);
   if (existing && existing.action !== action) return;
   if (existing && existing.state === 'completed') return;
@@ -176,8 +229,13 @@ function storeClientMutationFailure_(requestId, action, error) {
     request_id: normalizedRequestId,
     action: action,
     state: 'failed',
+    fingerprint: existing && existing.fingerprint || '',
     code: error && error.code ? String(error.code) : '',
-    error: action === 'saveClient' ? 'Zalozeni klienta selhalo.' : 'Smazani klienta selhalo.',
+    error: action === 'saveClient'
+      ? 'Zalozeni klienta selhalo.'
+      : action === 'deleteClient'
+        ? 'Smazani klienta selhalo.'
+        : 'Datovou operaci se nepodarilo dokoncit.',
     completed_at: now.toISOString()
   }));
 }
@@ -195,6 +253,23 @@ function findClientForMutationResult_(clientId) {
   return rowToObject_(headers, sheet.getRange(rows[0], 1, 1, headers.length).getValues()[0]);
 }
 
+function findMutationEntityForResult_(action, entityId) {
+  const config = MUTATION_ENTITY_CONFIG_[action];
+  const id = String(entityId || '').trim();
+  if (!config || !id) return null;
+  if (config.sheetName === CONFIG.sheetName && config.idHeader === 'klient_id') {
+    return findClientForMutationResult_(id);
+  }
+  const sheet = getSpreadsheet_().getSheetByName(config.sheetName);
+  if (!sheet) return null;
+  const headers = getHeaders_(sheet);
+  const idColumn = headers.indexOf(config.idHeader) + 1;
+  if (!idColumn) return null;
+  const row = findRowById_(sheet, idColumn, id);
+  if (!row) return null;
+  return rowToObject_(headers, sheet.getRange(row, 1, 1, headers.length).getValues()[0]);
+}
+
 function getClientMutationResult_(requestId) {
   const normalizedRequestId = normalizeClientMutationRequestId_(requestId);
   if (!normalizedRequestId) throw new Error('Missing or invalid request_id');
@@ -209,7 +284,28 @@ function getClientMutationResult_(requestId) {
       result.error = 'Ulozeny klient nebyl pri kontrole nalezen.';
     }
   }
+  const entityConfig = MUTATION_ENTITY_CONFIG_[result.action];
+  if (result.state === 'completed' && entityConfig && result.entity_id) {
+    const entity = findMutationEntityForResult_(result.action, result.entity_id);
+    const entityDeleted = entity && normalizeDuplicateText_(entity.status).startsWith('smaz');
+    const valid = entityConfig.deleted ? entityDeleted : entity && !entityDeleted;
+    if (!valid) {
+      result.state = 'failed';
+      result.code = 'NOT_FOUND';
+      result.error = entityConfig.deleted
+        ? 'Smazani zaznamu nebylo pri kontrole potvrzeno.'
+        : 'Ulozeny zaznam nebyl pri kontrole nalezen.';
+    } else if (entityConfig.responseKey) {
+      result[entityConfig.responseKey] = entity;
+    } else {
+      result.deleted = true;
+    }
+  }
   return result;
+}
+
+function getMutationResult_(requestId) {
+  return getClientMutationResult_(requestId);
 }
 
 function doGet(e) {
@@ -247,6 +343,9 @@ function doGet(e) {
     }
     if (e.parameter.action === 'getClientMutationResult') {
       return json_({ ok: true, mutation: getClientMutationResult_(e.parameter.request_id) });
+    }
+    if (e.parameter.action === 'getMutationResult') {
+      return json_({ ok: true, mutation: getMutationResult_(e.parameter.request_id) });
     }
     if (e.parameter.action === 'listClientDirectory') {
       const clients = readCachedDataset_('listClients', () => listClients_());
@@ -303,6 +402,37 @@ function doGet(e) {
   }
 }
 
+function buildMutationReplayResponse_(requestId) {
+  const mutation = getMutationResult_(requestId);
+  if (mutation.state === 'failed') {
+    return {
+      ok: false,
+      code: mutation.code || '',
+      error: mutation.error || 'Datovou operaci se nepodarilo potvrdit.',
+      mutation: mutation
+    };
+  }
+  if (mutation.state !== 'completed') {
+    return {
+      ok: false,
+      code: 'MUTATION_PENDING',
+      error: 'Operace se stejnym request_id se stale overuje.',
+      mutation: mutation
+    };
+  }
+
+  const response = { ok: true, mutation: mutation, replayed: true };
+  if (mutation.action === 'saveClient') response.client = mutation.client;
+  if (mutation.action === 'deleteClient') response.deletion = mutation.deletion;
+  const config = MUTATION_ENTITY_CONFIG_[mutation.action];
+  if (config && config.responseKey) response[config.responseKey] = mutation[config.responseKey];
+  return response;
+}
+
+function storeEntityMutationResult_(requestId, action, entityId) {
+  storeClientMutationResult_(requestId, action, { entity_id: String(entityId || '') });
+}
+
 function doPost(e) {
   let lock = null;
   let lockAcquired = false;
@@ -317,26 +447,28 @@ function doPost(e) {
     lock.waitLock(30000);
     lockAcquired = true;
 
-    if (clientMutationRequestId && ['saveClient', 'deleteClient'].includes(requestedAction)) {
-      const existingMutation = startClientMutation_(clientMutationRequestId, requestedAction);
+    if (clientMutationRequestId && isIdempotentMutationAction_(requestedAction)) {
+      const fingerprint = mutationFingerprint_(payload);
+      const existingMutation = startClientMutation_(clientMutationRequestId, requestedAction, fingerprint);
       if (existingMutation) {
         if (existingMutation.action !== requestedAction) {
-          throw new Error('request_id byl pouzit pro jinou operaci.');
+          const error = new Error('request_id byl pouzit pro jinou operaci.');
+          error.code = 'IDEMPOTENCY_KEY_REUSE';
+          throw error;
         }
-        if (existingMutation.state === 'completed') {
-          const replayedMutation = getClientMutationResult_(clientMutationRequestId);
-          if (replayedMutation.state !== 'completed') {
-            return json_({ ok: false, code: replayedMutation.code || 'NOT_FOUND', error: replayedMutation.error || 'Vysledek operace se nepodarilo overit.', mutation: replayedMutation });
-          }
-          if (requestedAction === 'saveClient') {
-            return json_({ ok: true, client: replayedMutation.client, mutation: replayedMutation, replayed: true });
-          }
-          return json_({ ok: true, deletion: replayedMutation.deletion, mutation: replayedMutation, replayed: true });
+        if (existingMutation.fingerprint && existingMutation.fingerprint !== fingerprint) {
+          const error = new Error('request_id byl pouzit s jinym obsahem.');
+          error.code = 'IDEMPOTENCY_KEY_REUSE';
+          throw error;
         }
-        if (existingMutation.state === 'failed') {
-          return json_({ ok: false, code: existingMutation.code || '', error: existingMutation.error || 'Operace selhala.', mutation: existingMutation });
+        // Mazani klienta je saga nad nekolika listy a Diskem. Pokud predchozi
+        // beh skoncil timeoutem mezi kroky, po ziskani globalniho zamku je
+        // bezpecne pokracovat: jednotlive kroky jsou idempotentni.
+        const resumableClientDeletion = requestedAction === 'deleteClient'
+          && existingMutation.state === 'processing';
+        if (!resumableClientDeletion) {
+          return json_(buildMutationReplayResponse_(clientMutationRequestId));
         }
-        return json_({ ok: false, code: 'MUTATION_PENDING', error: 'Operace se stejnym request_id se stale overuje.', mutation: existingMutation });
       }
     }
 
@@ -347,7 +479,17 @@ function doPost(e) {
     }
 
     if (payload.action === 'deleteClient') {
-      const deletion = deleteClient_(payload.client || {}, payload.requested_by_name || payload.requested_by || '');
+      const deletion = deleteClient_(
+        payload.client || {},
+        payload.requested_by_name || payload.requested_by || '',
+        function(progress) {
+          storeClientDeletionProgress_(
+            clientMutationRequestId,
+            String(payload.client && payload.client.klient_id || ''),
+            progress
+          );
+        }
+      );
       storeClientMutationResult_(clientMutationRequestId, requestedAction, {
         klient_id: String(deletion.klient_id || payload.client && payload.client.klient_id || ''),
         deletion: {
@@ -363,31 +505,37 @@ function doPost(e) {
 
     if (payload.action === 'updateClientKeyWorker') {
       const client = updateClientKeyWorker_(payload.client || {});
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, client.klient_id);
       return json_({ ok: true, client });
     }
 
     if (payload.action === 'savePartner') {
       const partner = savePartner_(payload.partner || {});
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, partner.partner_id);
       return json_({ ok: true, partner });
     }
 
     if (payload.action === 'saveIndividualPlan') {
       const individualPlan = saveIndividualPlan_(payload.individualPlan || {});
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, individualPlan.plan_id);
       return json_({ ok: true, individualPlan });
     }
 
     if (payload.action === 'deleteIndividualPlan') {
       deleteRecord_(CONFIG.individualPlanSheetName, 'plan_id', payload.id, payload.expected_updated_at, payload.updated_by);
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, payload.id);
       return json_({ ok: true });
     }
 
     if (payload.action === 'savePerformance') {
       const performance = savePerformance_(payload.performance || {});
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, performance.vykon_id);
       return json_({ ok: true, performance });
     }
 
     if (payload.action === 'saveMeeting') {
       const meeting = saveMeeting_(payload.meeting || {});
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, meeting.meeting_id);
       return json_({ ok: true, meeting });
     }
 
@@ -395,47 +543,56 @@ function doPost(e) {
       deleteRecord_(CONFIG.performanceSheetName, 'vykon_id', payload.id, payload.expected_updated_at, payload.updated_by);
       deactivatePerformanceStatistics_(payload.id);
       cancelRecordDocument_('performance', payload.id);
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, payload.id);
       return json_({ ok: true });
     }
 
     if (payload.action === 'deleteMeeting') {
       deleteRecord_(CONFIG.meetingSheetName, 'meeting_id', payload.id, payload.expected_updated_at, payload.updated_by);
       cancelRecordDocument_('meeting', payload.id);
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, payload.id);
       return json_({ ok: true });
     }
 
     if (payload.action === 'deletePartner') {
       deleteRecord_(CONFIG.partnerSheetName, 'partner_id', payload.id, payload.expected_updated_at, payload.updated_by);
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, payload.id);
       return json_({ ok: true });
     }
 
     if (payload.action === 'deleteNetworkMeeting') {
       deleteRecord_(CONFIG.networkMeetingSheetName, 'schuzka_site_id', payload.id, payload.expected_updated_at, payload.updated_by);
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, payload.id);
       return json_({ ok: true });
     }
 
     if (payload.action === 'saveNetworkMeeting') {
       const networkMeeting = saveNetworkMeeting_(payload.networkMeeting || {});
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, networkMeeting.schuzka_site_id);
       return json_({ ok: true, networkMeeting });
     }
 
     if (payload.action === 'saveEducation') {
       const education = saveEducation_(payload.education || {});
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, education.vzdelavani_id);
       return json_({ ok: true, education });
     }
 
     if (payload.action === 'deleteEducation') {
       deleteRecord_(CONFIG.educationSheetName, 'vzdelavani_id', payload.id, payload.expected_updated_at, payload.updated_by);
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, payload.id);
       return json_({ ok: true });
     }
 
     if (payload.action === 'saveSupervision') {
       const supervision = saveSupervision_(payload.supervision || {});
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, supervision.sepervize_id);
       return json_({ ok: true, supervision });
     }
 
     if (payload.action === 'deleteSupervision') {
       deleteRecord_(CONFIG.supervisionSheetName, 'sepervize_id', payload.id, payload.expected_updated_at, payload.updated_by);
+      storeEntityMutationResult_(clientMutationRequestId, requestedAction, payload.id);
       return json_({ ok: true });
     }
 
@@ -465,7 +622,7 @@ function doPost(e) {
     console.error('doPost ' + (requestedAction || 'unknown') + ' failed: ' + String(error && (error.stack || error.message || error)));
     if (
       clientMutationRequestId
-      && ['saveClient', 'deleteClient'].includes(requestedAction)
+      && isIdempotentMutationAction_(requestedAction)
       && !lockAcquired
     ) {
       return json_({
@@ -476,7 +633,15 @@ function doPost(e) {
       });
     }
     try {
-      storeClientMutationFailure_(clientMutationRequestId, requestedAction, error);
+      if (requestedAction === 'deleteClient' && clientMutationRequestId) {
+        storeClientDeletionProgress_(
+          clientMutationRequestId,
+          '',
+          { phase: 'retry_pending', code: error && error.code ? String(error.code) : '' }
+        );
+      } else {
+        storeClientMutationFailure_(clientMutationRequestId, requestedAction, error);
+      }
     } catch (mutationTrackingError) {
       console.error('doPost mutation tracking failed: ' + String(mutationTrackingError.message || mutationTrackingError));
     }
@@ -1652,6 +1817,30 @@ function expandReadInvalidationActions_(actions) {
   return Object.keys(expanded);
 }
 
+function isIdempotentMutationAction_(action) {
+  return IDEMPOTENT_MUTATION_ACTIONS_.has(String(action || ''));
+}
+
+function canonicalMutationValue_(value) {
+  if (Array.isArray(value)) return value.map(canonicalMutationValue_);
+  if (!value || typeof value !== 'object') return value;
+  return Object.keys(value).sort().reduce(function(result, key) {
+    if (key === 'token' || key === 'request_id') return result;
+    result[key] = canonicalMutationValue_(value[key]);
+    return result;
+  }, {});
+}
+
+function mutationFingerprint_(payload) {
+  const text = JSON.stringify(canonicalMutationValue_(payload || {}));
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return text.length.toString(36) + '-' + (hash >>> 0).toString(16).padStart(8, '0');
+}
+
 function invalidateReadActions_(actions) {
   actions = expandReadInvalidationActions_(actions);
   if (!actions || actions.length === 0) return;
@@ -2395,10 +2584,9 @@ function savePerformance_(performance) {
   const duplicateRow = existingRow ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'vykon_id');
   if (duplicateRow && !existingRow) {
     const duplicate = rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
-    upsertPerformanceStatistics_(Object.assign({}, duplicate, {
+    return finalizePerformanceAfterSheetCommit_(Object.assign({}, duplicate, {
       specificka_pole_json: normalized.specificka_pole_json || duplicate.specificka_pole_json
     }));
-    return duplicate;
   }
 
   // Technicke sloupce dokumentu nesmi prazdny formular prepsat.
@@ -2408,16 +2596,25 @@ function savePerformance_(performance) {
   const targetRow = existingRow || sheet.getLastRow() + 1;
   const values = headers.map((header) => normalized[header] ?? '');
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
-  upsertPerformanceStatistics_(normalized);
-  let documentPending = false;
-  if (normalized.klient_id && normalized.dokument_text) {
-    queueRecordDocument_('performance', normalized.vykon_id);
-    documentPending = true;
-  }
+  return finalizePerformanceAfterSheetCommit_(rowToObject_(headers, values));
+}
 
-  const saved = rowToObject_(headers, values);
-  saved.document_pending = documentPending;
-  return saved;
+function finalizePerformanceAfterSheetCommit_(saved) {
+  let statisticsState = 'updated';
+  try {
+    upsertPerformanceStatistics_(saved);
+  } catch (error) {
+    statisticsState = 'repair_pending';
+    console.error('Performance statistics update remains pending: ' + String(error.message || error));
+  }
+  const documentState = queueRecordDocumentAfterSheetCommit_('performance', saved);
+  return Object.assign({}, saved, {
+    sheet_committed: true,
+    statistics_state: statisticsState,
+    document_pending: documentState.pending,
+    document_state: documentState.state,
+    document_warning: documentState.warning
+  });
 }
 
 function listStatistics_(spreadsheet) {
@@ -2618,7 +2815,8 @@ function deleteRecord_(sheetName, idHeader, id, expectedUpdatedAt, updatedBy) {
   return updated;
 }
 
-function deleteClient_(request, requestedBy) {
+function deleteClient_(request, requestedBy, reportProgress) {
+  const progress = typeof reportProgress === 'function' ? reportProgress : function() {};
   assertClientDeletionManager_(requestedBy);
   const spreadsheet = getSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(CONFIG.sheetName);
@@ -2645,18 +2843,22 @@ function deleteClient_(request, requestedBy) {
   const existing = rowToObject_(headers, clientValues);
   const alreadyDeleted = normalizeDuplicateText_(existing.status).startsWith('smaz');
   if (!alreadyDeleted) assertExpectedVersion_(existing, request.expected_updated_at, 'Klienta ' + clientId);
+  progress({ phase: 'validated' });
 
   const now = new Date();
   const actor = String(requestedBy || '').trim();
   const performances = softDeleteClientRows_(
     spreadsheet, CONFIG.performanceSheetName, 'vykon_id', clientId, now, actor
   );
+  progress({ phase: 'performances_deleted' });
   const meetings = softDeleteClientRows_(
     spreadsheet, CONFIG.meetingSheetName, 'meeting_id', clientId, now, actor
   );
+  progress({ phase: 'meetings_deleted' });
   const plans = softDeleteClientRows_(
     spreadsheet, CONFIG.individualPlanSheetName, 'plan_id', clientId, now, actor
   );
+  progress({ phase: 'plans_deleted' });
 
   // Statistiky a dokumentova fronta jsou pomocne oblasti. Jejich chyba nesmi
   // prerusit hlavni soft-delete klienta a zanechat jej v napul smazanem stavu.
@@ -2680,6 +2882,7 @@ function deleteClient_(request, requestedBy) {
       cleanupWarnings.push('Frontu dokumentu zaznamu ' + id + ' se nepodarilo zrusit: ' + String(error.message || error));
     }
   });
+  progress({ phase: 'derived_cleanup_attempted' });
 
   if (!alreadyDeleted) {
     const previousStatusColumn = headers.indexOf('stav_pred_smazanim');
@@ -2700,9 +2903,11 @@ function deleteClient_(request, requestedBy) {
     if (updatedByColumn !== -1) clientValues[updatedByColumn] = actor;
     sheet.getRange(targetRow, 1, 1, headers.length).setValues([clientValues]);
   }
+  progress({ phase: 'client_deleted' });
 
   const archive = archiveDeletedClientFolder_(existing.drive_folder_url, clientId);
   if (archive.warning) cleanupWarnings.push(archive.warning);
+  progress({ phase: 'archive_attempted' });
   return {
     klient_id: clientId,
     deleted: true,
@@ -2756,7 +2961,7 @@ function softDeleteClientRows_(spreadsheet, sheetName, idHeader, clientId, now, 
   setRowsColumnValue_(sheet, rowsToDelete, headers.indexOf('updated_at') + 1, now);
   setRowsColumnValue_(sheet, rowsToDelete, headers.indexOf('updated_by') + 1, updatedBy || '');
 
-  return { count: rowsToDelete.length, ids };
+  return { count: ids.length, changed: rowsToDelete.length, ids };
 }
 
 function setRowsColumnValue_(sheet, rowNumbers, columnNumber, value) {
@@ -2877,25 +3082,35 @@ function onEdit(e) {
     CONFIG.statisticsSheetName
   ];
   if (!watchedSheets.includes(sheet.getName())) return;
-  invalidateReadActions_(SHEET_READ_ACTIONS_[sheet.getName()] || []);
-  if (e.range.getRow() <= CONFIG.headerRow) return;
+  const readActions = SHEET_READ_ACTIONS_[sheet.getName()] || [];
+  if (e.range.getRow() <= CONFIG.headerRow) {
+    invalidateReadActions_(readActions);
+    return;
+  }
 
-  const headers = getHeaders_(sheet);
-  const updatedAtColumn = headers.indexOf('updated_at') + 1;
-  if (!updatedAtColumn) return;
-  const firstRow = Math.max(e.range.getRow(), CONFIG.headerRow + 1);
-  const rowCount = e.range.getNumRows();
-  const now = new Date();
-  sheet.getRange(firstRow, updatedAtColumn, rowCount, 1).setValues(
-    Array.from({ length: rowCount }, () => [now])
-  );
-
-  const updatedByColumn = headers.indexOf('updated_by') + 1;
-  const editor = e.user && typeof e.user.getEmail === 'function' ? e.user.getEmail() : '';
-  if (updatedByColumn && editor) {
-    sheet.getRange(firstRow, updatedByColumn, rowCount, 1).setValues(
-      Array.from({ length: rowCount }, () => [editor])
+  try {
+    const headers = getHeaders_(sheet);
+    const updatedAtColumn = headers.indexOf('updated_at') + 1;
+    if (!updatedAtColumn) return;
+    const firstRow = Math.max(e.range.getRow(), CONFIG.headerRow + 1);
+    const rowCount = e.range.getNumRows();
+    const now = new Date();
+    sheet.getRange(firstRow, updatedAtColumn, rowCount, 1).setValues(
+      Array.from({ length: rowCount }, () => [now])
     );
+
+    const updatedByColumn = headers.indexOf('updated_by') + 1;
+    const editor = e.user && typeof e.user.getEmail === 'function' ? e.user.getEmail() : '';
+    if (updatedByColumn && editor) {
+      sheet.getRange(firstRow, updatedByColumn, rowCount, 1).setValues(
+        Array.from({ length: rowCount }, () => [editor])
+      );
+    }
+    SpreadsheetApp.flush();
+  } finally {
+    // Cache se smi zneplatnit az po zapsani nove verze radku. Jinak muze
+    // soubezne cteni ulozit vecne novy radek se starym updated_at.
+    invalidateReadActions_(readActions);
   }
 }
 
@@ -2987,7 +3202,11 @@ function saveMeeting_(meeting) {
   normalized.created_at = existing.created_at || normalized.created_at || now;
   normalized.created_by = existing.created_by || normalized.created_by || '';
   const duplicateRow = existingRow ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'meeting_id');
-  if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
+  if (duplicateRow && !existingRow) {
+    return finalizeMeetingAfterSheetCommit_(
+      rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0])
+    );
+  }
 
   normalized.document_url = normalized.document_url || existing.document_url || '';
   normalized.document_error = '';
@@ -2995,15 +3214,17 @@ function saveMeeting_(meeting) {
   const targetRow = existingRow || sheet.getLastRow() + 1;
   const values = headers.map((header) => normalized[header] ?? '');
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
-  let documentPending = false;
-  if (normalized.klient_id && normalized.dokument_text) {
-    queueRecordDocument_('meeting', normalized.meeting_id);
-    documentPending = true;
-  }
+  return finalizeMeetingAfterSheetCommit_(rowToObject_(headers, values));
+}
 
-  const saved = rowToObject_(headers, values);
-  saved.document_pending = documentPending;
-  return saved;
+function finalizeMeetingAfterSheetCommit_(saved) {
+  const documentState = queueRecordDocumentAfterSheetCommit_('meeting', saved);
+  return Object.assign({}, saved, {
+    sheet_committed: true,
+    document_pending: documentState.pending,
+    document_state: documentState.state,
+    document_warning: documentState.warning
+  });
 }
 
 function listNetworkMeetings_(spreadsheet) {
@@ -3294,6 +3515,86 @@ function queueRecordDocument_(recordType, recordId, options) {
   return status;
 }
 
+function queueRecordDocumentAfterSheetCommit_(recordType, record) {
+  const descriptor = getRecordDocumentDescriptor_(recordType);
+  const recordId = String(record && record[descriptor.idHeader] || '').trim();
+  const needsDocument = Boolean(
+    recordId
+    && String(record && record.klient_id || '').trim()
+    && String(record && record.dokument_text || '').trim()
+    && !normalizeDuplicateText_(record && record.status).startsWith('smaz')
+  );
+  if (!needsDocument) {
+    return { pending: false, state: record && record.document_url ? 'ready' : 'not_required', warning: '' };
+  }
+
+  try {
+    queueRecordDocument_(descriptor.type, recordId);
+    return { pending: true, state: 'queued', warning: '' };
+  } catch (error) {
+    console.error('Document queue registration remains pending: ' + String(error.message || error));
+    try {
+      writeRecordDocumentStatus_(recordDocumentKey_(descriptor.type, recordId), {
+        key: recordDocumentKey_(descriptor.type, recordId),
+        recordType: descriptor.type,
+        recordId: recordId,
+        state: 'queue_error',
+        attempts: 0,
+        error: 'Zapis je ulozen; dokument ceka na opakovane zarazeni do fronty.'
+      });
+    } catch (statusError) {
+      console.warn('Pending document status could not be written: ' + String(statusError.message || statusError));
+    }
+    return {
+      pending: true,
+      state: 'queue_error',
+      warning: 'Zapis je ulozen; dokument se zaradi do fronty opakovane.'
+    };
+  }
+}
+
+function reconcileMissingRecordDocumentJobs_(maxJobs) {
+  let remaining = Math.max(Number(maxJobs) || RECORD_DOCUMENT_BATCH_SIZE_, 1);
+  const queuedKeys = new Set(readRecordDocumentQueue_().map((job) => String(job && job.key || '')));
+  const descriptors = [getRecordDocumentDescriptor_('performance'), getRecordDocumentDescriptor_('meeting')];
+  let queued = 0;
+
+  descriptors.some((descriptor) => {
+    if (remaining <= 0) return true;
+    const sheet = getSpreadsheet_().getSheetByName(descriptor.sheetName);
+    if (!sheet || sheet.getLastRow() <= CONFIG.headerRow) return false;
+    const headers = getHeaders_(sheet);
+    const values = sheet
+      .getRange(CONFIG.headerRow + 1, 1, sheet.getLastRow() - CONFIG.headerRow, headers.length)
+      .getValues();
+    values.some((row) => {
+      if (remaining <= 0) return true;
+      const record = rowToObject_(headers, row);
+      const recordId = String(record[descriptor.idHeader] || '').trim();
+      const key = recordId ? recordDocumentKey_(descriptor.type, recordId) : '';
+      const missingDocument = Boolean(
+        recordId
+        && String(record.klient_id || '').trim()
+        && String(record.dokument_text || '').trim()
+        && !String(record.document_url || '').trim()
+        && !normalizeDuplicateText_(record.status).startsWith('smaz')
+      );
+      if (!missingDocument || queuedKeys.has(key)) return false;
+      try {
+        queueRecordDocument_(descriptor.type, recordId);
+        queuedKeys.add(key);
+        queued += 1;
+        remaining -= 1;
+      } catch (error) {
+        console.warn('Missing document could not be requeued: ' + String(error.message || error));
+      }
+      return false;
+    });
+    return remaining <= 0;
+  });
+  return queued;
+}
+
 function queueRecordDocumentWithLock_(recordType, recordId, options) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -3466,6 +3767,11 @@ function requeueFailedRecordDocument_(job, error) {
 
 function runQueuedRecordDocuments() {
   deleteTriggersByHandler_(RECORD_DOCUMENT_TRIGGER_HANDLER_);
+  try {
+    reconcileMissingRecordDocumentJobs_(RECORD_DOCUMENT_BATCH_SIZE_);
+  } catch (reconcileError) {
+    console.warn('Missing document reconciliation skipped: ' + String(reconcileError.message || reconcileError));
+  }
   for (let index = 0; index < RECORD_DOCUMENT_BATCH_SIZE_; index += 1) {
     const job = takeReadyRecordDocumentJob_();
     if (!job) break;
@@ -4308,6 +4614,7 @@ function findDuplicateRecordRow_(sheet, headers, incoming, idHeader) {
   const values = sheet.getRange(CONFIG.headerRow + 1, 1, lastRow - CONFIG.headerRow, headers.length).getValues();
   const index = values.findIndex((row) => {
     const existing = rowToObject_(headers, row);
+    if (normalizeDuplicateText_(existing.status).startsWith('smaz')) return false;
     return buildRecordDuplicateKey_(existing, idHeader) === incomingKey;
   });
   return index === -1 ? null : CONFIG.headerRow + 1 + index;

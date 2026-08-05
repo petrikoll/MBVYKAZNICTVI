@@ -2,10 +2,13 @@ import { randomUUID } from 'node:crypto';
 
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 60000;
+const DEFAULT_READ_TOTAL_BUDGET_MS = 58000;
+const DEFAULT_FAST_READ_RETRY_THRESHOLD_MS = 10000;
 const DEFAULT_READ_CACHE_TTL_MS = 60000;
+const MAX_READ_CACHE_ENTRIES = 64;
 const DELETE_CONFIRMATION_DELAYS_MS = [0, 500, 1500, 3000];
 const DELETE_CONFIRMATION_TIMEOUT_MS = 15000;
-const DATASET_READ_RETRY_DELAYS_MS = [250, 750, 1500];
+const DATASET_READ_RETRY_DELAYS_MS = [250];
 const RETRYABLE_DATASET_ACTIONS = new Set([
   'listClients',
   'listPartners',
@@ -37,6 +40,33 @@ const LEGACY_READ_ACTIONS = new Map([
   ['bootstrapFast', 'bootstrapCore'],
   ['listClientDirectory', 'listClients']
 ]);
+const IDEMPOTENT_MUTATION_ACTIONS = new Set([
+  'saveClient', 'deleteClient', 'updateClientKeyWorker',
+  'savePartner', 'deletePartner',
+  'saveIndividualPlan', 'deleteIndividualPlan',
+  'savePerformance', 'deletePerformance',
+  'saveMeeting', 'deleteMeeting',
+  'saveNetworkMeeting', 'deleteNetworkMeeting',
+  'saveEducation', 'deleteEducation',
+  'saveSupervision', 'deleteSupervision'
+]);
+const MUTATION_RESPONSE_KEYS = new Map([
+  ['updateClientKeyWorker', 'client'],
+  ['savePartner', 'partner'],
+  ['saveIndividualPlan', 'individualPlan'],
+  ['savePerformance', 'performance'],
+  ['saveMeeting', 'meeting'],
+  ['saveNetworkMeeting', 'networkMeeting'],
+  ['saveEducation', 'education'],
+  ['saveSupervision', 'supervision']
+]);
+const READ_CACHE_BYPASS_PARAMS = new Set([
+  'fresh',
+  'verification_nonce',
+  'write_verification_nonce',
+  'folder_verification_nonce',
+  'proxy_dataset_retry'
+]);
 
 const readResponseCache = new Map();
 const inFlightReads = new Map();
@@ -47,11 +77,27 @@ function getDataRevision() {
   return `${proxyInstanceRevision}:${mutationGeneration}`;
 }
 
+function normalizeRequestId(value) {
+  const normalized = String(value || '').trim();
+  return /^[A-Za-z0-9._:-]{8,128}$/.test(normalized) ? normalized : randomUUID();
+}
+
+function responseDiagnostics(response, extraHeaders = {}) {
+  const startedAt = Number(response.__proxyStartedAt || Date.now());
+  const totalMs = Math.max(0, Date.now() - startedAt);
+  return {
+    'X-Request-ID': response.__proxyRequestId || randomUUID(),
+    'Server-Timing': `proxy;dur=${totalMs}`,
+    ...extraHeaders
+  };
+}
+
 function sendJson(response, statusCode, payload, headers = {}) {
   response.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store, private',
     'X-Data-Revision': getDataRevision(),
+    ...responseDiagnostics(response),
     ...headers
   });
   response.end(JSON.stringify(payload));
@@ -86,17 +132,38 @@ function getProxyConfig(overrides = {}) {
 function buildReadCacheKey(upstreamUrl) {
   const safeUrl = new URL(upstreamUrl);
   safeUrl.searchParams.delete('token');
+  READ_CACHE_BYPASS_PARAMS.forEach((key) => safeUrl.searchParams.delete(key));
   safeUrl.searchParams.sort();
   return safeUrl.toString();
 }
 
+function shouldBypassReadCache(incomingUrl) {
+  return Array.from(READ_CACHE_BYPASS_PARAMS).some((key) => incomingUrl.searchParams.has(key));
+}
+
+function pruneReadResponseCache(now = Date.now()) {
+  for (const [key, cached] of readResponseCache) {
+    if (!cached || cached.expiresAt <= now) readResponseCache.delete(key);
+  }
+  while (readResponseCache.size > MAX_READ_CACHE_ENTRIES) {
+    const oldestKey = readResponseCache.keys().next().value;
+    if (!oldestKey) break;
+    readResponseCache.delete(oldestKey);
+  }
+}
+
 function sendUpstreamSnapshot(response, snapshot, cacheState = 'MISS') {
+  const upstreamMs = cacheState === 'HIT' ? 0 : snapshot.durationMs || 0;
   response.writeHead(snapshot.status, {
     'Content-Type': snapshot.contentType || 'application/json; charset=utf-8',
     'Cache-Control': 'no-store, private',
     'X-Data-Revision': getDataRevision(),
     'X-Proxy-Cache': cacheState,
-    'X-Upstream-Duration': String(cacheState === 'HIT' ? 0 : snapshot.durationMs || 0)
+    'X-Upstream-Duration': String(upstreamMs),
+    'X-Upstream-Attempts': String(cacheState === 'HIT' ? 0 : snapshot.attempts || 1),
+    ...responseDiagnostics(response, {
+      'Server-Timing': `proxy;dur=${Math.max(0, Date.now() - Number(response.__proxyStartedAt || Date.now()))}, upstream;dur=${upstreamMs}`
+    })
   });
   response.end(snapshot.body);
 }
@@ -111,7 +178,8 @@ async function fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, timeo
       status: upstreamResponse.status,
       contentType: upstreamResponse.headers.get('content-type') || 'application/json; charset=utf-8',
       body: await upstreamResponse.text(),
-      durationMs: Math.max(0, Date.now() - startedAt)
+      durationMs: Math.max(0, Date.now() - startedAt),
+      attempts: 1
     };
   } finally {
     clearTimeout(timeoutId);
@@ -147,10 +215,10 @@ function isAmbiguousMutationSnapshot(snapshot) {
 
 async function verifyClientMutationResult(fetchImpl, appsScriptUrl, appsScriptToken, requestId, expectedAction, upstreamTimeoutMs) {
   const normalizedRequestId = String(requestId || '').trim();
-  if (!normalizedRequestId || !['saveClient', 'deleteClient'].includes(expectedAction)) return null;
+  if (!normalizedRequestId || !IDEMPOTENT_MUTATION_ACTIONS.has(expectedAction)) return null;
 
   const verificationUrl = new URL(appsScriptUrl);
-  verificationUrl.searchParams.set('action', 'getClientMutationResult');
+  verificationUrl.searchParams.set('action', 'getMutationResult');
   verificationUrl.searchParams.set('request_id', normalizedRequestId);
   verificationUrl.searchParams.set('token', appsScriptToken);
   const timeoutMs = Math.min(upstreamTimeoutMs, DELETE_CONFIRMATION_TIMEOUT_MS);
@@ -158,13 +226,24 @@ async function verifyClientMutationResult(fetchImpl, appsScriptUrl, appsScriptTo
   for (const delayMs of DELETE_CONFIRMATION_DELAYS_MS) {
     if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
     try {
-      const snapshot = await fetchUpstreamSnapshot(
+      let snapshot = await fetchUpstreamSnapshot(
         fetchImpl,
         verificationUrl,
         { method: 'GET', redirect: 'follow' },
         timeoutMs
       );
-      if (isUnsupportedActionSnapshot(snapshot)) return null;
+      if (isUnsupportedActionSnapshot(snapshot)) {
+        if (!['saveClient', 'deleteClient'].includes(expectedAction)) return null;
+        const clientVerificationUrl = new URL(verificationUrl);
+        clientVerificationUrl.searchParams.set('action', 'getClientMutationResult');
+        snapshot = await fetchUpstreamSnapshot(
+          fetchImpl,
+          clientVerificationUrl,
+          { method: 'GET', redirect: 'follow' },
+          timeoutMs
+        );
+        if (isUnsupportedActionSnapshot(snapshot)) return null;
+      }
       const payload = parseJsonSnapshot(snapshot);
       const mutation = payload?.mutation;
       if (
@@ -209,6 +288,24 @@ async function verifyClientMutationResult(fetchImpl, appsScriptUrl, appsScriptTo
             mutation,
             verified_after_response_failure: true
           }
+        };
+      }
+      const responseKey = MUTATION_RESPONSE_KEYS.get(expectedAction);
+      if (responseKey && mutation[responseKey]) {
+        return {
+          statusCode: 200,
+          payload: {
+            ok: true,
+            [responseKey]: mutation[responseKey],
+            mutation,
+            verified_after_response_failure: true
+          }
+        };
+      }
+      if (expectedAction.startsWith('delete') && mutation.deleted === true) {
+        return {
+          statusCode: 200,
+          payload: { ok: true, mutation, verified_after_response_failure: true }
         };
       }
     } catch (error) {
@@ -279,37 +376,67 @@ function buildClientDirectorySnapshot(snapshot) {
   };
 }
 
-async function fetchCompatibleReadSnapshot(fetchImpl, upstreamUrl, fetchOptions, timeoutMs, action) {
+async function fetchCompatibleReadSnapshot(
+  fetchImpl,
+  upstreamUrl,
+  fetchOptions,
+  timeoutMs,
+  action,
+  totalBudgetMs = DEFAULT_READ_TOTAL_BUDGET_MS,
+  fastRetryThresholdMs = DEFAULT_FAST_READ_RETRY_THRESHOLD_MS
+) {
+  const deadlineAt = Date.now() + Math.max(1, totalBudgetMs);
   const fetchStableAction = async (targetUrl, targetAction) => {
-    let snapshot = await fetchUpstreamSnapshot(fetchImpl, targetUrl, fetchOptions, timeoutMs);
+    const fetchWithinBudget = async (url) => {
+      const remainingMs = deadlineAt - Date.now();
+      if (remainingMs <= 0) return null;
+      return fetchUpstreamSnapshot(fetchImpl, url, fetchOptions, Math.max(1, Math.min(timeoutMs, remainingMs)));
+    };
+
+    let snapshot = await fetchWithinBudget(targetUrl);
+    if (!snapshot) return null;
+    let attempts = 1;
     const isTransientFailure = () => snapshot.status === 404 || snapshot.status >= 500;
     if (!RETRYABLE_DATASET_ACTIONS.has(targetAction) || !isTransientFailure()) return snapshot;
 
     for (let index = 0; index < DATASET_READ_RETRY_DELAYS_MS.length; index += 1) {
-      await new Promise((resolve) => setTimeout(resolve, DATASET_READ_RETRY_DELAYS_MS[index]));
+      if (snapshot.durationMs > fastRetryThresholdMs) break;
+      const delayMs = DATASET_READ_RETRY_DELAYS_MS[index] + Math.floor(Math.random() * 151);
+      if (Date.now() + delayMs >= deadlineAt) break;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
       const retryUrl = new URL(targetUrl);
       retryUrl.searchParams.set('proxy_dataset_retry', `${Date.now()}-${index + 1}`);
-      snapshot = await fetchUpstreamSnapshot(fetchImpl, retryUrl, fetchOptions, timeoutMs);
+      const retrySnapshot = await fetchWithinBudget(retryUrl);
+      if (!retrySnapshot) break;
+      snapshot = retrySnapshot;
+      attempts += 1;
       if (!isTransientFailure()) break;
     }
-    return snapshot;
+    return { ...snapshot, attempts };
   };
 
   const snapshot = await fetchStableAction(upstreamUrl, action);
+  if (!snapshot) throw new DOMException('read deadline exceeded', 'AbortError');
   const legacyAction = LEGACY_READ_ACTIONS.get(action);
   if (!legacyAction || !isUnsupportedActionSnapshot(snapshot)) return snapshot;
 
   const legacyUrl = new URL(upstreamUrl);
   legacyUrl.searchParams.set('action', legacyAction);
   const legacySnapshot = await fetchStableAction(legacyUrl, legacyAction);
+  if (!legacySnapshot) return snapshot;
+  legacySnapshot.attempts = Number(snapshot.attempts || 1) + Number(legacySnapshot.attempts || 1);
   if (action === 'listClientDirectory') return buildClientDirectorySnapshot(legacySnapshot);
   return legacySnapshot;
 }
 
 async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
+  response.__proxyStartedAt = Date.now();
+  response.__proxyRequestId = normalizeRequestId(request.headers?.['x-request-id']);
   const { appsScriptUrl, appsScriptToken } = getProxyConfig(overrides);
   const fetchImpl = overrides.fetchImpl || fetch;
   const upstreamTimeoutMs = overrides.upstreamTimeoutMs || DEFAULT_UPSTREAM_TIMEOUT_MS;
+  const readTotalBudgetMs = overrides.readTotalBudgetMs ?? DEFAULT_READ_TOTAL_BUDGET_MS;
+  const fastReadRetryThresholdMs = overrides.fastReadRetryThresholdMs ?? DEFAULT_FAST_READ_RETRY_THRESHOLD_MS;
   const readCacheTtlMs = overrides.readCacheTtlMs ?? DEFAULT_READ_CACHE_TTL_MS;
   if (!appsScriptUrl || !appsScriptToken) {
     sendJson(response, 503, { ok: false, error: 'Propojení s Google Sheets není bezpečně nakonfigurované.' });
@@ -317,7 +444,7 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
   }
 
   if (!['GET', 'POST'].includes(request.method || '')) {
-    response.writeHead(405, { Allow: 'GET, POST' });
+    response.writeHead(405, { Allow: 'GET, POST', ...responseDiagnostics(response) });
     response.end();
     return;
   }
@@ -333,7 +460,7 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
     }
     const upstreamUrl = new URL(appsScriptUrl);
     incomingUrl.searchParams.forEach((value, key) => {
-      if (key !== 'token') upstreamUrl.searchParams.set(key, value);
+      if (key !== 'token' && !READ_CACHE_BYPASS_PARAMS.has(key)) upstreamUrl.searchParams.set(key, value);
     });
 
     const fetchOptions = { method: request.method, redirect: 'follow' };
@@ -348,39 +475,45 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
     }
 
     action = incomingUrl.searchParams.get('action') || '';
-    const canCacheRead = request.method === 'GET' && CACHEABLE_GET_ACTIONS.has(action) && readCacheTtlMs > 0;
-    if (canCacheRead) {
+    const isDatasetRead = request.method === 'GET' && CACHEABLE_GET_ACTIONS.has(action);
+    if (isDatasetRead) {
+      const bypassCache = readCacheTtlMs <= 0 || shouldBypassReadCache(incomingUrl);
       const cacheKey = buildReadCacheKey(upstreamUrl);
-      const cached = readResponseCache.get(cacheKey);
+      pruneReadResponseCache();
+      const cached = bypassCache ? null : readResponseCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) {
         sendUpstreamSnapshot(response, cached.snapshot, 'HIT');
         return;
       }
       if (cached) readResponseCache.delete(cacheKey);
 
-      let upstreamRequest = inFlightReads.get(cacheKey);
+      const inFlightKey = `${bypassCache ? 'bypass' : 'cache'}:${mutationGeneration}:${cacheKey}`;
+      let upstreamRequest = inFlightReads.get(inFlightKey);
       let cacheState = 'COALESCED';
       if (!upstreamRequest) {
-        cacheState = 'MISS';
+        cacheState = bypassCache ? 'BYPASS' : 'MISS';
         const generationAtStart = mutationGeneration;
         upstreamRequest = fetchCompatibleReadSnapshot(
           fetchImpl,
           upstreamUrl,
           fetchOptions,
           upstreamTimeoutMs,
-          action
+          action,
+          readTotalBudgetMs,
+          fastReadRetryThresholdMs
         )
           .then((snapshot) => {
-            if (generationAtStart === mutationGeneration && isSuccessfulJsonSnapshot(snapshot)) {
+            if (!bypassCache && generationAtStart === mutationGeneration && isSuccessfulJsonSnapshot(snapshot)) {
               readResponseCache.set(cacheKey, {
                 expiresAt: Date.now() + readCacheTtlMs,
                 snapshot
               });
+              pruneReadResponseCache();
             }
             return snapshot;
           })
-          .finally(() => inFlightReads.delete(cacheKey));
-        inFlightReads.set(cacheKey, upstreamRequest);
+          .finally(() => inFlightReads.delete(inFlightKey));
+        inFlightReads.set(inFlightKey, upstreamRequest);
       }
 
       sendUpstreamSnapshot(response, await upstreamRequest, cacheState);
@@ -395,7 +528,7 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
     const snapshot = await fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs);
     if (
       request.method === 'POST'
-      && ['saveClient', 'deleteClient'].includes(postPayload?.action)
+      && IDEMPOTENT_MUTATION_ACTIONS.has(postPayload?.action)
       && postPayload?.request_id
       && isAmbiguousMutationSnapshot(snapshot)
     ) {
@@ -443,7 +576,7 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
     console.error('Google Apps Script proxy error:', postPayload?.action || action || 'unknown', error);
     if (
       request.method === 'POST'
-      && ['saveClient', 'deleteClient'].includes(postPayload?.action)
+      && IDEMPOTENT_MUTATION_ACTIONS.has(postPayload?.action)
       && postPayload?.request_id
     ) {
       try {
@@ -462,7 +595,7 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
           return;
         }
       } catch (verificationError) {
-        console.warn('Client mutation confirmation failed after proxy error:', postPayload.action, verificationError);
+        console.warn('Mutation confirmation failed after proxy error:', postPayload.action, verificationError);
       }
     }
     const timedOut = error?.name === 'AbortError';

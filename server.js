@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { handleDocxExportRequest } from './docxExport.js';
 import { handleGoogleAppsScriptProxy } from './googleAppsScriptProxy.js';
 import { handleGeminiProxy } from './geminiProxy.js';
+import { isTrustedMutationOrigin } from './requestSecurity.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const distDir = resolve(__dirname, 'dist');
@@ -112,6 +113,14 @@ const server = createServer((request, response) => {
   }
 
   const url = new URL(request.url || '/', `http://${request.headers.host}`);
+  if (request.method === 'POST' && url.pathname === '/api/google-sheets' && !isTrustedMutationOrigin(request)) {
+    response.writeHead(403, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store, private'
+    });
+    response.end(JSON.stringify({ ok: false, error: 'Požadavek na změnu dat nepochází z této aplikace.' }));
+    return;
+  }
   const requestedPath = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
   const staticPath = join(distDir, requestedPath);
 

@@ -4,10 +4,11 @@ import test from 'node:test';
 import { handleGoogleAppsScriptProxy } from '../googleAppsScriptProxy.js';
 import { readFile } from 'node:fs/promises';
 
-function createRequest(method, url, body = '') {
+function createRequest(method, url, body = '', headers = {}) {
   const request = Readable.from(body ? [body] : []);
   request.method = method;
   request.url = url;
+  request.headers = headers;
   return request;
 }
 
@@ -503,7 +504,7 @@ test('invalid create response is confirmed by its exact mutation request id', as
   );
 
   const payload = JSON.parse(response.body);
-  assert.deepEqual(requestedActions, ['saveClient', 'getClientMutationResult']);
+  assert.deepEqual(requestedActions, ['saveClient', 'getMutationResult']);
   assert.equal(response.statusCode, 200);
   assert.equal(response.headers['X-Mutation-Verified'], 'saveClient');
   assert.equal(payload.client.klient_id, 'KLIENT-0055');
@@ -548,5 +549,181 @@ test('timed out delete is confirmed by request id before returning an error', as
   assert.equal(mutationChecks, 1);
   assert.equal(response.statusCode, 200);
   assert.equal(payload.deletion.deleted, true);
+  assert.equal(payload.verified_after_response_failure, true);
+});
+
+test('proxy retries a failed dataset at most once', async () => {
+  let calls = 0;
+  const response = createResponse();
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listPerformances'),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/retry-budget/exec',
+      appsScriptToken: 'server-secret',
+      readCacheTtlMs: 0,
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response('Service Unavailable', { status: 503 });
+      }
+    }
+  );
+
+  assert.equal(calls, 2);
+  assert.equal(response.headers['X-Upstream-Attempts'], '2');
+});
+
+test('proxy does not retry a slow failed dataset read', async () => {
+  let calls = 0;
+  const response = createResponse();
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listIndividualPlans'),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/slow-failure/exec',
+      appsScriptToken: 'server-secret',
+      readCacheTtlMs: 0,
+      fastReadRetryThresholdMs: 5,
+      fetchImpl: async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        return new Response('Gateway Timeout', { status: 504 });
+      }
+    }
+  );
+
+  assert.equal(calls, 1);
+  assert.equal(response.headers['X-Upstream-Attempts'], '1');
+});
+
+test('total read budget prevents another retry chain', async () => {
+  let calls = 0;
+  const response = createResponse();
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listClients'),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/total-budget/exec',
+      appsScriptToken: 'server-secret',
+      readCacheTtlMs: 0,
+      readTotalBudgetMs: 100,
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response('Service Unavailable', { status: 503 });
+      }
+    }
+  );
+
+  assert.equal(calls, 1);
+  assert.equal(response.statusCode, 503);
+});
+
+test('fresh verification bypasses cache without forwarding transport nonce to GAS', async () => {
+  let upstreamCalls = 0;
+  const upstreamUrls = [];
+  const overrides = {
+    appsScriptUrl: 'https://example.test/macros/s/cache-bypass/exec',
+    appsScriptToken: 'server-secret',
+    readCacheTtlMs: 60000,
+    fetchImpl: async (url) => {
+      upstreamCalls += 1;
+      upstreamUrls.push(String(url));
+      return new Response(JSON.stringify({ ok: true, clients: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  };
+  const responseA = createResponse();
+  const responseB = createResponse();
+
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listClients&fresh=1&verification_nonce=first'),
+    responseA,
+    overrides
+  );
+  await handleGoogleAppsScriptProxy(
+    createRequest('GET', '/api/google-sheets?action=listClients&fresh=1&verification_nonce=second'),
+    responseB,
+    overrides
+  );
+
+  assert.equal(upstreamCalls, 2);
+  assert.equal(responseA.headers['X-Proxy-Cache'], 'BYPASS');
+  assert.equal(responseB.headers['X-Proxy-Cache'], 'BYPASS');
+  assert.equal(new URL(upstreamUrls[0]).searchParams.has('fresh'), false);
+  assert.equal(new URL(upstreamUrls[0]).searchParams.has('verification_nonce'), false);
+});
+
+test('proxy returns request correlation and timing headers', async () => {
+  const response = createResponse();
+  await handleGoogleAppsScriptProxy(
+    createRequest(
+      'GET',
+      '/api/google-sheets?action=listPartners',
+      '',
+      { 'x-request-id': 'browser-request-123' }
+    ),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/diagnostics/exec',
+      appsScriptToken: 'server-secret',
+      readCacheTtlMs: 0,
+      fetchImpl: async () => new Response(JSON.stringify({ ok: true, partners: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+  );
+
+  assert.equal(response.headers['X-Request-ID'], 'browser-request-123');
+  assert.match(response.headers['Server-Timing'], /proxy;dur=\d+, upstream;dur=\d+/);
+  assert.equal(response.headers['X-Upstream-Attempts'], '1');
+});
+
+test('invalid performance response is confirmed by the generic mutation ledger', async () => {
+  const requestedActions = [];
+  const requestId = 'save-performance-1234567890abcdef';
+  const response = createResponse();
+
+  await handleGoogleAppsScriptProxy(
+    createRequest('POST', '/api/google-sheets', JSON.stringify({
+      action: 'savePerformance',
+      request_id: requestId,
+      performance: { klient_id: 'KLIENT-0001', popis: 'Test' }
+    })),
+    response,
+    {
+      appsScriptUrl: 'https://example.test/macros/s/generic-confirmation/exec',
+      appsScriptToken: 'server-secret',
+      fetchImpl: async (url, options) => {
+        if (options.method === 'POST') {
+          requestedActions.push('savePerformance');
+          return new Response('<html>ContentService response failed</html>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' }
+          });
+        }
+        requestedActions.push(new URL(url).searchParams.get('action'));
+        return new Response(JSON.stringify({
+          ok: true,
+          mutation: {
+            request_id: requestId,
+            action: 'savePerformance',
+            state: 'completed',
+            performance: { vykon_id: 'VYKON-0099', klient_id: 'KLIENT-0001' }
+          }
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+  );
+
+  const payload = JSON.parse(response.body);
+  assert.deepEqual(requestedActions, ['savePerformance', 'getMutationResult']);
+  assert.equal(response.statusCode, 200);
+  assert.equal(payload.performance.vykon_id, 'VYKON-0099');
   assert.equal(payload.verified_after_response_failure, true);
 });
