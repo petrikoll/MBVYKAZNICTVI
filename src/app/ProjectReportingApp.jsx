@@ -5181,20 +5181,27 @@ function App() {
       console.error('Google Sheets client delete error:', error);
       const ambiguousResponse = /platnou JSON odpověď|uložení nelze potvrdit/i.test(String(error?.message || ''));
       if (ambiguousResponse) {
-        try {
-          const verification = await fetchGoogleSheetAction(
-            'verifyClientDeletion',
-            1,
-            GOOGLE_SHEET_REQUEST_TIMEOUT_MS,
-            { klient_id: client.id }
-          );
-          const deletionConfirmed = verification?.deletion?.found === true && verification?.deletion?.deleted === true;
-          if (deletionConfirmed) {
-            applyConfirmedDeletion({ deleted: true, archive_warning: '' }, true);
-            return;
+        // Odpoved ContentService muze selhat i tesne pred dorucenim platneho JSON.
+        // Overeni proto kratce opakujeme; okamzita jednorazova kontrola mohla
+        // predbehnout dokonceni zapisu v Apps Scriptu.
+        const verificationDelays = [0, 800, 1800, 3200];
+        for (const delayMs of verificationDelays) {
+          if (delayMs) await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+          try {
+            const verification = await fetchGoogleSheetAction(
+              'verifyClientDeletion',
+              1,
+              GOOGLE_SHEET_REQUEST_TIMEOUT_MS,
+              { klient_id: client.id }
+            );
+            const deletionConfirmed = verification?.deletion?.found === true && verification?.deletion?.deleted === true;
+            if (deletionConfirmed) {
+              applyConfirmedDeletion({ deleted: true, archive_warning: '' }, true);
+              return;
+            }
+          } catch (verificationError) {
+            console.warn('Client deletion verification failed:', verificationError);
           }
-        } catch (verificationError) {
-          console.warn('Client deletion verification failed:', verificationError);
         }
       }
       const message = saveErrorMessage('Klient nebyl smazán', error);

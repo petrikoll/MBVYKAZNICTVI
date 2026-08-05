@@ -15,6 +15,9 @@ function createContext() {
 
 function createSheet(headers, initialRows) {
   const rows = initialRows.map((row) => [...row]);
+  const columnNumberFromLabel = (label) => [...label].reduce((number, character) => (
+    number * 26 + character.charCodeAt(0) - 64
+  ), 0);
   return {
     headers,
     rows,
@@ -45,6 +48,18 @@ function createSheet(headers, initialRows) {
           rows[rowNumber - 2] = rows[rowNumber - 2] || [];
           rows[rowNumber - 2][column - 1] = value;
         }
+      }
+    }),
+    getRangeList: (notations) => ({
+      setValue: (value) => {
+        notations.forEach((notation) => {
+          const match = /^([A-Z]+)(\d+)$/.exec(notation);
+          if (!match) throw new Error(`Invalid A1 notation: ${notation}`);
+          const column = columnNumberFromLabel(match[1]);
+          const rowNumber = Number(match[2]);
+          rows[rowNumber - 2] = rows[rowNumber - 2] || [];
+          rows[rowNumber - 2][column - 1] = value;
+        });
       }
     })
   };
@@ -121,6 +136,14 @@ test('derived statistic cleanup cannot interrupt the main client deletion', () =
   assert.match(section, /try\s*\{\s*deactivatePerformanceStatistics_\(id\)/);
   assert.match(section, /cleanupWarnings\.push/);
   assert.match(section, /archive_warning: cleanupWarnings\.join/);
+});
+
+test('linked record deletion changes only technical columns instead of rewriting validated data', () => {
+  const section = appsScriptSource.match(/function softDeleteClientRows_\(spreadsheet, sheetName, idHeader, clientId, now, updatedBy\)[\s\S]*?function findUniqueClientFolderById_\(/)?.[0] || '';
+  assert.ok(section);
+  assert.match(section, /setRowsColumnValue_\(sheet, rowsToDelete/);
+  assert.match(section, /sheet\.getRangeList/);
+  assert.doesNotMatch(section, /getRange\(CONFIG\.headerRow \+ 1 \+ index, 1, 1, headers\.length\)\.setValues/);
 });
 
 test('client deletion finds and archives an unlinked folder by klient_id', () => {
@@ -267,6 +290,8 @@ test('ambiguous deletion response is verified against the authoritative client r
   const handler = appSource.slice(handlerStart, handlerEnd);
   assert.match(handler, /platnou JSON odpověď\|uložení nelze potvrdit/);
   assert.match(handler, /fetchGoogleSheetAction\([\s\S]*?'verifyClientDeletion'/);
+  assert.match(handler, /verificationDelays = \[0, 800, 1800, 3200\]/);
+  assert.match(handler, /for \(const delayMs of verificationDelays\)/);
   assert.match(handler, /verification\?\.deletion\?\.found === true && verification\?\.deletion\?\.deleted === true/);
   assert.match(handler, /applyConfirmedDeletion\(\{ deleted: true, archive_warning: '' \}, true\)/);
 });

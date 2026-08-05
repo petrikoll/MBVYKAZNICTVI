@@ -2502,7 +2502,7 @@ function softDeleteClientRows_(spreadsheet, sheetName, idHeader, clientId, now, 
   if (!rowCount) return { count: 0, ids: [] };
   const rows = sheet.getRange(CONFIG.headerRow + 1, 1, rowCount, headers.length).getValues();
   const ids = [];
-  let count = 0;
+  const rowsToDelete = [];
 
   rows.forEach(function(values, index) {
     if (String(values[clientColumn - 1] || '').trim() !== clientId) return;
@@ -2510,16 +2510,40 @@ function softDeleteClientRows_(spreadsheet, sheetName, idHeader, clientId, now, 
     if (id) ids.push(id);
     const statusIndex = headers.indexOf('status');
     if (normalizeDuplicateText_(values[statusIndex]).startsWith('smaz')) return;
-    values[statusIndex] = 'Smazan\u00fd';
-    values[headers.indexOf('deleted_at')] = now;
-    values[headers.indexOf('deleted_by')] = updatedBy || '';
-    values[headers.indexOf('updated_at')] = now;
-    values[headers.indexOf('updated_by')] = updatedBy || '';
-    sheet.getRange(CONFIG.headerRow + 1 + index, 1, 1, headers.length).setValues([values]);
-    count += 1;
+    rowsToDelete.push(CONFIG.headerRow + 1 + index);
   });
 
-  return { count, ids };
+  // Nezapisovat zpet cely radek. Starsi zaznam muze obsahovat hodnotu, ktera
+  // uz neodpovida dnesnimu overeni dat v nekterem vecnem sloupci (napr. Ano/Ne).
+  // Prepis celeho radku by pak shodil smazani klienta, prestoze tyto hodnoty
+  // s mazanim nesouviseji. Menime proto pouze technicke sloupce a zapisujeme je
+  // hromadne pres RangeList.
+  setRowsColumnValue_(sheet, rowsToDelete, headers.indexOf('status') + 1, 'Smazan\u00fd');
+  setRowsColumnValue_(sheet, rowsToDelete, headers.indexOf('deleted_at') + 1, now);
+  setRowsColumnValue_(sheet, rowsToDelete, headers.indexOf('deleted_by') + 1, updatedBy || '');
+  setRowsColumnValue_(sheet, rowsToDelete, headers.indexOf('updated_at') + 1, now);
+  setRowsColumnValue_(sheet, rowsToDelete, headers.indexOf('updated_by') + 1, updatedBy || '');
+
+  return { count: rowsToDelete.length, ids };
+}
+
+function setRowsColumnValue_(sheet, rowNumbers, columnNumber, value) {
+  if (!sheet || !rowNumbers.length || columnNumber < 1) return;
+  const columnLabel = columnNumberToLabel_(columnNumber);
+  sheet.getRangeList(rowNumbers.map(function(rowNumber) {
+    return columnLabel + rowNumber;
+  })).setValue(value);
+}
+
+function columnNumberToLabel_(columnNumber) {
+  let number = Number(columnNumber) || 0;
+  let label = '';
+  while (number > 0) {
+    const remainder = (number - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    number = Math.floor((number - 1) / 26);
+  }
+  return label;
 }
 
 function findUniqueClientFolderById_(root, clientId) {
