@@ -2561,18 +2561,13 @@ function App() {
 
     // Klientsky registr nacitame samostatne hned. Pomalý nebo studeny spolecny
     // bootstrap tak uz nemuze blokovat prvni pouzitelne zobrazeni aplikace.
-    // Ostatni oblasti zustavaji seskupene a odlozene, aby Apps Script nezahltily
-    // soubeznymi studenymi ctenimi.
+    // Ostatni oblasti se spusti az po klientskem registru a po prioritach, aby
+    // Apps Script nezahltily soubeznymi studenymi ctenimi.
     const prefetchAction = (action, timeoutMs = DEFERRED_DATA_TIMEOUT_MS) => fetchGoogleSheetAction(action, 1, timeoutMs)
       .then((result) => ({ action, result }))
       .catch((error) => ({ action, error }));
     const clientsPrefetch = prefetchAction('listClients', DEFERRED_DATA_TIMEOUT_MS);
-    const corePrefetch = clientsPrefetch.then(() => prefetchAction('bootstrapFast', STARTUP_BOOTSTRAP_TIMEOUT_MS));
-    const auxiliaryPrefetch = corePrefetch.then(() => prefetchAction('bootstrapAuxiliary'));
-    const plansPrefetch = corePrefetch.then(() => prefetchAction('listIndividualPlans'));
-    prefetchedSheetActionsRef.current.set('bootstrapFast', corePrefetch);
-    prefetchedSheetActionsRef.current.set('bootstrapAuxiliary', auxiliaryPrefetch);
-    prefetchedSheetActionsRef.current.set('listIndividualPlans', plansPrefetch);
+    prefetchedSheetActionsRef.current.set('startupClientReady', clientsPrefetch);
     void fetchGoogleSheetAction('getDataRevision', 1, 5000).then((result) => {
       if (result?.__dataRevision || result?.revision) {
         currentDataRevisionRef.current = result.__dataRevision || result.revision;
@@ -2987,15 +2982,26 @@ function App() {
         ['listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'].includes(action)
       ));
       const plansSource = progressiveSources.find(([action]) => action === 'listIndividualPlans');
+      const performancesSource = coreSources.find(([action]) => action === 'listPerformances');
+      const remainingCoreSources = coreSources.filter(([action]) => action !== 'listPerformances');
 
-      // Nejprve zverejnime klienty a bezne zaznamy z jednoho rychleho baliku.
-      // Pomocne oblasti a dlouhe texty planu se doplnuji az pote a prvni
-      // pouzitelne zobrazeni proto neblokuji.
-      await processProgressiveBootstrap('bootstrapFast', coreSources);
+      // Klientsky registr ma vzdy prednost. Po nem nacteme nejprve vykony,
+      // potom mensi bezne oblasti, plany a nakonec pomocne evidence. Jednotlive
+      // akce maji vlastni cache a jedna pomala oblast tak nezablokuje ostatni.
+      const startupClientReady = prefetchedSheetActionsRef.current.get('startupClientReady');
+      if (startupClientReady) {
+        prefetchedSheetActionsRef.current.delete('startupClientReady');
+        await startupClientReady;
+      }
+      if (cancelled) return;
+      await loadSingleProgressiveSource(performancesSource);
+      if (cancelled) return;
+      await Promise.all(remainingCoreSources.map(loadSingleProgressiveSource));
+      if (cancelled) return;
+      await loadSingleProgressiveSource(plansSource);
       if (cancelled) return;
       await Promise.all([
-        processProgressiveBootstrap('bootstrapAuxiliary', auxiliarySources),
-        loadSingleProgressiveSource(plansSource)
+        ...auxiliarySources.map(loadSingleProgressiveSource)
       ]);
       if (cancelled) return;
       // Prvni prechodne selhani jeste nehlasime. Automaticka obnova probehne

@@ -5,31 +5,35 @@ import test from 'node:test';
 const source = readFileSync(new URL('../src/app/ProjectReportingApp.jsx', import.meta.url), 'utf8');
 
 test('startup loads clients independently while keeping other areas staged', () => {
-  const bootstrapStart = source.indexOf("const corePrefetch = clientsPrefetch.then(() => prefetchAction('bootstrapFast', STARTUP_BOOTSTRAP_TIMEOUT_MS))");
+  const prefetchStart = source.indexOf("const clientsPrefetch = prefetchAction('listClients', DEFERRED_DATA_TIMEOUT_MS)");
   const clientsStart = source.indexOf('const fetchClients = async () => {');
   const clientsEnd = source.indexOf('const clientIndex = useMemo', clientsStart);
   const clientsBlock = source.slice(clientsStart, clientsEnd);
 
-  assert.ok(bootstrapStart >= 0 && clientsStart > bootstrapStart && clientsEnd > clientsStart);
+  assert.ok(prefetchStart >= 0 && clientsStart > prefetchStart && clientsEnd > clientsStart);
   const startupPrefetchBlock = source.slice(source.indexOf('const prefetchAction ='), clientsStart);
   assert.match(startupPrefetchBlock, /const clientsPrefetch = prefetchAction\('listClients', DEFERRED_DATA_TIMEOUT_MS\)/);
-  assert.match(startupPrefetchBlock, /const corePrefetch = clientsPrefetch\.then\(\(\) => prefetchAction\('bootstrapFast', STARTUP_BOOTSTRAP_TIMEOUT_MS\)\)/);
-  assert.ok(startupPrefetchBlock.indexOf('const clientsPrefetch') < startupPrefetchBlock.indexOf('const corePrefetch'));
+  assert.match(startupPrefetchBlock, /prefetchedSheetActionsRef\.current\.set\('startupClientReady', clientsPrefetch\)/);
+  assert.doesNotMatch(startupPrefetchBlock, /prefetchAction\('bootstrapFast'/);
   assert.match(clientsBlock, /const clientOutcome = await clientsPrefetch/);
   assert.match(clientsBlock, /Array\.isArray\(clientOutcome\.result\.clients\)/);
   assert.doesNotMatch(clientsBlock, /await corePrefetch/);
   assert.match(clientsBlock, /fetchGoogleSheetAction\('listClients', 1, DEFERRED_DATA_TIMEOUT_MS\)/);
   assert.doesNotMatch(clientsBlock, /listClientDirectory/);
   assert.match(clientsBlock, /const retryDelayMs = consecutiveFailures === 1 \? 1000 : consecutiveFailures === 2 \? 2000 : 8000/);
-  assert.match(source.slice(bootstrapStart, clientsStart), /corePrefetch\.then\(\(\) => prefetchAction\('bootstrapAuxiliary'\)\)/);
-  assert.match(source.slice(bootstrapStart, clientsStart), /corePrefetch\.then\(\(\) => prefetchAction\('listIndividualPlans'\)\)/);
+  assert.doesNotMatch(startupPrefetchBlock, /prefetchAction\('bootstrapAuxiliary'/);
   assert.doesNotMatch(clientsBlock, /fetchGoogleSheetAction\('listPerformances'\)/);
 
   const recordsStart = source.indexOf('const fetchSheetRecords = async () => {');
   const recordsEnd = source.indexOf('fetchSheetRecords();', recordsStart);
   const recordsBlock = source.slice(recordsStart, recordsEnd);
-  assert.match(recordsBlock, /await processProgressiveBootstrap\('bootstrapFast', coreSources\)/);
-  assert.match(recordsBlock, /processProgressiveBootstrap\('bootstrapAuxiliary', auxiliarySources\)/);
+  assert.match(recordsBlock, /await startupClientReady/);
+  assert.match(recordsBlock, /await loadSingleProgressiveSource\(performancesSource\)/);
+  assert.match(recordsBlock, /await Promise\.all\(remainingCoreSources\.map\(loadSingleProgressiveSource\)\)/);
+  assert.match(recordsBlock, /await loadSingleProgressiveSource\(plansSource\)/);
+  assert.match(recordsBlock, /\.\.\.auxiliarySources\.map\(loadSingleProgressiveSource\)/);
+  assert.doesNotMatch(recordsBlock, /processProgressiveBootstrap\('bootstrapFast'/);
+  assert.doesNotMatch(recordsBlock, /processProgressiveBootstrap\('bootstrapAuxiliary'/);
   assert.match(recordsBlock, /\['listNetworkMeetings', 'listEducation', 'listSupervision', 'listStatistics'\]/);
   assert.match(recordsBlock, /loadSingleProgressiveSource\(plansSource\)/);
   assert.match(recordsBlock, /bootstrapContainsAction/);
