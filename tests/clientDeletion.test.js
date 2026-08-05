@@ -123,6 +123,65 @@ test('derived statistic cleanup cannot interrupt the main client deletion', () =
   assert.match(section, /archive_warning: cleanupWarnings\.join/);
 });
 
+test('client deletion finds and archives an unlinked folder by klient_id', () => {
+  const context = createContext();
+  const archive = { id: 'archive' };
+  const moved = [];
+  const folder = {
+    getName: () => 'KLIENT-0053 - LaĹˇtovica - Petr',
+    getUrl: () => 'folder-url-0053',
+    moveTo: (target) => moved.push(target)
+  };
+  const folders = [folder];
+  const root = {
+    getFolders: () => {
+      let index = 0;
+      return {
+        hasNext: () => index < folders.length,
+        next: () => folders[index++]
+      };
+    }
+  };
+  context.getClientFolderParent_ = () => root;
+  context.getDeletedClientsArchiveFolder_ = () => archive;
+  context.DriveApp = { getFolderById: () => { throw new Error('stale link'); } };
+
+  const result = context.archiveDeletedClientFolder_('', 'KLIENT-0053');
+
+  assert.equal(result.warning, '');
+  assert.equal(result.url, 'folder-url-0053');
+  assert.deepEqual(moved, [archive]);
+});
+
+test('folder provisioning reuses a unique existing folder when the Sheet link is missing', () => {
+  const context = createContext();
+  const existing = { getName: () => 'KLIENT-0053 - LaĹˇtovica Petr' };
+  let created = 0;
+  const root = {
+    getFolders: () => {
+      let delivered = false;
+      return {
+        hasNext: () => !delivered,
+        next: () => { delivered = true; return existing; }
+      };
+    },
+    createFolder: () => { created += 1; return {}; }
+  };
+  context.getClientFolderParent_ = () => root;
+
+  const result = context.getOrCreateClientFolder_({ klient_id: 'KLIENT-0053', jmeno: 'Petr', prijmeni: 'LaĹˇtovica' }, '');
+
+  assert.equal(result, existing);
+  assert.equal(created, 0);
+});
+
+test('manual KLIENT-0053 cleanup verifies identity before finishing deletion', () => {
+  const section = appsScriptSource.match(/function finishLastovica0053DeletionAfterPartialFailure\(\)[\s\S]*?function getDeletedClientsArchiveFolder_\(/)?.[0] || '';
+  assert.match(section, /KLIENT-0053 musi mit prave jeden radek/);
+  assert.match(section, /KLIENT-0053 neni Petr Lastovica/);
+  assert.match(section, /deleteClient_\(\{ klient_id: 'KLIENT-0053' \}/);
+});
+
 test('statistics use the Ano Ne values required by the Sheet validation', () => {
   const upsertSection = appsScriptSource.match(/function upsertPerformanceStatistics_\(performance\)[\s\S]*?function parseJsonObject_\(/)?.[0] || '';
   const deactivateSection = appsScriptSource.match(/function deactivatePerformanceStatistics_\(performanceId\)[\s\S]*?function buildStatisticsPeriod_\(/)?.[0] || '';

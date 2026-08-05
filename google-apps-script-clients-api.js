@@ -2286,7 +2286,7 @@ function deleteClient_(request, requestedBy) {
     sheet.getRange(targetRow, 1, 1, headers.length).setValues([clientValues]);
   }
 
-  const archive = archiveDeletedClientFolder_(existing.drive_folder_url);
+  const archive = archiveDeletedClientFolder_(existing.drive_folder_url, clientId);
   if (archive.warning) cleanupWarnings.push(archive.warning);
   return {
     klient_id: clientId,
@@ -2339,11 +2339,40 @@ function softDeleteClientRows_(spreadsheet, sheetName, idHeader, clientId, now, 
   return { count, ids };
 }
 
-function archiveDeletedClientFolder_(folderUrl) {
+function findUniqueClientFolderById_(root, clientId) {
+  const normalizedId = String(clientId || '').trim().toUpperCase();
+  if (!root || !normalizedId) return null;
+  const folders = root.getFolders();
+  const matches = [];
+  while (folders.hasNext()) {
+    const folder = folders.next();
+    const name = String(folder.getName() || '').trim().toUpperCase();
+    if (name === normalizedId || name.indexOf(normalizedId + ' ') === 0) matches.push(folder);
+  }
+  if (matches.length > 1) {
+    throw new Error('Pro ' + normalizedId + ' existuje vice klientskych slozek; automaticky presun byl zastaven.');
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function archiveDeletedClientFolder_(folderUrl, clientId) {
   const folderId = extractDriveId_(folderUrl);
-  if (!folderId) return { url: '', warning: '' };
   try {
-    const folder = DriveApp.getFolderById(folderId);
+    let folder = null;
+    if (folderId) {
+      try {
+        folder = DriveApp.getFolderById(folderId);
+      } catch (folderError) {
+        // Chybejici nebo zastaraly odkaz se nahradi bezpecnym dohledanim podle klient_id.
+      }
+    }
+    if (!folder) folder = findUniqueClientFolderById_(getClientFolderParent_(), clientId);
+    if (!folder) {
+      return {
+        url: String(folderUrl || ''),
+        warning: 'Klient byl vyrazen z aplikace, ale jeho slozku se nepodarilo dohledat podle ' + String(clientId || 'klient_id') + '.'
+      };
+    }
     const archive = getDeletedClientsArchiveFolder_();
     folder.moveTo(archive);
     return { url: folder.getUrl(), warning: '' };
@@ -2352,6 +2381,32 @@ function archiveDeletedClientFolder_(folderUrl) {
       url: String(folderUrl || ''),
       warning: 'Klient byl vyrazen z aplikace, ale jeho slozku se nepodarilo presunout do archivu: ' + String(error.message || error)
     };
+  }
+}
+
+// Jednorazove bezpecne dokonci drivejsi napul provedene smazani fiktivniho
+// klienta KLIENT-0053. Funkce je idempotentni a pred zapisem overi presne ID i jmeno.
+function finishLastovica0053DeletionAfterPartialFailure() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getSpreadsheet_().getSheetByName(CONFIG.sheetName);
+    if (!sheet) throw new Error('Missing sheet: ' + CONFIG.sheetName);
+    const headers = getHeaders_(sheet);
+    const idColumn = headers.indexOf('klient_id') + 1;
+    if (!idColumn) throw new Error('Missing klient_id column');
+    const rows = findClientRows_(sheet, idColumn, 'KLIENT-0053');
+    if (rows.length !== 1) throw new Error('KLIENT-0053 musi mit prave jeden radek. Nalezeno: ' + rows.length + '.');
+    const client = rowToObject_(headers, sheet.getRange(rows[0], 1, 1, headers.length).getValues()[0]);
+    const normalizedName = normalizeDuplicateText_([client.jmeno, client.prijmeni].filter(Boolean).join(' '));
+    if (normalizedName !== 'petr lastovica' && normalizedName !== 'lastovica petr') {
+      throw new Error('Dokonceni zastaveno: KLIENT-0053 neni Petr Lastovica.');
+    }
+    const result = deleteClient_({ klient_id: 'KLIENT-0053' }, 'Mgr. Radka Vyslouzilova');
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -3146,7 +3201,9 @@ function getOrCreateClientFolder_(client, currentUrl) {
     }
   }
 
-  return getClientFolderParent_().createFolder(buildClientFolderName_(client));
+  const root = getClientFolderParent_();
+  const existingFolder = findUniqueClientFolderById_(root, client && client.klient_id);
+  return existingFolder || root.createFolder(buildClientFolderName_(client));
 }
 
 function getOrCreateMonitoringList_(folder, client, currentUrl) {
