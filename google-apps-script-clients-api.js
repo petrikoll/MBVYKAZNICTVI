@@ -2402,7 +2402,10 @@ function finishLastovica0053DeletionAfterPartialFailure() {
     if (normalizedName !== 'petr lastovica' && normalizedName !== 'lastovica petr') {
       throw new Error('Dokonceni zastaveno: KLIENT-0053 neni Petr Lastovica.');
     }
-    const result = deleteClient_({ klient_id: 'KLIENT-0053' }, 'Mgr. Radka Vyslouzilova');
+    const result = deleteClient_({
+      klient_id: 'KLIENT-0053',
+      expected_updated_at: client.updated_at
+    }, 'Mgr. Radka Vyslouzilova');
     console.log(JSON.stringify(result, null, 2));
     return result;
   } finally {

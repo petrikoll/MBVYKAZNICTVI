@@ -179,7 +179,8 @@ test('manual KLIENT-0053 cleanup verifies identity before finishing deletion', (
   const section = appsScriptSource.match(/function finishLastovica0053DeletionAfterPartialFailure\(\)[\s\S]*?function getDeletedClientsArchiveFolder_\(/)?.[0] || '';
   assert.match(section, /KLIENT-0053 musi mit prave jeden radek/);
   assert.match(section, /KLIENT-0053 neni Petr Lastovica/);
-  assert.match(section, /deleteClient_\(\{ klient_id: 'KLIENT-0053' \}/);
+  assert.match(section, /expected_updated_at: client\.updated_at/);
+  assert.match(section, /deleteClient_\(\{/);
 });
 
 test('statistics use the Ano Ne values required by the Sheet validation', () => {
