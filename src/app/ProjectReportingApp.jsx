@@ -2291,6 +2291,7 @@ const VERIFIED_RECORD_SOURCE_ACTIONS = [
   'listEducation',
   'listSupervision'
 ];
+const CLIENT_REGISTRY_SCROLL_STORAGE_KEY = 'mb-vykaznictvi:client-registry-scroll:v1';
 function recordSourceAction(record) {
   if (!record || isLocalOnlyRecord(record)) return '';
   if (record.entityType === 'plans') return 'listIndividualPlans';
@@ -2366,6 +2367,7 @@ function App() {
   const clientCreateMutationIdsRef = useRef(new Map());
   const clientDeleteMutationIdsRef = useRef(new Map());
   const genericMutationIdsRef = useRef(new Map());
+  const clientRegistryScrollRef = useRef(null);
   const hasAuthoritativeClientSnapshotRef = useRef(false);
   const clientDriveProvisionAttemptsRef = useRef(new Set());
   const prefetchedSheetActionsRef = useRef(new Map());
@@ -3055,6 +3057,29 @@ function App() {
   );
 
   const selectedClient = selectedClientId ?clientIndex[selectedClientId] : null;
+
+  useEffect(() => {
+    if (mainView !== 'clients') return undefined;
+    const frameId = window.requestAnimationFrame(() => {
+      const scrollContainer = clientRegistryScrollRef.current;
+      if (!scrollContainer) return;
+      try {
+        const savedPosition = Number(window.sessionStorage.getItem(CLIENT_REGISTRY_SCROLL_STORAGE_KEY));
+        if (Number.isFinite(savedPosition) && savedPosition >= 0) scrollContainer.scrollTop = savedPosition;
+      } catch {
+        // Nedostupne sessionStorage nema branit pouziti registru.
+      }
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [mainView, clients.length]);
+
+  const rememberClientRegistryScroll = (event) => {
+    try {
+      window.sessionStorage.setItem(CLIENT_REGISTRY_SCROLL_STORAGE_KEY, String(Math.round(event.currentTarget.scrollTop)));
+    } catch {
+      // Pozice je pouze komfortni nastaveni; pri blokovanem ulozisti ji ignorujeme.
+    }
+  };
 
   const goalDeadlineAlerts = useMemo(
     () => buildGoalDeadlineAlerts({ clients: accessibleClients, records, warningDays: GOAL_DEADLINE_WARNING_DAYS }),
@@ -8079,7 +8104,12 @@ ${rawPlanOutput}` }] }],
                   </div>
                 )}
 
-                <div className="space-y-2">
+                <div
+                  ref={clientRegistryScrollRef}
+                  onScroll={rememberClientRegistryScroll}
+                  className="client-registry-scroll space-y-2 pr-1.5"
+                  aria-label="Seznam klientů"
+                >
                   {isLoadingClients && clients.length === 0 ?(
                     <LoadingCard text="Načítám klienty z registru..." />
                   ) : (
