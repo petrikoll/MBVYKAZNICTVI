@@ -14,8 +14,16 @@ test('pravá strana klienta používá kompaktní profil a souhrn osy', () => {
   assert.match(appSource.slice(profileStart, timelineStart), /Další údaje klienta/);
   assert.match(timelineSlice, /clientJourneyTimeline\.length\} záznamů/);
   assert.match(timelineSlice, /formatSupportMinutes\(selectedClientSupportBreakdown\.totalMinutes\)/);
-  assert.match(timelineSlice, /Podpory podle typu/);
+  assert.doesNotMatch(timelineSlice, /Podpory podle typu/);
   assert.doesNotMatch(appSource, /<Panel\s+title="Podpory podle typu"/);
+});
+
+test('záznamy klientské osy mají kompaktní světlé uspořádání', () => {
+  assert.match(appSource, /grid-cols-\[20px_minmax\(0,1fr\)\]/);
+  assert.match(appSource, /bg-slate-100 p-2\.5 pl-3\.5 shadow-sm/);
+  assert.match(appSource, /\{meta\.stage\} · \{meta\.label\}/);
+  assert.match(appSource, /formatDateLabel\(record\.activityDate\)/);
+  assert.doesNotMatch(appSource, /md:grid-cols-\[72px_96px_24px_minmax\(0,1fr\)\]/);
 });
 
 test('úprava klienta a AI souhrn jsou v samostatných dialozích', () => {

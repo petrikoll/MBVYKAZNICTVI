@@ -2395,7 +2395,6 @@ function App() {
   const [clientCaseSummary, setClientCaseSummary] = useState('');
   const [showClientCaseSummaryDialog, setShowClientCaseSummaryDialog] = useState(false);
   const [clientDetailsExpanded, setClientDetailsExpanded] = useState(false);
-  const [supportBreakdownExpanded, setSupportBreakdownExpanded] = useState(false);
   const [goalAlertsExpanded, setGoalAlertsExpanded] = useState(false);
   const [dismissedGoalAlertSignatures, setDismissedGoalAlertSignatures] = useState([]);
   const [dashboardFilters, setDashboardFilters] = useState({ period: 'all', ka: 'all', worker: 'all' });
@@ -3137,7 +3136,6 @@ function App() {
     setClientCaseSummary('');
     setShowClientCaseSummaryDialog(false);
     setClientDetailsExpanded(false);
-    setSupportBreakdownExpanded(false);
     setJourneyPlanDrafts({});
     setJourneyPlanStructuredDrafts({});
     setGeneratingJourneyPlanId('');
@@ -6835,7 +6833,6 @@ ${rawOutput}` }] }],
     setClientCaseSummary('');
     setShowClientCaseSummaryDialog(false);
     setClientDetailsExpanded(false);
-    setSupportBreakdownExpanded(false);
     setEditingGeneratedRecordId('');
     setEditingKa03RecordId('');
     setSelectedClientId(clientId);
@@ -8363,17 +8360,6 @@ ${rawPlanOutput}` }] }],
                           </span>
                           <button
                             type="button"
-                            onClick={() => setSupportBreakdownExpanded((value) => !value)}
-                            disabled={selectedClientSupportBreakdown.byType.length === 0}
-                            aria-expanded={supportBreakdownExpanded}
-                            className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            title={HELP.clientsSupportHours?.text}
-                          >
-                            <ChevronRight className={`h-3 w-3 transition-transform ${supportBreakdownExpanded ? 'rotate-90' : ''}`} />
-                            Podpory podle typu
-                          </button>
-                          <button
-                            type="button"
                             onClick={exportSelectedJourneyRecords}
                             disabled={selectedJourneyPrintIds.length === 0}
                             className="inline-flex items-center justify-center gap-1.5 rounded-md bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
@@ -8389,85 +8375,71 @@ ${rawPlanOutput}` }] }],
                           <SaveInlineNotice notice={recordDeleteNotice} />
                         </div>
                       )}
-                      {supportBreakdownExpanded && selectedClientSupportBreakdown.byType.length > 0 && (
-                        <div className="mb-2 overflow-hidden rounded-lg border border-indigo-200 bg-white">
-                          <table className="min-w-full divide-y divide-slate-100 text-xs">
-                            <thead className="bg-indigo-50 text-[10px] font-semibold uppercase tracking-wide text-indigo-800">
-                              <tr>
-                                <th className="px-2.5 py-1.5 text-left">Typ podpory</th>
-                                <th className="px-2.5 py-1.5 text-right">Počet</th>
-                                <th className="px-2.5 py-1.5 text-right">Čas</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                              {selectedClientSupportBreakdown.byType.map((item) => (
-                                <tr key={item.key}>
-                                  <td className="px-2.5 py-1.5 font-medium text-slate-800">{item.label}</td>
-                                  <td className="px-2.5 py-1.5 text-right text-slate-600">{item.count}</td>
-                                  <td className="px-2.5 py-1.5 text-right text-slate-600">{formatSupportMinutes(item.minutes)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                      <div className="space-y-3">
+                      <div className="space-y-2">
                         {clientJourneyTimeline.length === 0 ?(
                           <EmptyState icon={FileText} title="Klient zatím nemá žádné uložené kroky v KA1 ani KA2." />
                         ) : (
                           clientJourneyTimeline.map((record, index) => {
                             const meta = getClientJourneyMeta(record);
                             const tone = JOURNEY_TONE_CLASSES[meta.tone] || JOURNEY_TONE_CLASSES.slate;
-                            const Icon = meta.icon;
                             const summary = buildClientJourneySummary(record);
                             const detail = buildClientJourneyDetail(record, selectedClient);
                             const isExpanded = expandedJourneyRecordIds.includes(record.id);
 
                             return (
-                              <div key={record.id} className="grid gap-2 md:grid-cols-[72px_96px_24px_minmax(0,1fr)] md:items-start">
-                                <div className="flex justify-start pt-0.5">
-                                  <label className={`flex min-h-12 w-16 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide shadow-sm transition ${record.isSynthetic ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 opacity-55' : selectedJourneyPrintIds.includes(record.id) ? 'cursor-pointer border-slate-900 bg-slate-900 text-white' : 'cursor-pointer border-slate-300 bg-white text-slate-600 hover:border-slate-500 hover:bg-slate-50'}`} title={record.isSynthetic ? 'Zařazení klienta není samostatný tisknutelný zápis.' : 'Zařadit zápis do společného tisku'}>
-                                    <span className="inline-flex items-center gap-1">
-                                      <Printer className="h-3 w-3" />
-                                      Tisk
-                                    </span>
-                                    <input
-                                      type="checkbox"
-                                      checked={selectedJourneyPrintIds.includes(record.id)}
-                                      disabled={record.isSynthetic}
-                                      onChange={() => toggleJourneyPrintSelection(record.id)}
-                                      className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
-                                    />
-                                  </label>
-                                </div>
-                                <div className="pt-1 text-xs font-semibold text-slate-500">{formatDateLabel(record.activityDate)}</div>
+                              <div key={record.id} className="grid grid-cols-[20px_minmax(0,1fr)] gap-2">
                                 <div className="relative flex h-full justify-center">
-                                  <div className={`relative z-[1] mt-1 h-6 w-6 rounded-full border-4 border-white shadow-sm ${tone.dot}`} />
+                                  <div className={`relative z-[1] mt-1.5 h-4 w-4 rounded-full border-[3px] border-white shadow-sm ${tone.dot}`} />
                                   {index < clientJourneyTimeline.length - 1 && (
-                                    <div className="absolute top-8 h-[calc(100%+1.5rem)] w-px bg-slate-200" />
+                                    <div className="absolute top-5 h-[calc(100%+0.5rem)] w-px bg-slate-300" />
                                   )}
                                 </div>
-                                <div className={`rounded-xl border p-3 shadow-sm ${tone.panel}`}>
-                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                    <div className="min-w-0">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${tone.badge}`}>
-                                          {meta.stage}
+                                <div className="relative overflow-hidden rounded-lg border border-slate-300 bg-slate-100 p-2.5 pl-3.5 shadow-sm">
+                                  <div className={`absolute inset-y-0 left-0 w-1 ${tone.dot}`} />
+                                  <div className="flex flex-col gap-1.5 xl:flex-row xl:items-start xl:justify-between">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        <label className={`inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-[10px] font-bold uppercase tracking-wide transition ${record.isSynthetic ? 'cursor-not-allowed border-slate-200 bg-slate-200 text-slate-400 opacity-60' : selectedJourneyPrintIds.includes(record.id) ? 'cursor-pointer border-slate-800 bg-slate-800 text-white' : 'cursor-pointer border-slate-300 bg-white text-slate-600 hover:border-slate-500'}`} title={record.isSynthetic ? 'Zařazení klienta není samostatný tisknutelný zápis.' : 'Zařadit zápis do společného tisku'}>
+                                          <input
+                                            type="checkbox"
+                                            checked={selectedJourneyPrintIds.includes(record.id)}
+                                            disabled={record.isSynthetic}
+                                            onChange={() => toggleJourneyPrintSelection(record.id)}
+                                            className="h-3 w-3 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
+                                          />
+                                          Tisk
+                                        </label>
+                                        <span className="rounded-md bg-slate-800 px-2 py-1 text-[10px] font-bold text-white">
+                                          {formatDateLabel(record.activityDate)}
                                         </span>
-                                        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                                          {meta.label}
-                                        </span>
+                                        <span className="min-w-0 text-xs font-bold text-slate-900 sm:text-sm">{record.title || meta.label}</span>
                                       </div>
-                                      <div className="mt-2 flex items-start gap-2">
-                                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${tone.badge}`}>
-                                          <Icon className="h-4 w-4" />
-                                        </div>
-                                        <div className="min-w-0">
-                                          <div className="text-sm font-bold text-slate-900">{record.title || meta.label}</div>
-                                        </div>
-                                      </div>
+                                      <span className={`mt-1.5 inline-flex rounded-md border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${tone.badge}`}>
+                                        {meta.stage} · {meta.label}
+                                      </span>
                                     </div>
-                                    <div className="flex flex-nowrap items-center justify-end gap-1">
+                                    <div className="flex flex-wrap items-center gap-1 xl:shrink-0 xl:justify-end">
+                                      {!record.isSynthetic && (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => editJourneyRecord(record)}
+                                            disabled={isSaving}
+                                            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-blue-700 transition hover:bg-blue-100 disabled:opacity-50"
+                                          >
+                                            <Pencil className="h-2.5 w-2.5" />
+                                            Upravit
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => deleteRecord(record)}
+                                            disabled={isSaving}
+                                            className="shrink-0 rounded-md border border-red-300 bg-red-50 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                                          >
+                                            Smazat
+                                          </button>
+                                        </>
+                                      )}
                                       <button
                                         type="button"
                                         onClick={() =>
@@ -8475,7 +8447,7 @@ ${rawPlanOutput}` }] }],
                                             prev.includes(record.id) ?prev.filter((item) => item !== record.id) : [...prev, record.id]
                                           )
                                         }
-                                        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 transition hover:bg-slate-50"
+                                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-indigo-300 bg-indigo-50 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-indigo-700 transition hover:bg-indigo-100"
                                       >
                                         <ChevronRight className={`h-3 w-3 transition-transform ${isExpanded ?'rotate-90' : ''}`} />
                                         {isExpanded ?'Skrýt' : 'Detail'}
@@ -8483,35 +8455,14 @@ ${rawPlanOutput}` }] }],
                                       <button
                                         type="button"
                                         onClick={() => exportJourneyRecord(record)}
-                                        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 transition hover:bg-slate-100"
+                                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-slate-700 transition hover:bg-slate-50"
                                       >
                                         <Download className="h-3 w-3" />
                                         Stáhnout
                                       </button>
-                                      {!record.isSynthetic && (
-                                        <>
-                                          <button
-                                            type="button"
-                                            onClick={() => deleteRecord(record)}
-                                            disabled={isSaving}
-                                            className="shrink-0 rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-red-700 transition hover:bg-red-100 disabled:opacity-50"
-                                          >
-                                            Smazat
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => editJourneyRecord(record)}
-                                            disabled={isSaving}
-                                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700 transition hover:bg-blue-100 disabled:opacity-50"
-                                          >
-                                            <Pencil className="h-3 w-3" />
-                                            Upravit
-                                          </button>
-                                        </>
-                                      )}
                                     </div>
                                   </div>
-                                  <div className="mt-3 rounded-xl border border-white/70 bg-white/80 p-3 text-sm leading-snug text-slate-700">
+                                  <div className="mt-2 rounded-md border border-slate-200 bg-white/85 px-2.5 py-2 text-xs leading-snug text-slate-700">
                                     {summary}
                                   </div>
                                   {isExpanded && (
