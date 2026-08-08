@@ -3,8 +3,6 @@ import {
   Activity,
   AlertCircle,
   ArrowLeft,
-  BarChart3,
-  Briefcase,
   Calendar,
   CheckCircle2,
   ChevronRight,
@@ -72,10 +70,7 @@ import { HELP } from '../config/helpCatalog.js';
 import {
   CheckboxField,
   CompactMetric,
-  DetailRow,
   EmptyState,
-  InfoCard,
-  HelpIcon,
   InputField,
   LoadingCard,
   MiniBadge,
@@ -2398,6 +2393,9 @@ function App() {
   const [installHelpVisible, setInstallHelpVisible] = useState(false);
   const [copied, setCopied] = useState(false);
   const [clientCaseSummary, setClientCaseSummary] = useState('');
+  const [showClientCaseSummaryDialog, setShowClientCaseSummaryDialog] = useState(false);
+  const [clientDetailsExpanded, setClientDetailsExpanded] = useState(false);
+  const [supportBreakdownExpanded, setSupportBreakdownExpanded] = useState(false);
   const [goalAlertsExpanded, setGoalAlertsExpanded] = useState(false);
   const [dismissedGoalAlertSignatures, setDismissedGoalAlertSignatures] = useState([]);
   const [dashboardFilters, setDashboardFilters] = useState({ period: 'all', ka: 'all', worker: 'all' });
@@ -3137,6 +3135,9 @@ function App() {
     setAiGenerationStatus('idle');
     setCopied(false);
     setClientCaseSummary('');
+    setShowClientCaseSummaryDialog(false);
+    setClientDetailsExpanded(false);
+    setSupportBreakdownExpanded(false);
     setJourneyPlanDrafts({});
     setJourneyPlanStructuredDrafts({});
     setGeneratingJourneyPlanId('');
@@ -6832,6 +6833,9 @@ ${rawOutput}` }] }],
     setShowClientForm(false);
     setShowClientEditForm(false);
     setClientCaseSummary('');
+    setShowClientCaseSummaryDialog(false);
+    setClientDetailsExpanded(false);
+    setSupportBreakdownExpanded(false);
     setEditingGeneratedRecordId('');
     setEditingKa03RecordId('');
     setSelectedClientId(clientId);
@@ -7179,6 +7183,7 @@ ${rawOutput}` }] }],
     const fallbackSummary = buildClientCaseSummary(selectedClient, aiTimeline, aiSupportBreakdown);
     const aiModel = DEFAULT_AI_MODEL;
 
+    setShowClientCaseSummaryDialog(true);
     setIsSummarizingCase(true);
     setFlash('Připravuji AI souhrn zakázky klienta...');
     try {
@@ -8220,225 +8225,163 @@ ${rawPlanOutput}` }] }],
                     title={selectedClient.fullName}
                     icon={User}
                     className="!border-indigo-400 !bg-indigo-100/70 ring-2 ring-indigo-200/80"
+                    compact
                     action={
-                      <div className="flex flex-wrap gap-2 sm:flex-nowrap">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <button
                           onClick={summarizeClientCase}
                           disabled={isSummarizingCase}
-                          className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          title={HELP.clientsAiSummary?.text}
                         >
                           {isSummarizingCase ?<Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCopy className="h-4 w-4" />}
-                          Shrnout zakázku AI
+                          AI souhrn
                         </button>
-                        <HelpIcon help={HELP.clientsAiSummary} />
                         <button
                           onClick={openClientEditForm}
                           disabled={isSaving}
-                          className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          <User className="h-4 w-4" />
-                          Upravit klienta
+                          <Pencil className="h-3.5 w-3.5" />
+                          Upravit
                         </button>
+                        <button
+                          type="button"
+                          onClick={openClientFolderViewer}
+                          disabled={!selectedClientDriveBundle?.payload}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+                          title={selectedClientDriveBundle?.payload ? 'Otevřít dokumenty klienta' : 'Složka klienta se připravuje'}
+                        >
+                          {selectedClientDriveBundle?.payload ? <FolderOpen className="h-3.5 w-3.5" /> : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                          Složka
+                        </button>
+                        {selectedClientDriveBundle?.payload?.monListFileUrl ? (
+                          <a
+                            href={selectedClientDriveBundle.payload.monListFileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                          >
+                            <FileSpreadsheet className="h-3.5 w-3.5" />
+                            Mon. list
+                          </a>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800" title="Monitorovací list se připravuje automaticky">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Mon. list
+                          </span>
+                        )}
                       </div>
                     }
                   >
-                    {showClientEditForm && (
-                      <div className="mb-2 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
-                        <ClientRegistrationFields draft={clientEditDraft} setDraft={setClientEditDraft} />
-                        <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              clearSaveButtonNotice('client-update');
-                              setShowClientEditForm(false);
-                            }}
-                            className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            Zrušit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleClientUpdate}
-                            disabled={isSaving}
-                            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
-                          >
-                            <Save className="h-3.5 w-3.5" />
-                            Uložit úpravy
-                          </button>
-                          <SaveInlineNotice notice={saveButtonNotices['client-update']} />
-                        </div>
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-700">
+                        {selectedClient.projectStatusLabel || 'Bez statusu'}
+                      </span>
+                      {selectedClient.keyWorker && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 font-semibold text-indigo-800">
+                          <User className="h-3 w-3" />
+                          {selectedClient.keyWorker}
+                        </span>
+                      )}
+                      {selectedClient.datumVstupu && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-600">
+                          <Calendar className="h-3 w-3" />
+                          Vstup {formatDateLabel(selectedClient.datumVstupu)}
+                        </span>
+                      )}
+                      {hasCaseManagementNeed(selectedClient) && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-800">
+                          <Workflow className="h-3 w-3" />
+                          Case management
+                        </span>
+                      )}
+                      <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 font-medium text-slate-500">{selectedClient.id}</span>
+                    </div>
+
+                    {(buildAddress(selectedClient) || selectedClient.telefon || selectedClient.email) && (
+                      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-700">
+                        {buildAddress(selectedClient) && (
+                          <span className="inline-flex items-center gap-1.5">
+                            <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                            {buildAddress(selectedClient)}
+                          </span>
+                        )}
+                        {(selectedClient.telefon || selectedClient.email) && (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Phone className="h-3.5 w-3.5 text-slate-400" />
+                            {[selectedClient.telefon, selectedClient.email].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
                       </div>
                     )}
-                    {clientCaseSummary && (
-                      <div className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50/70 p-3">
-                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-sm font-bold text-indigo-900">Souhrn zakázky klienta</div>
-                          <div className="flex flex-wrap justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(clientCaseSummary, setCopied)}
-                              className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
-                            >
-                              <ClipboardCopy className="h-3.5 w-3.5" />
-                              Kopírovat
-                            </button>
-                            <button
-                              type="button"
-                              onClick={printClientCaseSummary}
-                              title="V tiskovém dialogu lze zvolit také Uložit jako PDF"
-                              className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
-                            >
-                              <Printer className="h-3.5 w-3.5" />
-                              Tisk / PDF
-                            </button>
-                            <button
-                              type="button"
-                              onClick={exportClientCaseSummaryDocx}
-                              disabled={isExportingClientCaseDocx}
-                              className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isExportingClientCaseDocx ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-                              DOCX
-                            </button>
-                          </div>
-                        </div>
-                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{clientCaseSummary}</pre>
-                      </div>
-                    )}
-                    <div className="grid gap-2 xl:grid-cols-[1.55fr_0.85fr]">
-                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+
+                    <button
+                      type="button"
+                      onClick={() => setClientDetailsExpanded((value) => !value)}
+                      aria-expanded={clientDetailsExpanded}
+                      className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 hover:text-indigo-900"
+                    >
+                      <ChevronRight className={`h-3.5 w-3.5 transition-transform ${clientDetailsExpanded ? 'rotate-90' : ''}`} />
+                      {clientDetailsExpanded ? 'Skrýt další údaje' : 'Další údaje klienta'}
+                    </button>
+
+                    {clientDetailsExpanded && (
+                      <div className="mt-2 grid gap-2 rounded-lg border border-slate-200 bg-white/75 p-2 sm:grid-cols-2 xl:grid-cols-3">
                         {[
-                          { key: 'address', icon: MapPin, label: 'Adresa', value: buildAddress(selectedClient) },
-                          { key: 'contact', icon: Phone, label: 'Kontakt', value: selectedClient.telefon || selectedClient.email || 'Neuvedeno' },
-                          { key: 'case-management', icon: Workflow, label: 'Klient case managementu', value: hasCaseManagementNeed(selectedClient) ? 'ANO' : 'NE' },
-                          { key: 'edu', icon: GraduationCap, label: 'Vzdělání', value: selectedClient.vzdelani || 'Neuvedeno' },
-                          { key: 'job', icon: Briefcase, label: 'Postavení na trhu práce', value: selectedClient.postaveniNaTrhu || 'Neuvedeno' },
-                          { key: 'disadv', icon: AlertCircle, label: 'Znevýhodnění', value: selectedClient.znevyhodneni || 'Neuvedeno' }
-                        ].map((item) => (
-                          <div key={item.key} className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
-                            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                              <item.icon className="h-3 w-3" />
-                              <span>{item.label}</span>
-                            </div>
-                            <div className="mt-1 line-clamp-2 text-sm font-semibold text-slate-900">{item.value}</div>
+                          { key: 'education', label: 'Vzdělání', value: selectedClient.vzdelani },
+                          { key: 'employment', label: 'Postavení na trhu práce', value: selectedClient.postaveniNaTrhu },
+                          { key: 'disadvantage', label: 'Znevýhodnění', value: selectedClient.znevyhodneni },
+                          { key: 'exit-date', label: 'Datum výstupu', value: selectedClient.datumVystupu ? formatDateLabel(selectedClient.datumVystupu) : '' },
+                          { key: 'exit-situation', label: 'Situace po ukončení', value: selectedClient.situacePoUkonceni }
+                        ].filter((item) => String(item.value || '').trim()).map((item) => (
+                          <div key={item.key} className="min-w-0 rounded-md border border-slate-100 bg-white px-2.5 py-2">
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{item.label}</div>
+                            <div className="mt-0.5 break-words text-xs font-semibold text-slate-800">{item.value}</div>
                           </div>
                         ))}
                       </div>
-
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Projektový stav</div>
-                        <div className="mt-1.5 space-y-0.5 text-sm">
-                          <DetailRow label="Interní ID" value={selectedClient.id} />
-                          <DetailRow label="Status klienta" value={selectedClient.projectStatusLabel} />
-                          <DetailRow label="Klíčový pracovník" value={selectedClient.keyWorker || 'Neuvedeno'} />
-                          <DetailRow label="Datum vstupu" value={selectedClient.datumVstupu || 'Neuvedeno'} />
-                          <DetailRow label="Datum výstupu" value={selectedClient.datumVystupu || 'Neuvedeno'} />
-                          <DetailRow label="Situace po ukončení" value={selectedClient.situacePoUkonceni || 'Neuvedeno'} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-2">
-                      {selectedClientDriveBundle?.payload ?(
-                        <div className="grid gap-1.5 md:grid-cols-2">
-                          <button
-                            type="button"
-                            onClick={openClientFolderViewer}
-                            className="flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 text-left transition hover:border-emerald-400 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                          >
-                            <FolderOpen className="h-4 w-4 shrink-0 text-emerald-700" />
-                            <span className="min-w-0">
-                              <span className="block text-xs font-semibold text-slate-900">Otevřít složku klienta</span>
-                              <span className="block truncate text-[11px] text-slate-500">
-                                {selectedClientDriveBundle.payload.clientFolderName || 'Dokumenty klienta'}
-                              </span>
-                            </span>
-                          </button>
-                          {selectedClientDriveBundle.payload.monListFileUrl ? (
-                            <a
-                              href={selectedClientDriveBundle.payload.monListFileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 transition hover:border-emerald-300 hover:bg-emerald-50"
-                            >
-                              <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-700" />
-                              <span className="min-w-0">
-                                <span className="block text-xs font-semibold text-slate-900">Monitorovací list</span>
-                                <span className="block truncate text-[11px] text-slate-500">
-                                  {selectedClientDriveBundle.payload.monListFileName || 'Monitorovací list klienta'}
-                                </span>
-                              </span>
-                            </a>
-                          ) : (
-                            <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-left text-amber-900">
-                              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                              <span className="min-w-0">
-                                <span className="block text-xs font-semibold">Monitorovací list se připravuje</span>
-                                <span className="block text-[11px]">Probíhá automaticky na pozadí.</span>
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 text-sm text-emerald-800">
-                          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                          Složka klienta a monitorovací list se připravují automaticky.
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </Panel>
 
                   <div className="grid gap-4">
-                    <Panel title="Podpory podle typu" description="Počet podpor a čas podpory za jednotlivé typy klientských aktivit." icon={BarChart3} help={HELP.clientsSupportHours} className="!border-indigo-400 !bg-indigo-100/70 ring-2 ring-indigo-200/80">
-                      {selectedClientSupportBreakdown.byType.length === 0 ?(
-                        <EmptyState icon={BarChart3} title="U klienta zatím nejsou evidované žádné podpory." />
-                      ) : (
-                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                          <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-slate-200 text-sm">
-                              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                                <tr>
-                                  <th className="px-3 py-2 text-left">Typ podpory</th>
-                                  <th className="px-3 py-2 text-right">Počet</th>
-                                  <th className="px-3 py-2 text-right">Čas</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100">
-                                {selectedClientSupportBreakdown.byType.map((item) => (
-                                  <tr key={item.key}>
-                                    <td className="px-3 py-2 font-medium text-slate-900">{item.label}</td>
-                                    <td className="px-3 py-2 text-right text-slate-700">{item.count}</td>
-                                    <td className="px-3 py-2 text-right text-slate-700">{formatSupportMinutes(item.minutes)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                              <tfoot className="bg-slate-50 font-semibold text-slate-800">
-                                <tr>
-                                  <td className="px-3 py-2">Celkem</td>
-                                  <td className="px-3 py-2 text-right">{selectedClientSupportBreakdown.totalCount}</td>
-                                  <td className="px-3 py-2 text-right">{formatSupportMinutes(selectedClientSupportBreakdown.totalMinutes)}</td>
-                                </tr>
-                              </tfoot>
-                            </table>
-                          </div>
-                        </div>
-                      )}
-                    </Panel>
-
                     <Panel
                       title="Klientská osa"
                       icon={History}
+                      compact
                       className="!border-indigo-400 !bg-indigo-100/70 ring-2 ring-indigo-200/80"
                       action={
-                        <button
-                          type="button"
-                          onClick={exportSelectedJourneyRecords}
-                          disabled={selectedJourneyPrintIds.length === 0}
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                        >
-                          <Printer className="h-4 w-4" />
-                          Tisk vybraných záznamů ({selectedJourneyPrintIds.length})
-                        </button>
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700">
+                            {clientJourneyTimeline.length} záznamů
+                          </span>
+                          <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-800">
+                            {formatSupportMinutes(selectedClientSupportBreakdown.totalMinutes)} podpory
+                          </span>
+                          <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700">
+                            {clientJourneyTimeline.filter((record) => Boolean(record.documentText)).length} dokumentů
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setSupportBreakdownExpanded((value) => !value)}
+                            disabled={selectedClientSupportBreakdown.byType.length === 0}
+                            aria-expanded={supportBreakdownExpanded}
+                            className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            title={HELP.clientsSupportHours?.text}
+                          >
+                            <ChevronRight className={`h-3 w-3 transition-transform ${supportBreakdownExpanded ? 'rotate-90' : ''}`} />
+                            Podpory podle typu
+                          </button>
+                          <button
+                            type="button"
+                            onClick={exportSelectedJourneyRecords}
+                            disabled={selectedJourneyPrintIds.length === 0}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                          >
+                            <Printer className="h-3.5 w-3.5" />
+                            Tisk ({selectedJourneyPrintIds.length})
+                          </button>
+                        </div>
                       }
                     >
                       {recordDeleteNotice?.clientId === selectedClient.id && (
@@ -8446,11 +8389,28 @@ ${rawPlanOutput}` }] }],
                           <SaveInlineNotice notice={recordDeleteNotice} />
                         </div>
                       )}
-                      <div className="mb-3 grid gap-3 md:grid-cols-3">
-                        <InfoCard icon={History} label="Položky na ose" value={String(clientJourneyTimeline.length)} />
-                        <InfoCard icon={Clock} label="Čas podpory" value={formatSupportMinutes(getClientStats(selectedClient.id, clientJourneyTimeline).supportMinutes)} />
-                        <InfoCard icon={Target} label="Dokumenty" value={String(clientJourneyTimeline.filter((record) => Boolean(record.documentText)).length)} />
-                      </div>
+                      {supportBreakdownExpanded && selectedClientSupportBreakdown.byType.length > 0 && (
+                        <div className="mb-2 overflow-hidden rounded-lg border border-indigo-200 bg-white">
+                          <table className="min-w-full divide-y divide-slate-100 text-xs">
+                            <thead className="bg-indigo-50 text-[10px] font-semibold uppercase tracking-wide text-indigo-800">
+                              <tr>
+                                <th className="px-2.5 py-1.5 text-left">Typ podpory</th>
+                                <th className="px-2.5 py-1.5 text-right">Počet</th>
+                                <th className="px-2.5 py-1.5 text-right">Čas</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {selectedClientSupportBreakdown.byType.map((item) => (
+                                <tr key={item.key}>
+                                  <td className="px-2.5 py-1.5 font-medium text-slate-800">{item.label}</td>
+                                  <td className="px-2.5 py-1.5 text-right text-slate-600">{item.count}</td>
+                                  <td className="px-2.5 py-1.5 text-right text-slate-600">{formatSupportMinutes(item.minutes)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                       <div className="space-y-3">
                         {clientJourneyTimeline.length === 0 ?(
                           <EmptyState icon={FileText} title="Klient zatím nemá žádné uložené kroky v KA1 ani KA2." />
@@ -9092,6 +9052,151 @@ ${rawPlanOutput}` }] }],
               handleInstallWeeklyBackup={handleInstallWeeklyBackup}
             />
           </React.Suspense>
+        )}
+
+        {showClientEditForm && selectedClient && (
+          <div
+            className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/65 p-2 backdrop-blur-sm sm:p-5"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target !== event.currentTarget || isSaving) return;
+              clearSaveButtonNotice('client-update');
+              setShowClientEditForm(false);
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="client-edit-dialog-title"
+              className="flex max-h-[92vh] w-[min(96vw,1100px)] flex-col overflow-hidden rounded-2xl border border-blue-200 bg-slate-100 shadow-2xl"
+            >
+              <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+                <div className="min-w-0">
+                  <h2 id="client-edit-dialog-title" className="truncate text-base font-bold text-slate-950">Upravit klienta · {selectedClient.fullName}</h2>
+                  <p className="mt-0.5 text-xs text-slate-500">Změny se po uložení promítnou také do monitorovacího listu.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearSaveButtonNotice('client-update');
+                    setShowClientEditForm(false);
+                  }}
+                  disabled={isSaving}
+                  aria-label="Zavřít úpravu klienta"
+                  className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </header>
+              <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+                <ClientRegistrationFields draft={clientEditDraft} setDraft={setClientEditDraft} />
+              </div>
+              <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3">
+                <SaveInlineNotice notice={saveButtonNotices['client-update']} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearSaveButtonNotice('client-update');
+                    setShowClientEditForm(false);
+                  }}
+                  disabled={isSaving}
+                  className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Zrušit
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClientUpdate}
+                  disabled={isSaving}
+                  className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                  Uložit úpravy
+                </button>
+              </footer>
+            </section>
+          </div>
+        )}
+
+        {showClientCaseSummaryDialog && selectedClient && (
+          <div
+            className="fixed inset-0 z-[135] flex items-center justify-center bg-slate-950/65 p-2 backdrop-blur-sm sm:p-5"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget && !isSummarizingCase) setShowClientCaseSummaryDialog(false);
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="client-summary-dialog-title"
+              className="flex max-h-[88vh] w-[min(94vw,900px)] flex-col overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-2xl"
+            >
+              <header className="flex shrink-0 items-center justify-between gap-3 border-b border-indigo-100 bg-indigo-50 px-4 py-3">
+                <div className="min-w-0">
+                  <h2 id="client-summary-dialog-title" className="truncate text-base font-bold text-indigo-950">Souhrn zakázky · {selectedClient.fullName}</h2>
+                  <p className="mt-0.5 text-xs text-indigo-700">Souhrn je oddělený od klientské osy a neposouvá její obsah.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowClientCaseSummaryDialog(false)}
+                  disabled={isSummarizingCase}
+                  aria-label="Zavřít souhrn zakázky"
+                  className="rounded-lg border border-indigo-200 bg-white p-2 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </header>
+              <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                {isSummarizingCase && !clientCaseSummary ? (
+                  <div className="flex min-h-44 items-center justify-center gap-3 text-sm font-semibold text-indigo-800">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Připravuji souhrn zakázky…
+                  </div>
+                ) : (
+                  <pre className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{clientCaseSummary || 'Souhrn zatím není připraven.'}</pre>
+                )}
+              </div>
+              <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={summarizeClientCase}
+                  disabled={isSummarizingCase}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
+                >
+                  {isSummarizingCase ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  Obnovit souhrn
+                </button>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(clientCaseSummary, setCopied)}
+                  disabled={!clientCaseSummary}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                >
+                  <ClipboardCopy className="h-3.5 w-3.5" />
+                  {copied ? 'Zkopírováno' : 'Kopírovat'}
+                </button>
+                <button
+                  type="button"
+                  onClick={printClientCaseSummary}
+                  disabled={!clientCaseSummary}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Tisk / PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={exportClientCaseSummaryDocx}
+                  disabled={!clientCaseSummary || isExportingClientCaseDocx}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {isExportingClientCaseDocx ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                  DOCX
+                </button>
+              </footer>
+            </section>
+          </div>
         )}
 
         {clientFolderViewer.open && (

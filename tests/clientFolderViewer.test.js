@@ -54,7 +54,7 @@ test('prohlížeč vrací pouze soubory z ověřené klientské složky', () => 
 
 test('kliknutí na klientskou složku otevírá interní dialog', () => {
   assert.match(appSource, /onClick=\{openClientFolderViewer\}/);
-  assert.match(appSource, /Otevřít složku klienta/);
+  assert.match(appSource, /Složka\s*<\/button>/);
   assert.match(appSource, /aria-labelledby="client-folder-viewer-title"/);
   assert.match(appSource, /getClientFolderFilePreview/);
   assert.doesNotMatch(appSource, /title: 'Klientská složka - ZDE'/);

@@ -162,7 +162,8 @@ test('folder created by a document job is reflected in the open client card', ()
   assert.match(appSource, /folder_verification_nonce/);
   assert.match(appSource, /applyProvisionedClientFolder\(refreshedClient\)/);
   assert.match(appSource, /!bundleResult\.clientFolderUrl \|\| !bundleResult\.monListFileUrl/);
-  assert.match(appSource, /Složka klienta a monitorovací list se připravují automaticky/);
+  assert.match(appSource, /Složka klienta se připravuje/);
+  assert.match(appSource, /Monitorovací list se připravuje automaticky/);
   assert.doesNotMatch(appSource, /Doplnit monitorovací list|Vytvoř složku klienta/);
   assert.doesNotMatch(appSource, /onClick=\{\(\) => provisionClientDriveFolder\(selectedClient\)\}/);
   assert.match(appSource, /15000, 15000, 15000, 15000/);
