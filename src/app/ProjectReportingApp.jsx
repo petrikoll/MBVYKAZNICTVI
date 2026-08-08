@@ -107,6 +107,7 @@ import {
   serializeIsEsfSupportCsv
 } from '../lib/isEsfSupportExport.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
+import { isKa1SupportCombinationAllowed } from '../lib/ka01SupportRules.js';
 import { isBackupStatusActive } from '../lib/backupStatus.js';
 import {
   readSafeRecordIndex,
@@ -5830,6 +5831,12 @@ ${rawOutput}` }] }],
       if (!String(generatorDraft.consultationType || '').trim()) missing.push('typ podpory');
       if (!String(generatorDraft.supportArea || '').trim()) missing.push('oblast podpory');
       if (!generatorDraft.caseManagementMode && !String(generatorDraft.ka02Place || '').trim()) missing.push('forma poskytování');
+      if (
+        !generatorDraft.caseManagementMode
+        && generatorDraft.ka02Place
+        && generatorDraft.consultationType
+        && !isKa1SupportCombinationAllowed(generatorDraft.ka02Place, generatorDraft.consultationType)
+      ) missing.push('typ podpory odpovídající zvolené formě poskytování');
     }
     if (!String(generatedText || '').trim()) missing.push('výstup dokumentu');
     return [...new Set(missing)];

@@ -4,6 +4,7 @@ import { CheckCircle2, Download, Loader2, Save, Sparkles } from 'lucide-react';
 import { CheckboxField, HelpIcon, InputField, Panel, SaveInlineNotice, SelectField, TextAreaField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { KU_SUPPORT_DEFAULT_CODE, KU_SUPPORT_TYPE_OPTIONS, WORKER_NAMES } from '../config/projectConfig.js';
+import { getKa1SupportTypeOptions, KA1_SUPPORT_TYPE_OPTIONS } from '../lib/ka01SupportRules.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { PROJECT_TIME_OPTIONS } from '../lib/timeOptions.js';
 
@@ -62,17 +63,6 @@ function AiDocumentPanel({
     'multioborové setkání',
     'vyhodnocení podpory klienta'
   ];
-  const KA1_SUPPORT_TYPE_OPTIONS = [
-    'Depist\u00e1\u017e',
-    'Soci\u00e1ln\u00ed \u0161et\u0159en\u00ed / mapov\u00e1n\u00ed situace',
-    'Z\u00e1kladn\u00ed soci\u00e1ln\u00ed poradenstv\u00ed',
-    'Ter\u00e9nn\u00ed soci\u00e1ln\u00ed pr\u00e1ce',
-    'Doprovod klienta',
-    'Odborné sociální poradenství',
-    'Krizov\u00e1 intervence',
-    'Vyhodnocen\u00ed spolupr\u00e1ce / ukon\u010den\u00ed podpory'
-  ];
-  const KA1_SUPPORT_TYPE_SELECT_OPTIONS = KA1_SUPPORT_TYPE_OPTIONS;
   const field = (key, label, type = 'textarea', options = []) => [key, label, type, options];
   const SUPPORT_SPECIFIC_DEFINITIONS = {
     [KA1_SUPPORT_TYPE_OPTIONS[0]]: [
@@ -176,12 +166,14 @@ function AiDocumentPanel({
     updateDraft({ generatedText: value });
   };
   const hasGeneratedText = Boolean(String(generatedText || '').trim());
-  const supportTypeOptions = generatorDraft.caseManagementMode ? KA2_CASE_SUPPORT_TYPE_OPTIONS.slice(1) : KA1_SUPPORT_TYPE_SELECT_OPTIONS;
+  const supportTypeOptions = generatorDraft.caseManagementMode
+    ? KA2_CASE_SUPPORT_TYPE_OPTIONS.slice(1)
+    : getKa1SupportTypeOptions(generatorDraft.ka02Place);
   React.useEffect(() => {
-    if (!generatorDraft.caseManagementMode) return;
     if (supportTypeOptions.includes(generatorDraft.consultationType)) return;
-    updateDraft({ consultationType: supportTypeOptions[0] || '' });
-  }, [generatorDraft.caseManagementMode, generatorDraft.consultationType]);
+    setGeneratedText('');
+    updateDraft({ consultationType: supportTypeOptions[0] || '', supportSpecific: {}, generatedText: '' });
+  }, [generatorDraft.caseManagementMode, generatorDraft.consultationType, generatorDraft.ka02Place]);
 
   const normalizedSupportType = String(generatorDraft.consultationType || '').toLowerCase();
   const supportSpecific = generatorDraft.supportSpecific || {};
