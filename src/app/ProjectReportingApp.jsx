@@ -1787,9 +1787,14 @@ function normalizeClientDateForSheet(value) {
   return '';
 }
 
-function mapClientDraftToSheetClient(draft, klientId = '') {
+function mapClientDraftToSheetClient(draft, klientId = '', updatedBy = '') {
   const caseManagementDisabled = handlesCaseManagementDirectly(draft.keyWorker);
   const caseManagementPotreba = caseManagementDisabled ? 'Ne' : draft.caseManagementPotreba || 'Ne';
+  const houseNumber = String(draft.cisloPopisne || '').trim();
+  const dataBox = String(draft.datovaSchranka || '').trim();
+  const employmentStatus = draft.postaveniNaTrhu || '';
+  const entryDate = normalizeClientDateForSheet(draft.datumVstupu);
+  const exitDate = normalizeClientDateForSheet(draft.datumVystupu);
   return {
     klient_id: klientId,
     expected_updated_at: klientId ? draft.expectedUpdatedAt || draft.updatedAt || '' : '',
@@ -1797,19 +1802,24 @@ function mapClientDraftToSheetClient(draft, klientId = '') {
     prijmeni: String(draft.prijmeni || '').trim(),
     datum_narozeni: normalizeClientDateForSheet(draft.datumNarozeni),
     ulice: String(draft.ulice || '').trim(),
-    cislo_popisne: String(draft.cisloPopisne || '').trim(),
+    cislo_popisne: houseNumber,
+    cislo: houseNumber,
     mesto: String(draft.mesto || '').trim(),
     psc: String(draft.psc || '').trim(),
     address_mode: draft.addressMode === 'municipalityOnly' ? 'municipalityOnly' : 'full',
     email: String(draft.email || '').trim(),
-    datova_schranka: String(draft.datovaSchranka || '').trim(),
+    datova_schranka: dataBox,
+    datova: dataBox,
     telefon: String(draft.telefon || '').trim(),
     pohlavi: draft.pohlavi || '',
-    postaveni_na_trhu_prace: draft.postaveniNaTrhu || '',
+    postaveni_na_trhu_prace: employmentStatus,
+    postaveni: employmentStatus,
     dosazene_vzdelani: draft.vzdelani || '',
     znevyhodneni: draft.znevyhodneni || '',
-    datum_vstupu_do_projektu: normalizeClientDateForSheet(draft.datumVstupu),
-    datum_vystupu_z_projektu: normalizeClientDateForSheet(draft.datumVystupu),
+    datum_vstupu_do_projektu: entryDate,
+    datum_vstupu: entryDate,
+    datum_vystupu_z_projektu: exitDate,
+    datum_vystupu: exitDate,
     stav_klienta: draft.stavKlienta || 'Aktivn\u00ed',
     klicovy_pracovnik: draft.keyWorker || '',
     case_management_potreba: caseManagementPotreba,
@@ -1818,8 +1828,18 @@ function mapClientDraftToSheetClient(draft, klientId = '') {
     poznamka: String(draft.poznamka || '').trim(),
     rodina: draft.rodina ? 'Ano' : 'Ne',
     drive_folder_url: draft.driveFolderUrl || '',
-    monitoring_list_url: draft.monitoringListUrl || ''
+    monitoring_list_url: draft.monitoringListUrl || '',
+    updated_by: updatedBy || ''
   };
+}
+
+function assertClientBirthDateConfirmed(draft, savedClient) {
+  const expectedBirthDate = normalizeClientDateForSheet(draft?.datumNarozeni);
+  const persistedBirthDate = normalizeClientDateForSheet(savedClient?.datumNarozeni);
+  if (expectedBirthDate === persistedBirthDate) return;
+  const error = new Error('Google Sheet nepotvrdil ulozeni data narozeni. Udaj nebyl oznacen jako ulozeny; obnovte klienta a zkuste zapis znovu.');
+  error.code = 'WRITE_VERIFICATION_FAILED';
+  throw error;
 }
 
 const optionItems = (values, placeholder) => [
@@ -5139,7 +5159,7 @@ function App() {
       const result = await postGoogleSheetAction({
         action: 'saveClient',
         request_id: mutationRequestId,
-        client: mapClientDraftToSheetClient(clientToSave)
+        client: mapClientDraftToSheetClient(clientToSave, '', currentWorker)
       });
       if (!result?.client?.klient_id) throw new Error('Google Sheet nevr\u00e1til ID klienta.');
       const savedClient = mapSheetRowToClient(result.client, clientsForWrite.length);
@@ -5273,7 +5293,7 @@ function App() {
               ...emptyClientDraft,
               ...baseClient,
               keyWorker: normalizedNextKeyWorker
-            }, client.id)
+            }, client.id, currentWorker)
           });
         }
         if (!result?.client?.klient_id) throw new Error('Google Sheet nevrátil ID klienta.');
@@ -5379,11 +5399,12 @@ function App() {
     try {
       const result = await postGoogleSheetAction({
         action: 'saveClient',
-        client: mapClientDraftToSheetClient(normalizedClientEditDraft, targetClientId)
+        client: mapClientDraftToSheetClient(normalizedClientEditDraft, targetClientId, currentWorker)
       });
       if (!result?.client?.klient_id) throw new Error('Google Sheet nevr\u00e1til ID klienta.');
       const savedClient = mapSheetRowToClient(result.client, clients.findIndex((client) => client.id === targetClientId));
       if (!savedClient) throw new Error('Upraven\u00e9ho klienta se nepoda\u0159ilo na\u010d\u00edst.');
+      assertClientBirthDateConfirmed(normalizedClientEditDraft, savedClient);
 
       setClients((prev) => prev.map((client) => (client.id === targetClientId ? savedClient : client)));
       setSelectedClientId(savedClient.id);

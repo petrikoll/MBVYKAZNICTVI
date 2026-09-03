@@ -24,6 +24,18 @@ test('all client mutation paths reject a second in-flight mutation', () => {
   assert.match(source, /expected_updated_at: klientId \? draft\.expectedUpdatedAt \|\| draft\.updatedAt \|\| '' : ''/);
 });
 
+test('client update confirms the persisted birth date before reporting success', () => {
+  const updateStart = source.indexOf('const handleClientUpdate = async');
+  const deleteStart = source.indexOf('const handleClientDelete = async', updateStart);
+  const updateHandler = source.slice(updateStart, deleteStart);
+
+  assert.match(source, /function assertClientBirthDateConfirmed\(/);
+  assert.match(updateHandler, /assertClientBirthDateConfirmed\(normalizedClientEditDraft, savedClient\)/);
+  assert.match(source, /cislo: houseNumber/);
+  assert.match(source, /datum_vstupu: entryDate/);
+  assert.match(source, /updated_by: updatedBy \|\| ''/);
+});
+
 test('open client detail locks the duplicate key-worker control in the client list', () => {
   assert.match(source, /const workerEditLocked = active && showClientEditForm/);
   assert.match(source, /disabled=\{isSaving \|\| workerEditLocked\}/);

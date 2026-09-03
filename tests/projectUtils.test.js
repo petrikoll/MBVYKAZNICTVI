@@ -127,6 +127,25 @@ test('import objektu načte vzdělání i ze staršího nebo popisného záhlav�
   assert.equal(descriptive.vzdelani, 'VŠ');
 });
 
+test('import klienta načte produkční zkrácená záhlaví bez ztráty údajů', () => {
+  const client = mapSheetRowToClient({
+    klient_id: 'KLIENT-0075',
+    jmeno: 'Miroslava',
+    prijmeni: 'Osičková',
+    cislo: '438',
+    datova: 'abc123',
+    postaveni: 'zaměstnanci',
+    datum_vstupu: '2026-09-02',
+    datum_vystupu: '2026-12-31'
+  }, 0);
+
+  assert.equal(client.cisloPopisne, '438');
+  assert.equal(client.datovaSchranka, 'abc123');
+  assert.equal(client.postaveniNaTrhu, 'zaměstnanci');
+  assert.equal(client.datumVstupu, '2.9.2026');
+  assert.equal(client.datumVystupu, '31.12.2026');
+});
+
 test('import objektu převede číselné datum Google Sheets na běžné datum', () => {
   const client = mapSheetRowToClient({
     klient_id: '1',

@@ -22,14 +22,16 @@ test('běžné uložení klienta už nepřeformátovává celé sloupce', () => 
   assert.match(appsScriptSource, /configureWriteSheetFormats_\(spreadsheet\)/);
 });
 
-test('zápisové funkce vrací právě zapsaná data bez následného čtení řádku', () => {
+test('kritický zápis klienta se po flush znovu ověří, ostatní zápisy nečtou řádek navíc', () => {
   const clientBody = functionBody(appsScriptSource, 'saveClient_', 'updateClientKeyWorker_');
   const partnerBody = functionBody(appsScriptSource, 'savePartner_', 'getIndividualPlanSheet_');
   const planBody = functionBody(appsScriptSource, 'saveIndividualPlan_', 'listPerformances_');
-  assert.match(clientBody, /return rowToObject_\(headers, values\)/);
+  assert.match(clientBody, /SpreadsheetApp\.flush\(\)/);
+  assert.match(clientBody, /setValues\(\[values\]\)[\s\S]*getValues\(\)/);
+  assert.match(clientBody, /assertClientBirthDatePersisted_/);
   assert.match(partnerBody, /return rowToObject_\(headers, values\)/);
   assert.match(planBody, /return rowToObject_\(headers, values\)/);
-  assert.doesNotMatch(clientBody, /setValues\(\[values\]\)[\s\S]*getValues\(\)/);
+  assert.doesNotMatch(partnerBody, /setValues\(\[values\]\)[\s\S]*getValues\(\)/);
 });
 
 test('výkon a case management pouze zařadí dokument do trvalé fronty', () => {

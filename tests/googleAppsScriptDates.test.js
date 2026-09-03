@@ -69,6 +69,44 @@ test('neexistující datum se při zápisu tiše nepřevalí do dalšího měsí
   );
 });
 
+test('Apps Script mapuje kanonické údaje klienta i do produkčních zkrácených záhlaví', () => {
+  const values = context.mapClientSheetWriteValues_(
+    ['cislo', 'datova', 'postaveni', 'datum_vstupu', 'datum_vystupu'],
+    {
+      cislo_popisne: '438',
+      datova_schranka: 'abc123',
+      postaveni_na_trhu_prace: 'zaměstnanci',
+      datum_vstupu_do_projektu: '2026-09-02',
+      datum_vystupu_z_projektu: '2026-12-31'
+    }
+  );
+
+  assert.equal(values[0], '438');
+  assert.equal(values[1], 'abc123');
+  assert.equal(values[2], 'zaměstnanci');
+  assert.equal(values[3].getFullYear(), 2026);
+  assert.equal(values[3].getMonth() + 1, 9);
+  assert.equal(values[3].getDate(), 2);
+  assert.equal(values[4].getMonth() + 1, 12);
+  assert.equal(values[4].getDate(), 31);
+});
+
+test('produkční zkrácená záhlaví se při čtení doplní do kanonických polí', () => {
+  const client = context.normalizeClientRecord_({
+    cislo: '438',
+    datova: 'abc123',
+    postaveni: 'zaměstnanci',
+    datum_vstupu: '2026-09-02',
+    datum_vystupu: '2026-12-31'
+  });
+
+  assert.equal(client.cislo_popisne, '438');
+  assert.equal(client.datova_schranka, 'abc123');
+  assert.equal(client.postaveni_na_trhu_prace, 'zaměstnanci');
+  assert.equal(client.datum_vstupu_do_projektu, '2026-09-02');
+  assert.equal(client.datum_vystupu_z_projektu, '2026-12-31');
+});
+
 test('datum výkonu se do Sheetu zapisuje jako datum, ne jako locale-dependent text', () => {
   let storedRow = null;
   const dateContext = vm.createContext({

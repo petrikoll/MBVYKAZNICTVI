@@ -94,7 +94,7 @@ function mapSheetRowToClient(row, index) {
       prijmeni: row.prijmeni || '',
       datumNarozeni: normalizeDateIso(row.datum_narozeni),
       ulice: row.ulice || row.trvale_bydliste_ulice || '',
-      cisloPopisne: row.cislo_popisne || '',
+      cisloPopisne: row.cislo_popisne || row.cislo || '',
       mesto: row.mesto || row.obec_cast || '',
       psc: row.psc || '',
       addressMode: String(row.address_mode || '').trim() === 'municipalityOnly'
@@ -107,10 +107,10 @@ function mapSheetRowToClient(row, index) {
         : 'full',
       spadoveMesto: row.spadove_mesto || row.mesto || '',
       email: row.email || '',
-      datovaSchranka: row.datova_schranka || '',
+      datovaSchranka: row.datova_schranka || row.datova || '',
       telefon: row.telefon || '',
       pohlavi: row.pohlavi || '',
-      postaveniNaTrhu: row.postaveni_na_trhu_prace || '',
+      postaveniNaTrhu: row.postaveni_na_trhu_prace || row.postaveni || '',
       vzdelani: readSheetValue(row, [
         'dosazene_vzdelani',
         'nejvyssi_dosazene_vzdelani',
@@ -119,8 +119,8 @@ function mapSheetRowToClient(row, index) {
         'nejvyšší dosažené vzdělání'
       ]),
       znevyhodneni: row.znevyhodneni || row.typ_znevyhodneni || '',
-      datumVstupu: normalizeDateIso(row.datum_vstupu_do_projektu),
-      datumVystupu: normalizeDateIso(row.datum_vystupu_z_projektu),
+      datumVstupu: normalizeDateIso(row.datum_vstupu_do_projektu || row.datum_vstupu),
+      datumVystupu: normalizeDateIso(row.datum_vystupu_z_projektu || row.datum_vystupu),
       stavKlienta: row.stav_klienta || '',
       keyWorker: canonicalizeWorkerName(row.klicovy_pracovnik || row.klicovyPracovnik || ''),
       caseManagementPotreba: row.case_management_potreba || 'Ne',

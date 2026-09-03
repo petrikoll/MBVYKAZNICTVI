@@ -60,6 +60,62 @@ test('current version is accepted and stale concurrent edit is rejected', () => 
   );
 });
 
+test('existující datum narození nelze omylem přepsat prázdnou hodnotou', () => {
+  const context = createContext();
+  const current = new Date('2026-09-02T14:49:06.000Z');
+  const headers = ['klient_id', 'datum_narozeni', 'updated_at'];
+  const storedRow = ['KLIENT-0075', '1970-01-02', current];
+  const sheet = {
+    getLastRow: () => 2,
+    getRange: () => ({
+      getValues: () => [storedRow],
+      setValues: () => assert.fail('prázdné datum se nesmí zapsat')
+    })
+  };
+  context.getSpreadsheet_ = () => ({ getSheetByName: () => sheet });
+  context.getHeaders_ = () => headers;
+  context.ensureHeaders_ = () => headers;
+  context.findClientRow_ = () => 2;
+  context.findClientRows_ = () => [2];
+  context.findDuplicateClientRow_ = () => null;
+
+  assert.throws(() => context.saveClient_({
+    klient_id: 'KLIENT-0075',
+    datum_narozeni: '',
+    expected_updated_at: current.toISOString()
+  }), (error) => error.code === 'VALIDATION' && /nelze odstranit/.test(error.message));
+});
+
+test('uložení klienta selže, pokud se datum narození po zápisu v řádku nepotvrdí', () => {
+  const context = createContext();
+  const current = new Date('2026-09-02T14:49:06.000Z');
+  const headers = ['klient_id', 'datum_narozeni', 'updated_at'];
+  let storedRow = ['KLIENT-0075', '', current];
+  const sheet = {
+    getLastRow: () => 2,
+    getRange: () => ({
+      getValues: () => [storedRow],
+      setValues: ([values]) => {
+        storedRow = [...values];
+        storedRow[1] = '';
+      }
+    })
+  };
+  context.SpreadsheetApp = { flush: () => {} };
+  context.getSpreadsheet_ = () => ({ getSheetByName: () => sheet });
+  context.getHeaders_ = () => headers;
+  context.ensureHeaders_ = () => headers;
+  context.findClientRow_ = () => 2;
+  context.findClientRows_ = () => [2];
+  context.findDuplicateClientRow_ = () => null;
+
+  assert.throws(() => context.saveClient_({
+    klient_id: 'KLIENT-0075',
+    datum_narozeni: '1970-01-02',
+    expected_updated_at: current.toISOString()
+  }), (error) => error.code === 'WRITE_VERIFICATION_FAILED');
+});
+
 test('idempotent retry ignores timestamps and expected version', () => {
   const context = createContext();
   const original = {

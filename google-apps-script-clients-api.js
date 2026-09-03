@@ -252,7 +252,7 @@ function findClientForMutationResult_(clientId) {
   if (!idColumn) return null;
   const rows = findClientRows_(sheet, idColumn, id);
   if (rows.length !== 1) return null;
-  return rowToObject_(headers, sheet.getRange(rows[0], 1, 1, headers.length).getValues()[0]);
+  return normalizeClientRecord_(rowToObject_(headers, sheet.getRange(rows[0], 1, 1, headers.length).getValues()[0]));
 }
 
 function findMutationEntityForResult_(action, entityId) {
@@ -2071,6 +2071,52 @@ const CLIENT_DATE_HEADERS_ = [
   'case_management_od'
 ];
 
+// Produkcni registr historicky pouziva kratke nazvy nekterych sloupcu.
+// API pracuje s kanonickymi nazvy, ale musi bezpecne cist i zapisovat obe varianty.
+const CLIENT_LEGACY_HEADER_ALIASES_ = {
+  cislo: 'cislo_popisne',
+  datova: 'datova_schranka',
+  postaveni: 'postaveni_na_trhu_prace',
+  datum_vstupu: 'datum_vstupu_do_projektu',
+  datum_vystupu: 'datum_vystupu_z_projektu'
+};
+
+const CLIENT_SHEET_DATE_HEADERS_ = CLIENT_DATE_HEADERS_.concat(['datum_vstupu', 'datum_vystupu']);
+
+function normalizeClientRecord_(client) {
+  const normalized = Object.assign({}, client || {});
+  Object.keys(CLIENT_LEGACY_HEADER_ALIASES_).forEach(function(legacyHeader) {
+    const canonicalHeader = CLIENT_LEGACY_HEADER_ALIASES_[legacyHeader];
+    if (
+      (normalized[canonicalHeader] === undefined || normalized[canonicalHeader] === '')
+      && normalized[legacyHeader] !== undefined
+    ) {
+      normalized[canonicalHeader] = normalized[legacyHeader];
+    }
+  });
+  return normalized;
+}
+
+function mapClientSheetWriteValues_(headers, normalized) {
+  const dateHeaderSet = new Set(CLIENT_SHEET_DATE_HEADERS_);
+  return headers.map(function(header) {
+    const canonicalHeader = CLIENT_LEGACY_HEADER_ALIASES_[header];
+    const value = canonicalHeader && Object.prototype.hasOwnProperty.call(normalized, canonicalHeader)
+      ? normalized[canonicalHeader]
+      : normalized[header];
+    return dateHeaderSet.has(header) ? toSheetDateValue_(value) : value ?? '';
+  });
+}
+
+function assertClientBirthDatePersisted_(expected, persisted) {
+  const expectedDate = formatDateValue_(expected && expected.datum_narozeni);
+  const persistedDate = formatDateValue_(persisted && persisted.datum_narozeni);
+  if (expectedDate === persistedDate) return;
+  const error = new Error('Datum narozeni nebylo v klientskem registru potvrzeno. Ulozeni nepovazujte za dokoncene a zkuste jej znovu.');
+  error.code = 'WRITE_VERIFICATION_FAILED';
+  throw error;
+}
+
 function toSheetDateValue_(value) {
   if (!value || value instanceof Date) return value || '';
   const text = String(value).trim();
@@ -2129,7 +2175,7 @@ function listClients_(spreadsheet) {
     .getRange(CONFIG.headerRow + 1, 1, lastRow - CONFIG.headerRow, headers.length)
     .getValues()
     .filter((row) => row.some((cell) => cell !== ''))
-    .map((row) => rowToObject_(headers, row))
+    .map((row) => normalizeClientRecord_(rowToObject_(headers, row)))
     .filter((client) => !normalizeDuplicateText_(client.status).startsWith('smaz'));
 }
 
@@ -2367,11 +2413,21 @@ function saveClient_(client) {
 
   incoming.klient_id = incoming.klient_id || nextClientId_(sheet, klientIdColumn);
   const existing = existingRow
-    ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
+    ? normalizeClientRecord_(rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0]))
     : {};
   if (existingRow) assertRecordCanBeUpdated_(incoming.klient_id, existingRow, existing, 'Klient');
   assertExpectedVersion_(existing, incoming.expected_updated_at, 'Klienta ' + incoming.klient_id);
   delete incoming.expected_updated_at;
+  if (
+    existingRow
+    && formatDateValue_(existing.datum_narozeni)
+    && Object.prototype.hasOwnProperty.call(incoming, 'datum_narozeni')
+    && !formatDateValue_(incoming.datum_narozeni)
+  ) {
+    const error = new Error('Datum narozeni nelze odstranit prazdnou hodnotou. Zadejte opravene datum.');
+    error.code = 'VALIDATION';
+    throw error;
+  }
   const normalized = Object.assign({}, existing, incoming);
   normalized.updated_at = now;
   normalized.updated_by = incoming.updated_by || existing.updated_by || '';
@@ -2379,10 +2435,15 @@ function saveClient_(client) {
   normalized.created_by = existing.created_by || incoming.created_by || '';
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
-  const values = mapSheetWriteValues_(headers, normalized, CLIENT_DATE_HEADERS_);
+  const values = mapClientSheetWriteValues_(headers, normalized);
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
+  SpreadsheetApp.flush();
 
-  return rowToObject_(headers, values);
+  const persisted = normalizeClientRecord_(
+    rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0])
+  );
+  assertClientBirthDatePersisted_(normalized, persisted);
+  return persisted;
 }
 
 function updateClientKeyWorker_(client) {
@@ -3980,7 +4041,9 @@ function ensureClientFolder_(klientId) {
   const targetRow = findClientRow_(sheet, klientIdColumn, klientId);
   if (!targetRow) throw new Error('Client not found: ' + klientId);
 
-  const row = rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
+  const row = normalizeClientRecord_(
+    rowToObject_(headers, sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0])
+  );
   const folder = getOrCreateClientFolder_(row, sheet.getRange(targetRow, folderUrlColumn).getValue());
   const monitoringList = getOrCreateMonitoringList_(folder, row, sheet.getRange(targetRow, monitoringUrlColumn).getValue());
 
@@ -3989,7 +4052,9 @@ function ensureClientFolder_(klientId) {
   sheet.getRange(targetRow, refreshedHeaders.indexOf('monitoring_list_url') + 1).setValue(monitoringList.getUrl());
   invalidateReadActions_(['listClients']);
 
-  return rowToObject_(refreshedHeaders, sheet.getRange(targetRow, 1, 1, refreshedHeaders.length).getValues()[0]);
+  return normalizeClientRecord_(
+    rowToObject_(refreshedHeaders, sheet.getRange(targetRow, 1, 1, refreshedHeaders.length).getValues()[0])
+  );
 }
 
 function getOrCreateClientFolder_(client, currentUrl) {
