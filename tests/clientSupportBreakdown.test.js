@@ -8,7 +8,7 @@ test('souhrn podpory respektuje zadanou délku individuálního plánu', () => {
     generatorDraft: {
       selectedKey: 'plan',
       date: '2026-07-22',
-      worker: 'Lea Ledecká, Dis.',
+      worker: 'Mgr. Lea Ledecká',
       planDurationMinutes: '150'
     },
     generatedText: 'Text individuálního plánu.'

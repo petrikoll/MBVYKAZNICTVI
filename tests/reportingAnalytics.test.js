@@ -18,11 +18,11 @@ const clients = [
 
 const records = [
   {
-    id: 'r1', entityType: 'consultations', activityDate: '2026-07-03', clientId: 'c1', worker: 'Lea Ledecká, Dis.',
+    id: 'r1', entityType: 'consultations', activityDate: '2026-07-03', clientId: 'c1', worker: 'Mgr. Lea Ledecká',
     payload: { consultationType: 'Terénní sociální práce', supportArea: 'Bydlení', durationMinutes: 90, place: 'Terén', outcome: 'Domluven další postup', linkedPlanGoalId: 'g1', linkedPlanGoalLabel: 'Udržet bydlení' }
   },
   {
-    id: 'r2', entityType: 'consultations', activityDate: '2026-07-10', clientId: 'c1', worker: 'Lea Ledecká, Dis.',
+    id: 'r2', entityType: 'consultations', activityDate: '2026-07-10', clientId: 'c1', worker: 'Mgr. Lea Ledecká',
     payload: { consultationType: 'Základní sociální poradenství', supportArea: 'Finance/dluhy', durationMinutes: 30, place: 'Telefonicky', linkedPlanGoalId: 'one-time-order' }
   },
   {

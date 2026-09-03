@@ -1960,7 +1960,7 @@ const KA1_SUPPORT_AREA_OPTIONS_ = [
 ];
 
 const KA1_SERVICE_FORM_OPTIONS_ = ['ambulantn\u00ed', 'ter\u00e9nn\u00ed', 'Telefonn\u00ed'];
-const WORKER_OPTIONS_ = ['Lea Ledecká, Dis.', 'Bc. Josef Jakubec', 'Mgr. Radka Vysloužilová'];
+const WORKER_OPTIONS_ = ['Mgr. Lea Ledecká', 'Bc. Josef Jakubec', 'Mgr. Radka Vysloužilová'];
 
 const YES_NO_OPTIONS_ = ['Ano', 'Ne'];
 

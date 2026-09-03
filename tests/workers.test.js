@@ -11,16 +11,21 @@ import {
 
 test('aplikace nabízí skutečná jména pracovníků ve správném pořadí', () => {
   assert.deepEqual(WORKERS, [
-    'Lea Ledecká, Dis.',
+    'Mgr. Lea Ledecká',
     'Bc. Josef Jakubec',
     'Mgr. Radka Vysloužilová'
   ]);
 });
 
 test('starší názvy rolí se při načtení převedou na skutečná jména', () => {
-  assert.equal(canonicalizeWorkerName('Sociální pracovník'), 'Lea Ledecká, Dis.');
+  assert.equal(canonicalizeWorkerName('Sociální pracovník'), 'Mgr. Lea Ledecká');
   assert.equal(canonicalizeWorkerName('Case manager'), 'Bc. Josef Jakubec');
   assert.equal(canonicalizeWorkerName('Garant projektu'), 'Mgr. Radka Vysloužilová');
+});
+
+test('starý chybný titul pracovnice se při načtení opraví', () => {
+  assert.equal(canonicalizeWorkerName('Lea Ledecká, Dis.'), 'Mgr. Lea Ledecká');
+  assert.equal(canonicalizeWorkerName('Lea Ledecká'), 'Mgr. Lea Ledecká');
 });
 
 test('převod zachová oprávnění case managera a garantky', () => {
@@ -32,10 +37,10 @@ test('převod zachová oprávnění case managera a garantky', () => {
 
 test('starší jména se převedou také uvnitř načtených záznamů', () => {
   assert.deepEqual(canonicalizeWorkerReferences({
-    worker: 'Sociální pracovník',
+    worker: 'Lea Ledecká, Dis.',
     payload: { workers: ['Case manager', 'Garant projektu'] }
   }), {
-    worker: 'Lea Ledecká, Dis.',
+    worker: 'Mgr. Lea Ledecká',
     payload: { workers: ['Bc. Josef Jakubec', 'Mgr. Radka Vysloužilová'] }
   });
 });

@@ -24,7 +24,7 @@ const TARGETS = {
 };
 
 const WORKER_NAMES = Object.freeze({
-  socialWorker: 'Lea Ledeck\u00e1, Dis.',
+  socialWorker: 'Mgr. Lea Ledeck\u00e1',
   caseManager: 'Bc. Josef Jakubec',
   guarantor: 'Mgr. Radka Vyslou\u017eilov\u00e1'
 });
@@ -40,6 +40,11 @@ const normalizeWorkerIdentity = (value) =>
 
 const WORKER_ALIASES = new Map([
   ['Soci\u00e1ln\u00ed pracovn\u00edk', WORKER_NAMES.socialWorker],
+  ['Lea Ledeck\u00e1, Dis.', WORKER_NAMES.socialWorker],
+  ['Lea Ledeck\u00e1, DiS.', WORKER_NAMES.socialWorker],
+  ['Lea Ledeck\u00e1 Dis.', WORKER_NAMES.socialWorker],
+  ['Lea Ledeck\u00e1', WORKER_NAMES.socialWorker],
+  ['Mgr Lea Ledeck\u00e1', WORKER_NAMES.socialWorker],
   ['Case manager', WORKER_NAMES.caseManager],
   ['Odborn\u00fd garant', WORKER_NAMES.guarantor],
   ['Odborn\u00fd garant projektu', WORKER_NAMES.guarantor],

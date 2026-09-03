@@ -167,7 +167,7 @@ test('rychlá změna klíčového pracovníka zapisuje jen aktuální řádek a 
   const context = createContext();
   const current = new Date('2026-08-04T08:00:00.000Z');
   const headers = ['klient_id', 'jmeno', 'klicovy_pracovnik', 'updated_at', 'updated_by'];
-  let storedRow = ['KLIENT-0001', 'Alena', 'Lea Ledecká, Dis.', current, 'Lea Ledecká, Dis.'];
+  let storedRow = ['KLIENT-0001', 'Alena', 'Mgr. Lea Ledecká', current, 'Mgr. Lea Ledecká'];
   let readCount = 0;
   let writeCount = 0;
   const sheet = {
@@ -206,7 +206,7 @@ test('rychlá změna klíčového pracovníka odmítne zastaralou verzi', () => 
   const headers = ['klient_id', 'klicovy_pracovnik', 'updated_at'];
   const sheet = {
     getRange: () => ({
-      getValues: () => [['KLIENT-0001', 'Lea Ledecká, Dis.', current]],
+      getValues: () => [['KLIENT-0001', 'Mgr. Lea Ledecká', current]],
       setValues: () => assert.fail('zastaralý řádek se nesmí zapsat')
     })
   };
