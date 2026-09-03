@@ -23,6 +23,31 @@ test('Apps Script správně převede i český formát data', () => {
   assert.equal(date.getDate(), 3);
 });
 
+test('produkční ID tabulky z vlastností skriptu má přednost před vývojovým fallbackem', () => {
+  let openedSpreadsheetId = '';
+  const spreadsheetContext = vm.createContext({
+    console,
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (name) => name === 'SPREADSHEET_ID' ? 'PRODUCTION-SHEET-ID' : ''
+      })
+    },
+    SpreadsheetApp: {
+      openById: (id) => {
+        openedSpreadsheetId = id;
+        return { id };
+      },
+      getActive: () => ({ id: 'ACTIVE-SHEET' })
+    }
+  });
+  vm.runInContext(source, spreadsheetContext);
+
+  const spreadsheet = spreadsheetContext.getSpreadsheet_();
+
+  assert.equal(openedSpreadsheetId, 'PRODUCTION-SHEET-ID');
+  assert.equal(spreadsheet.id, 'PRODUCTION-SHEET-ID');
+});
+
 test('české datum se pro API vždy normalizuje na ISO a neobrátí den s měsícem', () => {
   assert.equal(context.formatDateValue_('3/7/2026'), '2026-07-03');
   assert.equal(context.formatDateValue_('2026-07-03T10:15:00.000Z'), '2026-07-03');

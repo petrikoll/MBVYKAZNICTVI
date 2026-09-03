@@ -24,6 +24,7 @@ const CONFIG = {
 };
 
 const READ_CACHE_VERSION_ = 'read-v2-gzip';
+const SPREADSHEET_ID_PROPERTY_ = 'SPREADSHEET_ID';
 const READ_CACHE_ENCODING_ = 'gzip-base64url-v1';
 const READ_CACHE_TTL_SECONDS_ = 21600;
 const READ_CACHE_CHUNK_SIZE_ = 85000;
@@ -689,8 +690,13 @@ function authorizeBackupTriggers() {
 }
 
 function getSpreadsheet_() {
-  return CONFIG.spreadsheetId
-    ? SpreadsheetApp.openById(CONFIG.spreadsheetId)
+  const spreadsheetId = String(
+    PropertiesService.getScriptProperties().getProperty(SPREADSHEET_ID_PROPERTY_)
+      || CONFIG.spreadsheetId
+      || ''
+  ).trim();
+  return spreadsheetId
+    ? SpreadsheetApp.openById(spreadsheetId)
     : SpreadsheetApp.getActive();
 }
 
