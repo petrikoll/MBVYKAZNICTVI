@@ -270,6 +270,28 @@ test('performance update preserves Sheet columns not sent by the form', () => {
   assert.equal(saved.pomocny_sloupec, 'Rucne spravovana hodnota');
 });
 
+test('existující klientský záznam nelze při úpravě přeřadit jinému klientovi', () => {
+  const context = createContext();
+
+  assert.throws(
+    () => context.assertRecordClientBinding_(
+      { klient_id: 'KLIENT-0001' },
+      'KLIENT-0002',
+      'Vykon VYKON-0001'
+    ),
+    (error) => error.code === 'CLIENT_BINDING_CONFLICT'
+      && /KLIENT-0001/.test(error.message)
+      && /KLIENT-0002/.test(error.message)
+  );
+
+  const planBody = source.slice(source.indexOf('function saveIndividualPlan_('), source.indexOf('function listPerformances_('));
+  const performanceBody = source.slice(source.indexOf('function savePerformance_('), source.indexOf('function finalizePerformanceAfterSheetCommit_('));
+  const meetingBody = source.slice(source.indexOf('function saveMeeting_('), source.indexOf('function finalizeMeetingAfterSheetCommit_('));
+  [planBody, performanceBody, meetingBody].forEach((body) => {
+    assert.match(body, /assertRecordClientBinding_/);
+  });
+});
+
 test('updates with unknown ids fail closed instead of creating replacement rows', () => {
   const context = createContext();
   const sheet = {};

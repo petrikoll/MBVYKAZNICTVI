@@ -83,3 +83,20 @@ test('all ordinary Sheet mutations receive a reusable operation id', () => {
   assert.match(source, /\{ \.\.\.payload, request_id: mutationRequestId \}/);
   assert.match(source, /genericMutationIdsRef\.current\.delete\(mutationSignature\)/);
 });
+
+test('aplikace po načtení sama nepředvybere prvního klienta', () => {
+  assert.doesNotMatch(source, /const firstClientId = parsed\[0\]\?\.id/);
+  assert.doesNotMatch(source, /clientSelectionPool\[0\]\?\.id/);
+  assert.match(source, /setSelectedClientId\(\(current\) => parsed\.some\(\(client\) => client\.id === current\) \? current : ''\)/);
+});
+
+test('frontend při úpravě zachová původní vazbu záznamu na klienta', () => {
+  const updateStart = source.indexOf('const updateExistingRecord = async');
+  const updateEnd = source.indexOf('const deleteGoogleSheetRecord = async', updateStart);
+  const updateHandler = source.slice(updateStart, updateEnd);
+
+  assert.match(updateHandler, /const existingClientId = existingRecord\.clientId \|\| existingRecord\.clientIds\?\.\[0\] \|\| ''/);
+  assert.match(updateHandler, /requestedClientId !== existingClientId/);
+  assert.match(updateHandler, /Při úpravě nelze klienta změnit/);
+  assert.match(updateHandler, /clientId: existingClientId/);
+});

@@ -23,6 +23,57 @@ test('Apps Script správně převede i český formát data', () => {
   assert.equal(date.getDate(), 3);
 });
 
+test('české datum se pro API vždy normalizuje na ISO a neobrátí den s měsícem', () => {
+  assert.equal(context.formatDateValue_('3/7/2026'), '2026-07-03');
+  assert.equal(context.formatDateValue_('2026-07-03T10:15:00.000Z'), '2026-07-03');
+});
+
+test('neexistující datum se při zápisu tiše nepřevalí do dalšího měsíce', () => {
+  assert.throws(
+    () => context.toSheetDateValue_('2026-02-31'),
+    (error) => error.code === 'VALIDATION' && /Neplatne datum/.test(error.message)
+  );
+});
+
+test('datum výkonu se do Sheetu zapisuje jako datum, ne jako locale-dependent text', () => {
+  let storedRow = null;
+  const dateContext = vm.createContext({
+    console,
+    Utilities: {
+      formatDate: (value, _zone, pattern) => pattern === 'yyyy-MM-dd'
+        ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+        : ''
+    }
+  });
+  vm.runInContext(source, dateContext);
+  const headers = ['vykon_id', 'klient_id', 'datum', 'status', 'created_at', 'updated_at'];
+  const sheet = {
+    getLastRow: () => 1,
+    getRange: () => ({
+      getValues: () => [],
+      setValues: ([values]) => { storedRow = values; }
+    })
+  };
+  dateContext.getOrCreateSheet_ = () => sheet;
+  dateContext.getHeaders_ = () => headers;
+  dateContext.findRowById_ = () => null;
+  dateContext.findDuplicateRecordRow_ = () => null;
+  dateContext.upsertPerformanceStatistics_ = () => {};
+  dateContext.queueRecordDocumentAfterSheetCommit_ = () => ({ pending: false, state: 'ready', warning: '' });
+
+  dateContext.savePerformance_({
+    klient_id: 'KLIENT-0001',
+    datum: '3.7.2026',
+    status: 'Platný'
+  });
+
+  const storedDate = storedRow[headers.indexOf('datum')];
+  assert.equal(Object.prototype.toString.call(storedDate), '[object Date]');
+  assert.equal(storedDate.getFullYear(), 2026);
+  assert.equal(storedDate.getMonth() + 1, 7);
+  assert.equal(storedDate.getDate(), 3);
+});
+
 test('neúplný klient se stejným jménem je rozpoznán jako duplicita', () => {
   const headers = ['klient_id', 'jmeno', 'prijmeni', 'datum_narozeni', 'email', 'telefon', 'datum_vstupu_do_projektu'];
   const rows = [['KLIENT-0021', 'Valerie', 'Lacková', '1990-05-12', '', '', '2026-07-13']];

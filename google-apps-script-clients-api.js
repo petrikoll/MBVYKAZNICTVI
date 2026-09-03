@@ -1996,19 +1996,40 @@ function configureWriteSheetFormats_(spreadsheet) {
   setColumnListValidation_(clientSheet, clientHeaders, 'rodina', YES_NO_OPTIONS_);
   setClientDateFormats_(clientSheet, clientHeaders);
 
+  const performanceSheet = getOrCreateSheet_(CONFIG.performanceSheetName, PERFORMANCE_HEADERS_, spreadsheet);
+  setSheetDateFormats_(performanceSheet, getHeaders_(performanceSheet), ['datum']);
+
+  const meetingSheet = getOrCreateSheet_(CONFIG.meetingSheetName, MEETING_HEADERS_, spreadsheet);
+  setSheetDateFormats_(meetingSheet, getHeaders_(meetingSheet), ['datum']);
+
+  const networkMeetingSheet = getOrCreateSheet_(CONFIG.networkMeetingSheetName, NETWORK_MEETING_HEADERS_, spreadsheet);
+  setSheetDateFormats_(networkMeetingSheet, getHeaders_(networkMeetingSheet), ['datum']);
+
+  const partnerSheet = spreadsheet.getSheetByName(CONFIG.partnerSheetName);
+  if (partnerSheet) setSheetDateFormats_(partnerSheet, getHeaders_(partnerSheet), ['datum_zapojeni']);
+
   const educationSheet = getOrCreateSheet_(CONFIG.educationSheetName, EDUCATION_HEADERS_, spreadsheet);
   const educationHeaders = getHeaders_(educationSheet);
   ['jmeno_pracovnika', 'jmeno_pracovnika1', 'jmeno_pracovnika2', 'jmeno_pracovnika3'].forEach((header) => {
     setColumnListValidation_(educationSheet, educationHeaders, header, WORKER_OPTIONS_);
   });
+  setSheetDateFormats_(educationSheet, educationHeaders, ['datum']);
 
   const supervisionSheet = getOrCreateSheet_(CONFIG.supervisionSheetName, SUPERVISION_HEADERS_, spreadsheet);
   const supervisionHeaders = getHeaders_(supervisionSheet);
   setColumnListValidation_(supervisionSheet, supervisionHeaders, 'typ_supervize', SUPERVISION_TYPE_OPTIONS_);
+  setSheetDateFormats_(supervisionSheet, supervisionHeaders, ['datum']);
+
+  const statisticsSheet = getOrCreateSheet_(CONFIG.statisticsSheetName, STATISTICS_HEADERS_, spreadsheet);
+  setSheetDateFormats_(statisticsSheet, getHeaders_(statisticsSheet), ['datum']);
 
   return {
     ok: true,
-    sheets: [clientSheet.getName(), educationSheet.getName(), supervisionSheet.getName()]
+    sheets: [
+      clientSheet.getName(), performanceSheet.getName(), meetingSheet.getName(), networkMeetingSheet.getName(),
+      ...(partnerSheet ? [partnerSheet.getName()] : []),
+      educationSheet.getName(), supervisionSheet.getName(), statisticsSheet.getName()
+    ]
   };
 }
 const MEETING_HEADERS_ = [
@@ -2042,19 +2063,43 @@ const CLIENT_DATE_HEADERS_ = [
 function toSheetDateValue_(value) {
   if (!value || value instanceof Date) return value || '';
   const text = String(value).trim();
-  const isoMatch = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (isoMatch) {
-    return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]), 12, 0, 0);
+  const normalized = normalizeDateString_(text);
+  if (!normalized) {
+    const error = new Error('Neplatne datum: ' + text + '. Pouzijte format RRRR-MM-DD nebo D.M.RRRR.');
+    error.code = 'VALIDATION';
+    throw error;
   }
-  const czechMatch = text.match(/^(\d{1,2})[.\/]\s*(\d{1,2})[.\/]\s*(\d{4})$/);
-  if (czechMatch) {
-    return new Date(Number(czechMatch[3]), Number(czechMatch[2]) - 1, Number(czechMatch[1]), 12, 0, 0);
-  }
-  return value;
+  const parts = normalized.split('-').map(Number);
+  return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+}
+
+function normalizeDateString_(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const isoMatch = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+  const czechMatch = text.match(/^(\d{1,2})[.\/]\s*(\d{1,2})[.\/]\s*(\d{4})\.?$/);
+  const year = Number(isoMatch ? isoMatch[1] : czechMatch && czechMatch[3]);
+  const month = Number(isoMatch ? isoMatch[2] : czechMatch && czechMatch[2]);
+  const day = Number(isoMatch ? isoMatch[3] : czechMatch && czechMatch[1]);
+  if (!year || !month || !day) return '';
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() + 1 !== month || check.getUTCDate() !== day) return '';
+  return String(year).padStart(4, '0') + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+}
+
+function mapSheetWriteValues_(headers, normalized, dateHeaders) {
+  const dateHeaderSet = new Set(dateHeaders || []);
+  return headers.map(function(header) {
+    return dateHeaderSet.has(header) ? toSheetDateValue_(normalized[header]) : normalized[header] ?? '';
+  });
 }
 
 function setClientDateFormats_(sheet, headers) {
-  CLIENT_DATE_HEADERS_.forEach((header) => {
+  setSheetDateFormats_(sheet, headers, CLIENT_DATE_HEADERS_);
+}
+
+function setSheetDateFormats_(sheet, headers, dateHeaders) {
+  (dateHeaders || []).forEach((header) => {
     const column = headers.indexOf(header) + 1;
     if (column) {
       sheet.getRange(CONFIG.headerRow + 1, column, Math.max(sheet.getMaxRows() - CONFIG.headerRow, 1), 1).setNumberFormat('dd.MM.yyyy');
@@ -2323,9 +2368,7 @@ function saveClient_(client) {
   normalized.created_by = existing.created_by || incoming.created_by || '';
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
-  const values = headers.map((header) => CLIENT_DATE_HEADERS_.includes(header)
-    ? toSheetDateValue_(normalized[header])
-    : normalized[header] ?? '');
+  const values = mapSheetWriteValues_(headers, normalized, CLIENT_DATE_HEADERS_);
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
 
   return rowToObject_(headers, values);
@@ -2451,7 +2494,7 @@ function savePartner_(partner) {
   normalized.created_by = existing.created_by || normalized.created_by || '';
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
-  const values = headers.map((header) => normalized[header] ?? '');
+  const values = mapSheetWriteValues_(headers, normalized, ['datum_zapojeni']);
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
 
   return rowToObject_(headers, values);
@@ -2514,6 +2557,7 @@ function saveIndividualPlan_(individualPlan) {
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
   assertRecordCanBeUpdated_(incomingPlanId, existingRow, existing, 'Individualni plan');
+  assertRecordClientBinding_(existing, clientId, 'Individualni plan ' + incomingPlanId);
   assertExpectedVersion_(existing, normalized.expected_updated_at, 'Individualni plan ' + incomingPlanId);
   delete normalized.expected_updated_at;
   normalized = Object.assign({}, existing, normalized);
@@ -2577,9 +2621,11 @@ function savePerformance_(performance) {
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
   assertRecordCanBeUpdated_(incomingPerformanceId, existingRow, existing, 'Vykon');
+  assertRecordClientBinding_(existing, normalized.klient_id, 'Vykon ' + normalized.vykon_id);
   assertExpectedVersion_(existing, normalized.expected_updated_at, 'Vykon ' + normalized.vykon_id);
   delete normalized.expected_updated_at;
   normalized = Object.assign({}, existing, normalized);
+  if (!String(normalized.klient_id || '').trim()) throw new Error('Vykon musi byt prirazen ke klientovi.');
   normalized.created_at = existing.created_at || normalized.created_at || now;
   normalized.created_by = existing.created_by || normalized.created_by || '';
   const duplicateRow = existingRow ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'vykon_id');
@@ -2595,7 +2641,7 @@ function savePerformance_(performance) {
   normalized.document_error = '';
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
-  const values = headers.map((header) => normalized[header] ?? '');
+  const values = mapSheetWriteValues_(headers, normalized, ['datum']);
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
   return finalizePerformanceAfterSheetCommit_(rowToObject_(headers, values));
 }
@@ -2716,7 +2762,7 @@ function upsertPerformanceStatistics_(performance) {
   });
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
-  sheet.getRange(targetRow, 1, 1, headers.length).setValues([headers.map((header) => normalized[header] ?? '')]);
+  sheet.getRange(targetRow, 1, 1, headers.length).setValues([mapSheetWriteValues_(headers, normalized, ['datum'])]);
 }
 
 function parseJsonObject_(value) {
@@ -3197,9 +3243,11 @@ function saveMeeting_(meeting) {
     ? rowToObject_(headers, sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0])
     : {};
   assertRecordCanBeUpdated_(incomingMeetingId, existingRow, existing, 'Setkani');
+  assertRecordClientBinding_(existing, normalized.klient_id, 'Setkani ' + normalized.meeting_id);
   assertExpectedVersion_(existing, normalized.expected_updated_at, 'Setkani ' + normalized.meeting_id);
   delete normalized.expected_updated_at;
   normalized = Object.assign({}, existing, normalized);
+  if (!String(normalized.klient_id || '').trim()) throw new Error('Setkani musi byt prirazeno ke klientovi.');
   normalized.created_at = existing.created_at || normalized.created_at || now;
   normalized.created_by = existing.created_by || normalized.created_by || '';
   const duplicateRow = existingRow ? null : findDuplicateRecordRow_(sheet, headers, normalized, 'meeting_id');
@@ -3213,7 +3261,7 @@ function saveMeeting_(meeting) {
   normalized.document_error = '';
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
-  const values = headers.map((header) => normalized[header] ?? '');
+  const values = mapSheetWriteValues_(headers, normalized, ['datum']);
   sheet.getRange(targetRow, 1, 1, headers.length).setValues([values]);
   return finalizeMeetingAfterSheetCommit_(rowToObject_(headers, values));
 }
@@ -3275,7 +3323,7 @@ function saveNetworkMeeting_(networkMeeting) {
   normalized.created_by = existing.created_by || normalized.created_by || '';
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
-  const values = headers.map((header) => normalized[header] ?? '');
+  const values = mapSheetWriteValues_(headers, normalized, ['datum']);
   const savedRange = sheet.getRange(targetRow, 1, 1, headers.length);
   savedRange.setValues([values]);
 
@@ -3330,7 +3378,7 @@ function saveEducation_(education) {
   if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
-  const values = headers.map((header) => normalized[header] ?? '');
+  const values = mapSheetWriteValues_(headers, normalized, ['datum']);
   const savedRange = sheet.getRange(targetRow, 1, 1, headers.length);
   savedRange.setValues([values]);
 
@@ -3381,7 +3429,7 @@ function saveSupervision_(supervision) {
   if (duplicateRow && !existingRow) return rowToObject_(headers, sheet.getRange(duplicateRow, 1, 1, headers.length).getValues()[0]);
 
   const targetRow = existingRow || sheet.getLastRow() + 1;
-  const values = headers.map((header) => normalized[header] ?? '');
+  const values = mapSheetWriteValues_(headers, normalized, ['datum']);
   const savedRange = sheet.getRange(targetRow, 1, 1, headers.length);
   savedRange.setValues([values]);
 
@@ -4443,7 +4491,7 @@ function extractDriveId_(url) {
 function formatDateValue_(value) {
   if (!value) return '';
   if (value instanceof Date) return Utilities.formatDate(value, CONFIG.timeZone, 'yyyy-MM-dd');
-  return String(value).slice(0, 10);
+  return normalizeDateString_(value) || String(value).trim();
 }
 
 function ensureHeader_(sheet, headers, header) {
@@ -4555,6 +4603,18 @@ function assertRecordCanBeUpdated_(incomingId, existingRow, existing, recordLabe
     error.code = 'CONFLICT';
     throw error;
   }
+}
+
+function assertRecordClientBinding_(existing, incomingClientId, recordLabel) {
+  const currentClientId = String(existing && existing.klient_id || '').trim();
+  const requestedClientId = String(incomingClientId || '').trim();
+  if (!currentClientId || !requestedClientId || currentClientId === requestedClientId) return;
+  const error = new Error(
+    (recordLabel || 'Zaznam') + ' je ulozen u klienta ' + currentClientId
+    + '. Pri uprave nelze vazbu zmenit na ' + requestedClientId + '. Vytvorte novy zaznam u spravneho klienta.'
+  );
+  error.code = 'CLIENT_BINDING_CONFLICT';
+  throw error;
 }
 
 

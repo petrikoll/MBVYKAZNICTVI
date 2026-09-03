@@ -558,21 +558,27 @@ const JOURNEY_TONE_CLASSES = {
 
 function formatDateLabel(value) {
   if (!value) return 'Bez data';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat('cs-CZ').format(parsed);
+  const normalized = String(value).trim();
+  const isoDate = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoDate) return `${Number(isoDate[3])}. ${Number(isoDate[2])}. ${isoDate[1]}`;
+  const czechDate = normalized.match(/^(\d{1,2})[.\/]\s*(\d{1,2})[.\/]\s*(\d{4})/);
+  if (czechDate) return `${Number(czechDate[1])}. ${Number(czechDate[2])}. ${czechDate[3]}`;
+  return normalized;
 }
 
 function parseDateForSort(value) {
   if (!value) return 0;
   if (typeof value?.toDate === 'function') return value.toDate().getTime();
   const normalized = String(value).trim();
-  const isoDate = new Date(normalized);
-  if (!Number.isNaN(isoDate.getTime())) return isoDate.getTime();
-  const czechDate = normalized.match(/^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})$/);
+  const isoDate = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoDate) {
+    const [, year, month, day] = isoDate;
+    return Date.UTC(Number(year), Number(month) - 1, Number(day));
+  }
+  const czechDate = normalized.match(/^(\d{1,2})[.\/]\s*(\d{1,2})[.\/]\s*(\d{4})$/);
   if (czechDate) {
     const [, day, month, year] = czechDate;
-    return new Date(Number(year), Number(month) - 1, Number(day)).getTime();
+    return Date.UTC(Number(year), Number(month) - 1, Number(day));
   }
   return 0;
 }
@@ -2663,35 +2669,34 @@ function App() {
       }
       hasClientSnapshot = true;
       setClients((current) => (haveSameClientSnapshot(current, parsed) ? current : parsed));
-      const firstClientId = parsed[0]?.id || '';
-      setSelectedClientId((current) => parsed.some((client) => client.id === current) ? current : firstClientId);
+      setSelectedClientId((current) => parsed.some((client) => client.id === current) ? current : '');
       setGeneratorDraft((previous) => ({
         ...previous,
-        clientId: parsed.some((client) => client.id === previous.clientId) ? previous.clientId : firstClientId
+        clientId: parsed.some((client) => client.id === previous.clientId) ? previous.clientId : ''
       }));
       setKa01Draft((previous) => ({
         ...previous,
         assessmentClientId: parsed.some((client) => client.id === previous.assessmentClientId)
           ? previous.assessmentClientId
-          : firstClientId
+          : ''
       }));
       setKa02Draft((previous) => ({
         ...previous,
         selectedClientId: parsed.some((client) => client.id === previous.selectedClientId)
           ? previous.selectedClientId
-          : firstClientId
+          : ''
       }));
       setKa03Draft((previous) => ({
         ...previous,
         selectedClientId: parsed.some((client) => client.id === previous.selectedClientId)
           ? previous.selectedClientId
-          : firstClientId,
+          : '',
         tpmClientId: parsed.some((client) => client.id === previous.tpmClientId)
           ? previous.tpmClientId
-          : firstClientId,
+          : '',
         employmentClientId: parsed.some((client) => client.id === previous.employmentClientId)
           ? previous.employmentClientId
-          : firstClientId,
+          : '',
         tpmDate: previous.tpmDate || todayIso(),
         employmentDate: previous.employmentDate || todayIso()
       }));
@@ -3117,7 +3122,7 @@ function App() {
     hasContentInFields(ka03Draft, KA03_DRAFT_CONTENT_FIELDS);
 
   const resetFormDrafts = () => {
-    const nextClientId = selectedClientId || clientSelectionPool[0]?.id || '';
+    const nextClientId = selectedClientId || '';
     const nextWorker = currentWorker || WORKERS[0];
 
     setShowClientForm(false);
@@ -3195,13 +3200,12 @@ function App() {
       setKa03Draft((prev) => ({ ...prev, selectedClientId: '', tpmClientId: '', employmentClientId: '' }));
       return;
     }
-    if (!selectedClientId || !clientSelectionPool.some((client) => client.id === selectedClientId)) {
-      const nextClientId = clientSelectionPool[0].id;
-      setSelectedClientId(nextClientId);
-      setGeneratorDraft((prev) => ({ ...prev, clientId: nextClientId }));
-      setKa01Draft((prev) => ({ ...prev, assessmentClientId: nextClientId }));
-      setKa02Draft((prev) => ({ ...prev, selectedClientId: nextClientId }));
-      setKa03Draft((prev) => ({ ...prev, selectedClientId: nextClientId, tpmClientId: nextClientId, employmentClientId: nextClientId }));
+    if (selectedClientId && !clientSelectionPool.some((client) => client.id === selectedClientId)) {
+      setSelectedClientId('');
+      setGeneratorDraft((prev) => ({ ...prev, clientId: '' }));
+      setKa01Draft((prev) => ({ ...prev, assessmentClientId: '' }));
+      setKa02Draft((prev) => ({ ...prev, selectedClientId: '' }));
+      setKa03Draft((prev) => ({ ...prev, selectedClientId: '', tpmClientId: '', employmentClientId: '' }));
     }
   }, [clientSelectionPool, selectedClientId, mainView, showClientForm]);
 
@@ -4925,6 +4929,13 @@ function App() {
     }
     const writeBlockMessage = recordWriteBlockMessage(existingRecord);
     if (writeBlockMessage) return failSave(writeBlockMessage);
+    const existingClientId = existingRecord.clientId || existingRecord.clientIds?.[0] || '';
+    const requestedClientId = payload.clientId || payload.clientIds?.[0] || existingClientId;
+    if (existingClientId && requestedClientId !== existingClientId) {
+      return failSave(
+        `Záznam patří klientovi ${existingRecord.clientName || existingClientId}. Při úpravě nelze klienta změnit; pro jiného klienta vytvořte nový záznam.`
+      );
+    }
 
     const mutationKey = `record:${recordId}`;
     if (pendingRecordMutationIdsRef.current.has(mutationKey)) {
@@ -4942,6 +4953,11 @@ function App() {
         ...existingRecord,
         ...payload,
         id: existingRecord.id,
+        ...(existingClientId ? {
+          clientId: existingClientId,
+          clientIds: [existingClientId],
+          clientName: existingRecord.clientName || payload.clientName || existingClientId
+        } : {}),
         createdAt: existingRecord.createdAt || Date.now(),
         expectedUpdatedAt,
         updatedAt: Date.now()
@@ -5843,7 +5859,7 @@ ${rawOutput}` }] }],
   };
 
   const resetGeneratedDocumentFormAfterSave = () => {
-    const nextClientId = selectedClientId || generatorDraft.clientId || accessibleClients[0]?.id || '';
+    const nextClientId = selectedClientId || generatorDraft.clientId || '';
     const nextWorker = currentWorker || generatorDraft.worker || WORKERS[0];
     const nextSelectedKey = generatorDraft.selectedKey || emptyGeneratorDraft.selectedKey;
     const keepCaseManagementMode = Boolean(generatorDraft.caseManagementMode);
