@@ -50,6 +50,10 @@ test('dashboard rozpozná případová a multioborová setkání ze všech použ
   assert.equal(isCaseMeetingDashboardRecord({ payload: { consultationType: 'multioborové setkání' } }), true);
   assert.equal(isCaseMeetingDashboardRecord({ payload: { type: 'Případové jednání' } }), true);
   assert.equal(isCaseMeetingDashboardRecord({ title: 'Případová konference' }), true);
+  assert.equal(isCaseMeetingDashboardRecord({
+    title: 'Případová konference',
+    payload: { consultationType: 'Koordinace podpory klienta' }
+  }), true);
   assert.equal(isCaseMeetingDashboardRecord({ payload: { consultationType: 'Koordinace podpory klienta' } }), false);
 });
 

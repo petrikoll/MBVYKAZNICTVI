@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildGeneratorRecord, getClientSupportBreakdown } from '../src/lib/projectUtils.js';
+import { buildGeneratorRecord, buildSupportMinutesByClient, getClientSupportBreakdown } from '../src/lib/projectUtils.js';
 
 test('souhrn podpory respektuje zadanou délku individuálního plánu', () => {
   const plan = buildGeneratorRecord({
@@ -44,4 +44,22 @@ test('starší plán bez uložené délky má zpětně kompatibilní výchozí h
   ]);
 
   assert.equal(summary.totalMinutes, 60);
+});
+
+test('dashboard používá stejný výpočet podpory jako profil klienta', () => {
+  const records = [
+    { id: 'old-plan', clientId: 'client-1', entityType: 'plans', payload: {} },
+    {
+      id: 'timed-support', clientId: 'client-1', entityType: 'consultations',
+      payload: { startTime: '09:00', endTime: '10:30' }
+    },
+    { id: 'actual-hours', clientId: 'client-1', entityType: 'employment_records', payload: { actualHours: 2 } },
+    { id: 'network', clientId: 'client-1', entityType: 'network_activities', payload: { durationMinutes: 600 } }
+  ];
+
+  const dashboardMinutes = buildSupportMinutesByClient(records).get('client-1');
+  const profileMinutes = getClientSupportBreakdown('client-1', records).totalMinutes;
+
+  assert.equal(dashboardMinutes, 270);
+  assert.equal(dashboardMinutes, profileMinutes);
 });

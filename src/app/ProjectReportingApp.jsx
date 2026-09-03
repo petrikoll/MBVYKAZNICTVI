@@ -101,6 +101,7 @@ import { buildClientSelectionPool } from '../lib/clientSelection.js';
 import { buildClientCaseAiPrompt, buildClientCaseSummaryPrintHtml, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
 import { buildDashboardControls } from '../lib/dashboardRisks.js';
 import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
+import { hoursToMinutes, isPositiveHoursValue } from '../lib/hours.js';
 import { buildIsEsfPersonExport, serializeIsEsfPersonCsv } from '../lib/isEsfExport.js';
 import { validateClientAddress } from '../lib/ruianAddress.js';
 import {
@@ -113,6 +114,7 @@ import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js
 import { isKa1SupportCombinationAllowed } from '../lib/ka01SupportRules.js';
 import { isBackupStatusActive } from '../lib/backupStatus.js';
 import { isTeamMeetingRecord } from '../lib/networkActivity.js';
+import { isDateWithinConfiguredPeriod, isDateWithinReportingPeriod } from '../lib/reportingPeriod.js';
 import {
   readSafeRecordIndex,
   readSafeStartupRecords,
@@ -136,6 +138,7 @@ import {
   buildAiStyleMemoryRecord,
   buildGeneratorRecord,
   buildStyleMemoryContext,
+  buildSupportMinutesByClient,
   buildIndicators,
   buildPartnerStats,
   buildKa02Record,
@@ -476,6 +479,11 @@ const CURRENT_ACTIVITY_ENTITY_TYPES = new Set([
   'job_simulators',
   'tpm_records',
   'employment_records'
+]);
+const DASHBOARD_DATE_VALIDATION_ENTITY_TYPES = new Set([
+  ...CURRENT_ACTIVITY_ENTITY_TYPES,
+  'education_records',
+  'supervision_records'
 ]);
 const ZOR_ACTIVITY_ENTITY_TYPES = new Set([
   ...CURRENT_ACTIVITY_ENTITY_TYPES,
@@ -1156,13 +1164,11 @@ function buildPreviousRecordsContext(records = []) {
 }
 
 function isDateWithinPeriod(dateValue, period) {
-  if (!period || period.value === 'all') return true;
-  if (!dateValue) return false;
-  const valueTime = parseDateForSort(dateValue);
-  const startTime = parseDateForSort(period.start);
-  const endTime = parseDateForSort(period.end);
-  if (!valueTime || !startTime || !endTime) return false;
-  return valueTime >= startTime && valueTime <= endTime;
+  return isDateWithinReportingPeriod(dateValue, period, {
+    projectStartDate: PROJECT_START_DATE,
+    projectEndDate: PROJECT_END_DATE,
+    referenceDate: todayIso()
+  });
 }
 
 function buildArchivedZorText() {
@@ -1478,18 +1484,6 @@ function buildKuStatisticsDocumentText(overview) {
   });
 
   return lines.join('\n');
-}
-
-function hoursToMinutes(value) {
-  if (value === null || value === undefined || value === '') return 0;
-  const text = String(value).trim();
-  const timeMatch = text.match(/^(\d{1,2}):(\d{2})$/);
-  if (timeMatch) {
-    const [, hours, minutes] = timeMatch;
-    return Number(hours) * 60 + Number(minutes);
-  }
-  const number = Number(text.replace(',', '.'));
-  return Number.isFinite(number) ? Math.round(number * 60) : 0;
 }
 
 function stringifyPlanGoals(goals) {
@@ -3313,6 +3307,15 @@ function App() {
     });
   }, [dashboardFilters, selectedReportingPeriod, shouldComputeIndicators, storedActivityRecords]);
 
+  const dateValidationRecords = useMemo(() => {
+    if (!shouldComputeIndicators) return [];
+    const dashboardDateRecords = records.filter((record) => DASHBOARD_DATE_VALIDATION_ENTITY_TYPES.has(record.entityType));
+    if (selectedReportingPeriod.value === 'all') return dashboardDateRecords;
+    return dashboardDateRecords.filter((record) => (
+      isDateWithinConfiguredPeriod(record.activityDate || '', selectedReportingPeriod)
+    ));
+  }, [records, selectedReportingPeriod, shouldComputeIndicators]);
+
   const isEsfSupportRecords = useMemo(
     () => isReportingViewActive
       ? getUniqueKa1ClientSupportRecords(
@@ -3417,14 +3420,12 @@ function App() {
         .trim();
 
     const filteredRecordsByClient = new Map(clients.map((client) => [client.id, []]));
-    const supportMinutesByClient = new Map();
+    const supportMinutesByClient = buildSupportMinutesByClient(filteredRecords);
     filteredRecords.forEach((record) => {
       const clientIds = Array.isArray(record.clientIds) ? record.clientIds : record.clientId ? [record.clientId] : [];
-      const minutes = Number(record.payload?.durationMinutes || 0);
       clientIds.forEach((clientId) => {
         if (!filteredRecordsByClient.has(clientId)) filteredRecordsByClient.set(clientId, []);
         filteredRecordsByClient.get(clientId).push(record);
-        if (minutes > 0) supportMinutesByClient.set(clientId, (supportMinutesByClient.get(clientId) || 0) + minutes);
       });
     });
 
@@ -3440,6 +3441,7 @@ function App() {
       clients,
       records,
       scopeRecords: filteredRecords,
+      dateValidationRecords,
       supportMinutesByClient,
       projectStartDate: PROJECT_START_DATE,
       projectEndDate: PROJECT_END_DATE,
@@ -3605,11 +3607,15 @@ function App() {
         supervisionTotalHours: roundHours(stats.supervisionTotalHours)
       };
     });
+    const today = todayIso();
+    const reportingReferenceDate = selectedReportingPeriod?.end && selectedReportingPeriod.end < today
+      ? selectedReportingPeriod.end
+      : today;
     const partnerStats = buildPartnerStats({
       records: filteredRecords,
       partners: records.filter((record) => record.entityType === 'actor_registry'),
       projectStartDate: PROJECT_START_DATE,
-      referenceDate: selectedReportingPeriod?.end || todayIso()
+      referenceDate: reportingReferenceDate
     });
     const activePartners = partnerStats.filter((partner) => partner.isActiveInProject);
 
@@ -3663,7 +3669,7 @@ function App() {
       ],
       risks
     };
-  }, [clients, filteredRecords, isReportingViewActive, professionalDevelopmentRecords, records, selectedReportingPeriod]);
+  }, [clients, dateValidationRecords, filteredRecords, isReportingViewActive, professionalDevelopmentRecords, records, selectedReportingPeriod]);
 
   const periodRecordsForZor = useMemo(
     () => isReportingViewActive
@@ -6779,9 +6785,9 @@ ${rawOutput}` }] }],
       educationDraft.worker3
     ].map((worker) => String(worker || '').trim()).filter(Boolean);
 
-    if (!date || !title || !hours || workers.length === 0) {
-      setSaveButtonNotice('education', 'error', 'Vzdělávání nebylo uloženo: doplňte všechna povinná pole.');
-      setFlash('Vyplň datum, počet hodin, název vzdělávání a alespoň prvního pracovníka.');
+    if (!date || !title || !isPositiveHoursValue(hours) || workers.length === 0) {
+      setSaveButtonNotice('education', 'error', 'Vzdělávání nebylo uloženo: doplňte datum, název, pracovníka a kladný počet hodin.');
+      setFlash('Vyplň datum, kladný počet hodin, název vzdělávání a alespoň prvního pracovníka.');
       return;
     }
 
@@ -6830,9 +6836,9 @@ ${rawOutput}` }] }],
       isIndividualSupervision ? '' : supervisionDraft.worker3
     ].map((worker) => String(worker || '').trim()).filter(Boolean);
 
-    if (!date || !hours || !type || workers.length === 0) {
-      setSaveButtonNotice('supervision', 'error', 'Supervize nebyla uložena: doplňte všechna povinná pole.');
-      setFlash('Vyplň datum, počet hodin, typ supervize a alespoň prvního pracovníka.');
+    if (!date || !isPositiveHoursValue(hours) || !type || workers.length === 0) {
+      setSaveButtonNotice('supervision', 'error', 'Supervize nebyla uložena: doplňte datum, typ, pracovníka a kladný počet hodin.');
+      setFlash('Vyplň datum, kladný počet hodin, typ supervize a alespoň prvního pracovníka.');
       return;
     }
 

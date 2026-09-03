@@ -131,7 +131,7 @@ const ProfessionalDevelopmentCard = ({ item }) => {
   );
 };
 
-const RiskControlRow = ({ risk }) => {
+const RiskControlRow = ({ risk, openUpward = false }) => {
   const issues = Array.isArray(risk.issues) ? risk.issues : [];
   const tooltipId = `risk-detail-${risk.key}`;
   const hasIssues = Number(risk.count || 0) > 0;
@@ -156,7 +156,7 @@ const RiskControlRow = ({ risk }) => {
       <div
         id={tooltipId}
         role="tooltip"
-        className="invisible absolute left-2 top-full z-50 mt-1 w-[min(42rem,calc(100vw-3rem))] translate-y-1 rounded-xl border border-amber-200 bg-white p-3 text-left opacity-0 shadow-xl transition sm:left-10 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus:visible group-focus:translate-y-0 group-focus:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100"
+        className={`invisible absolute left-2 z-50 w-[min(42rem,calc(100vw-3rem))] rounded-xl border border-amber-200 bg-white p-3 text-left opacity-0 shadow-xl transition sm:left-10 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus:visible group-focus:translate-y-0 group-focus:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100 ${openUpward ? 'bottom-full mb-1 -translate-y-1' : 'top-full mt-1 translate-y-1'}`}
       >
         <div className="mb-2 flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
           <strong className="text-xs text-slate-900">{risk.tooltipLabel || 'Klienti a zjištěné chyby'}</strong>
@@ -688,8 +688,12 @@ function ReportingView({
       <section>
         <h2 className="mb-3 flex items-center gap-1 text-base font-bold text-slate-900">Kontrolní upozornění <HelpIcon help={HELP.dashboardRisks} /></h2>
         <div className="divide-y divide-slate-200 rounded-lg border border-slate-300 bg-white">
-          {overview.risks.map((risk) => (
-            <RiskControlRow key={risk.key} risk={risk} />
+          {overview.risks.map((risk, index) => (
+            <RiskControlRow
+              key={risk.key}
+              risk={risk}
+              openUpward={index >= overview.risks.length - 3}
+            />
           ))}
         </div>
       </section>

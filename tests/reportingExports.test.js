@@ -58,4 +58,15 @@ test('kontrolní upozornění mají přístupný hover a focus detail klientů a
   assert.match(source, /group-focus:visible/);
   assert.match(source, /Klienti a zjištěné chyby/);
   assert.match(source, /Najeďte pro seznam klientů a chyb/);
+  assert.match(source, /openUpward=\{index >= overview\.risks\.length - 3\}/);
+  assert.match(source, /openUpward \? 'bottom-full mb-1 -translate-y-1' : 'top-full mt-1 translate-y-1'/);
+});
+
+test('dashboard používá sdílený výpočet hodin a bezpečný filtr vykazovaného období', () => {
+  assert.match(appSource, /buildSupportMinutesByClient\(filteredRecords\)/);
+  assert.match(appSource, /isDateWithinReportingPeriod\(dateValue, period/);
+});
+
+test('vzdělávání i supervize vyžadují kladný počet hodin', () => {
+  assert.equal(appSource.split('!isPositiveHoursValue(hours)').length - 1, 2);
 });

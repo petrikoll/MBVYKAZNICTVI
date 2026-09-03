@@ -354,6 +354,7 @@ function buildPartnerStats({ records = [], partners = [], projectStartDate = '',
   };
   const normalizeOrigin = (value) =>
     String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const normalizeName = (value) => normalizeOrigin(value).replace(/\s+/g, ' ');
   const makeRow = (partnerId, partner = {}) => ({
     partnerId,
     name: partner.payload?.name || partner.title || partnerId,
@@ -372,10 +373,17 @@ function buildPartnerStats({ records = [], partners = [], projectStartDate = '',
   cutoff.setDate(cutoff.getDate() - 89);
   const cutoffDate = cutoff.toISOString().slice(0, 10);
   const partnerMap = new Map();
+  const partnerIdsByName = new Map();
 
   partners.forEach((partner) => {
     const partnerId = String(partner?.id || '').trim();
-    if (partnerId) partnerMap.set(partnerId, makeRow(partnerId, partner));
+    if (!partnerId) return;
+    const row = makeRow(partnerId, partner);
+    partnerMap.set(partnerId, row);
+    const normalizedName = normalizeName(row.name);
+    if (!normalizedName) return;
+    if (!partnerIdsByName.has(normalizedName)) partnerIdsByName.set(normalizedName, new Set());
+    partnerIdsByName.get(normalizedName).add(partnerId);
   });
 
   const seenRecordIds = new Set();
@@ -383,9 +391,27 @@ function buildPartnerStats({ records = [], partners = [], projectStartDate = '',
     const recordId = String(record?.id || '').trim();
     if (recordId && seenRecordIds.has(recordId)) return;
     if (recordId) seenRecordIds.add(recordId);
-    const partnerIds = normalizeIds(record?.payload?.selectedPartnerIds || record?.payload?.partnerIds);
-    if (!partnerIds.length) return;
     const activityDate = normalizeDate(record.activityDate);
+    if (!activityDate) return;
+    if (normalizedStart && activityDate < normalizedStart) return;
+    if (activityDate > normalizedReference) return;
+
+    const payload = record?.payload || {};
+    const explicitPartnerIds = normalizeIds([
+      ...normalizeIds(payload.selectedPartnerIds),
+      ...normalizeIds(payload.partnerIds)
+    ]);
+    const partnerNames = normalizeIds([
+      ...normalizeIds(payload.registeredPartnerNames),
+      ...normalizeIds(payload.partnerNames),
+      ...normalizeIds(payload.partners)
+    ]);
+    const matchedPartnerIds = partnerNames.flatMap((name) => {
+      const matches = partnerIdsByName.get(normalizeName(name));
+      return matches?.size === 1 ? [...matches] : [];
+    });
+    const partnerIds = [...new Set([...explicitPartnerIds, ...matchedPartnerIds])];
+    if (!partnerIds.length) return;
 
     partnerIds.forEach((partnerId) => {
       const row = partnerMap.get(partnerId) || makeRow(partnerId);
@@ -415,7 +441,11 @@ function buildPartnerStats({ records = [], partners = [], projectStartDate = '',
           origin.includes('nove zapojen')
           && (!row.joinedNetworkDate || row.joinedNetworkDate <= normalizedReference)
         ),
-        isActiveLast90Days: isActiveInProject && Boolean(row.lastActivityDate && row.lastActivityDate >= cutoffDate)
+        isActiveLast90Days: isActiveInProject && Boolean(
+          row.lastActivityDate
+          && row.lastActivityDate >= cutoffDate
+          && row.lastActivityDate <= normalizedReference
+        )
       };
     })
     .sort((a, b) => b.totalActivityCount - a.totalActivityCount || a.name.localeCompare(b.name, 'cs'));
@@ -528,11 +558,19 @@ function getEffectiveRecordKa(record = {}) {
 const CASE_MEETING_DASHBOARD_NOTE = 'Načítá se ze záznamů odpovídajících aktivním filtrům dashboardu. Započítá se záznam, jehož Typ podpory, Typ aktivity nebo název obsahuje „případov…“ či „multiobor…“; typicky jde o KA2 – Case management (list Setkání).';
 
 function isCaseMeetingDashboardRecord(record = {}) {
-  const type = String(record.payload?.consultationType || record.payload?.type || record.title || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-  return type.includes('pripadov') || type.includes('multiobor');
+  return [
+    record.payload?.consultationType,
+    record.consultationType,
+    record.payload?.type,
+    record.type,
+    record.title
+  ].some((value) => {
+    const type = String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    return type.includes('pripadov') || type.includes('multiobor');
+  });
 }
 
 function buildGeneratorRecord({ client, generatorDraft, generatedText }) {
@@ -1068,6 +1106,7 @@ const CLIENT_SUPPORT_TYPE_META = [
   { key: 'tpm_records', label: 'Archivní aktivita' },
   { key: 'employment_records', label: 'Pracovní uplatnění' },
 ];
+const CLIENT_SUPPORT_ENTITY_TYPES = new Set(CLIENT_SUPPORT_TYPE_META.map((item) => item.key));
 
 function extractSupportMinutes(record) {
   const payload = record.payload || {};
@@ -1089,11 +1128,10 @@ function extractSupportMinutes(record) {
 }
 
 function getClientSupportBreakdown(clientId, records) {
-  const supportedEntityTypes = new Set(CLIENT_SUPPORT_TYPE_META.map((item) => item.key));
   const related = records.filter((record) => {
     const clientIds = Array.isArray(record.clientIds) ?record.clientIds : [];
     const belongsToClient = clientIds.includes(clientId) || record.clientId === clientId;
-    return belongsToClient && supportedEntityTypes.has(record.entityType);
+    return belongsToClient && CLIENT_SUPPORT_ENTITY_TYPES.has(record.entityType);
   });
 
   const byType = CLIENT_SUPPORT_TYPE_META.map((item) => {
@@ -1186,6 +1224,29 @@ function normalizeDocumentText(value, preserveLines = false) {
       .trim();
   }
   return text.replace(/\s+/g, ' ').trim();
+}
+
+function buildSupportMinutesByClient(records = []) {
+  const minutesByClientAndType = new Map();
+  records.forEach((record) => {
+    if (!CLIENT_SUPPORT_ENTITY_TYPES.has(record.entityType)) return;
+    const clientIds = Array.isArray(record.clientIds)
+      ? record.clientIds.filter(Boolean)
+      : record.clientId
+        ? [record.clientId]
+        : [];
+    const minutes = extractSupportMinutes(record);
+    if (minutes <= 0) return;
+    clientIds.forEach((clientId) => {
+      if (!minutesByClientAndType.has(clientId)) minutesByClientAndType.set(clientId, new Map());
+      const byType = minutesByClientAndType.get(clientId);
+      byType.set(record.entityType, (byType.get(record.entityType) || 0) + minutes);
+    });
+  });
+  return new Map(Array.from(minutesByClientAndType, ([clientId, byType]) => [
+    clientId,
+    Array.from(byType.values()).reduce((sum, minutes) => sum + Math.round(minutes), 0)
+  ]));
 }
 
 function buildDocxPayloadFromHtml(htmlContent, filename = 'dokument.docx') {
@@ -2045,6 +2106,7 @@ export {
   buildFallbackGeneratedText,
   extractGeminiText,
   cleanGeneratedText,
+  buildSupportMinutesByClient,
   getClientSupportBreakdown,
   getClientStats,
   buildAddress,

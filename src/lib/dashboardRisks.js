@@ -40,6 +40,13 @@ const SUPPORT_ENTITY_TYPES = new Set([
   'employment_records'
 ]);
 
+const DATE_VALIDATION_ENTITY_TYPES = new Set([
+  ...CLIENT_ACTIVITY_ENTITY_TYPES,
+  'network_activities',
+  'education_records',
+  'supervision_records'
+]);
+
 const hasValue = (value) => String(value ?? '').trim().length > 0;
 
 const clientName = (client = {}) => (
@@ -116,25 +123,6 @@ const formatDate = (value) => {
   return `${Number(day)}. ${Number(month)}. ${year}`;
 };
 
-const timeToMinutes = (value) => {
-  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 ? hours * 60 + minutes : null;
-};
-
-const recordMinutes = (record = {}) => {
-  const payload = record.payload || {};
-  const start = timeToMinutes(payload.startTime || payload.ka02StartTime);
-  const end = timeToMinutes(payload.endTime || payload.ka02EndTime);
-  if (start !== null && end !== null && start !== end) return end > start ? end - start : end + 24 * 60 - start;
-  const duration = Number(payload.durationMinutes);
-  if (Number.isFinite(duration) && duration > 0) return duration;
-  const actualHours = Number(payload.actualHours);
-  return Number.isFinite(actualHours) && actualHours > 0 ? actualHours * 60 : 0;
-};
-
 const isDepistageRecord = (record = {}) => [
   record.payload?.consultationType,
   record.consultationType,
@@ -181,6 +169,7 @@ function buildDashboardControls({
   clients = [],
   records = [],
   scopeRecords = records,
+  dateValidationRecords = scopeRecords,
   supportMinutesByClient = new Map(),
   projectStartDate = '',
   projectEndDate = '',
@@ -257,39 +246,6 @@ function buildDashboardControls({
       index
     ));
 
-  const beforeEntryIssues = scopedSupportRecords.flatMap((record, index) => {
-    const activityDate = normalizeDate(record.activityDate);
-    if (!activityDate) return [];
-    return recordClientIds(record).flatMap((clientId) => {
-      const client = clientIndex.get(clientId);
-      const entryDate = normalizeDate(client?.datumVstupu || client?.datumZarazeni);
-      if (!client || !entryDate || activityDate >= entryDate) return [];
-      return [recordIssueFor(
-        record,
-        clientIndex,
-        [`Výkon je evidovaný před vstupem klienta do projektu (${formatDate(entryDate)}).`],
-        'before-entry',
-        index,
-        client
-      )];
-    });
-  });
-
-  const incompleteRecordIssues = scopedSupportRecords.flatMap((record, index) => {
-    const payload = record.payload || {};
-    const errors = [];
-    if (!normalizeDate(record.activityDate)) errors.push('Chybí nebo není platné datum výkonu.');
-    if (!hasValue(record.worker)) errors.push('Chybí pracovník.');
-    if (recordMinutes(record) <= 0) errors.push('Chybí nebo není platná délka výkonu.');
-    if (record.entityType === 'consultations') {
-      if (!hasValue(payload.supportArea)) errors.push('Chybí oblast podpory.');
-      if (!hasValue(payload.place || payload.ka02Place)) errors.push('Chybí forma poskytování.');
-      const hasPhysicalRecord = Boolean(payload.supportSpecific?.physicalSignedFiled);
-      if (!hasPhysicalRecord && !hasValue(payload.outcome)) errors.push('Chybí výsledek nebo vyhodnocení výkonu.');
-    }
-    return errors.length ? [recordIssueFor(record, clientIndex, errors, 'incomplete', index)] : [];
-  });
-
   const missingGoalLinkIssues = scopedSupportRecords.flatMap((record, index) => {
     if (isDepistageRecord(record) || recordClientIds(record).length === 0) return [];
     const payload = record.payload || {};
@@ -354,28 +310,38 @@ function buildDashboardControls({
   const normalizedProjectStart = normalizeDate(projectStartDate);
   const normalizedProjectEnd = normalizeDate(projectEndDate);
   const normalizedReferenceDate = normalizeDate(referenceDate);
-  const suspiciousDateIssues = scopedClientActivities.flatMap((record, index) => {
-    const activityDate = normalizeDate(record.activityDate);
-    if (!activityDate) return [];
-    const errors = [];
-    if (normalizedProjectStart && activityDate < normalizedProjectStart) {
-      errors.push(`Datum záznamu je před zahájením projektu (${formatDate(normalizedProjectStart)}).`);
-    }
-    if (normalizedProjectEnd && activityDate > normalizedProjectEnd) {
-      errors.push(`Datum záznamu je po skončení projektu (${formatDate(normalizedProjectEnd)}).`);
-    }
-    if (normalizedReferenceDate && activityDate > normalizedReferenceDate) {
-      errors.push(`Datum záznamu je v budoucnosti vůči dnešnímu dni (${formatDate(normalizedReferenceDate)}).`);
-    }
-    recordClientIds(record).forEach((clientId) => {
-      const client = clientIndex.get(clientId);
-      const exitDate = normalizeDate(client?.datumVystupu);
-      if (client && exitDate && activityDate > exitDate) {
-        errors.push(`Záznam je po ukončení účasti klienta ${clientName(client)} (${formatDate(exitDate)}).`);
+  const suspiciousDateIssues = dateValidationRecords
+    .filter((record) => DATE_VALIDATION_ENTITY_TYPES.has(record.entityType))
+    .flatMap((record, index) => {
+      const activityDate = normalizeDate(record.activityDate);
+      if (!activityDate) {
+        return [recordIssueFor(
+          record,
+          clientIndex,
+          ['Záznam nemá platné datum a není započten do dashboardu.'],
+          'suspicious-date',
+          index
+        )];
       }
+      const errors = [];
+      if (normalizedProjectStart && activityDate < normalizedProjectStart) {
+        errors.push(`Datum záznamu je před zahájením projektu (${formatDate(normalizedProjectStart)}).`);
+      }
+      if (normalizedProjectEnd && activityDate > normalizedProjectEnd) {
+        errors.push(`Datum záznamu je po skončení projektu (${formatDate(normalizedProjectEnd)}).`);
+      }
+      if (normalizedReferenceDate && activityDate > normalizedReferenceDate) {
+        errors.push(`Datum záznamu je v budoucnosti vůči dnešnímu dni (${formatDate(normalizedReferenceDate)}).`);
+      }
+      recordClientIds(record).forEach((clientId) => {
+        const client = clientIndex.get(clientId);
+        const exitDate = normalizeDate(client?.datumVystupu);
+        if (client && exitDate && activityDate > exitDate) {
+          errors.push(`Záznam je po ukončení účasti klienta ${clientName(client)} (${formatDate(exitDate)}).`);
+        }
+      });
+      return errors.length ? [recordIssueFor(record, clientIndex, errors, 'suspicious-date', index)] : [];
     });
-    return errors.length ? [recordIssueFor(record, clientIndex, errors, 'suspicious-date', index)] : [];
-  });
 
   const risks = [
     { key: 'near-40', label: 'Klienti blízko 40 hodin', detail: '30–39,99 hodiny podpory', issues: near40Issues },
@@ -384,8 +350,6 @@ function buildDashboardControls({
     { key: 'missing-plan', label: 'Chybí individuální plán u 40+', detail: 'Riziko pro doložení dlouhodobé podpory', issues: missingPlanIssues },
     { key: 'missing-evaluation', label: 'Chybí vyhodnocení cíle', detail: 'Uzavřený cíl nemá slovní vyhodnocení', issues: missingEvaluationIssues },
     { key: 'record-without-client', label: 'Záznam bez přiřazeného klienta', detail: 'Nelze jej spolehlivě zahrnout do hodin a indikátorů', issues: recordsWithoutClientIssues, tooltipLabel: 'Nepřiřazené záznamy a chyby' },
-    { key: 'before-entry', label: 'Výkon před vstupem klienta', detail: 'Datum výkonu předchází datu vstupu do projektu', issues: beforeEntryIssues, tooltipLabel: 'Problematické výkony a klienti' },
-    { key: 'incomplete-record', label: 'Neúplný výkon', detail: 'Chybí některý z povinných údajů výkonu', issues: incompleteRecordIssues, tooltipLabel: 'Neúplné výkony a chyby' },
     { key: 'missing-goal-link', label: 'Výkon bez platné vazby na cíl IPR', detail: 'Nevztahuje se na depistáž a jednorázovou zakázku', issues: missingGoalLinkIssues, tooltipLabel: 'Výkony, klienti a chyby vazby' },
     { key: 'plan-without-goals', label: 'Individuální plán bez cílů', detail: 'Plán neobsahuje žádný konkrétní cíl', issues: planWithoutGoalsIssues },
     { key: 'multiple-plans', label: 'Více individuálních plánů klienta', detail: 'Je nutné ověřit, který plán je aktuální', issues: multiplePlansIssues },

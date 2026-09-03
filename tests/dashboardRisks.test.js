@@ -22,7 +22,7 @@ const completeClient = (overrides = {}) => ({
   ...overrides
 });
 
-test('dashboard vrací všech třináct kontrol a ke každému nálezu konkrétního klienta i chyby', () => {
+test('dashboard vrací všech jedenáct kontrol a ke každému nálezu konkrétního klienta i chyby', () => {
   const clients = [
     completeClient({ id: 'near', fullName: 'Anna Blízká' }),
     completeClient({ id: 'long', fullName: 'Boris Dlouhý', monitoringListUrl: '', pohlavi: '' }),
@@ -60,8 +60,6 @@ test('dashboard vrací všech třináct kontrol a ke každému nálezu konkrétn
     'missing-plan',
     'missing-evaluation',
     'record-without-client',
-    'before-entry',
-    'incomplete-record',
     'missing-goal-link',
     'plan-without-goals',
     'multiple-plans',
@@ -93,7 +91,7 @@ test('dashboard vrací všech třináct kontrol a ke každému nálezu konkrétn
   assert.equal(result.shortEligible.length, 2);
 });
 
-test('osm nových kontrol odhalí konkrétní chybné záznamy a plány bez falešné vazby u jednorázové zakázky', () => {
+test('šest nových kontrol odhalí konkrétní chybné záznamy a plány bez falešné vazby u jednorázové zakázky', () => {
   const clients = [
     completeClient({ id: 'before', fullName: 'Předčasný Klient', datumVstupu: '2026-08-10' }),
     completeClient({ id: 'incomplete', fullName: 'Neúplná Klientka' }),
@@ -166,10 +164,8 @@ test('osm nových kontrol odhalí konkrétní chybné záznamy a plány bez fale
 
   assert.equal(byKey['record-without-client'].count, 1);
   assert.equal(byKey['record-without-client'].issues[0].clientName, 'Bez přiřazeného klienta');
-  assert.equal(byKey['before-entry'].count, 1);
-  assert.equal(byKey['before-entry'].issues[0].clientName, 'Předčasný Klient');
-  assert.equal(byKey['incomplete-record'].count, 1);
-  assert.equal(byKey['incomplete-record'].issues[0].errors.length, 5);
+  assert.equal(byKey['before-entry'], undefined);
+  assert.equal(byKey['incomplete-record'], undefined);
   assert.equal(byKey['missing-goal-link'].count, 1);
   assert.equal(byKey['missing-goal-link'].issues[0].clientName, 'Nevázaný Klient');
   assert.equal(byKey['plan-without-goals'].count, 1);
@@ -213,6 +209,33 @@ test('kontrola chybějícího plánu zahrne každého klienta 40+ právě jednou
   assert.equal(risk.count, 2);
   assert.deepEqual(risk.issues.map((issue) => issue.clientName), ['První klient', 'Druhý klient']);
   assert.ok(risk.issues.every((issue) => issue.errors[0] === 'Chybí individuální plán rozvoje.'));
+});
+
+test('kontrola data dál ukáže nezapočtený záznam bez data a budoucí záznam', () => {
+  const client = completeClient({ id: 'dated', fullName: 'Datumový Klient' });
+  const validScopeRecord = {
+    id: 'valid', entityType: 'consultations', clientId: 'dated', clientIds: ['dated'],
+    activityDate: '2026-08-01', payload: { durationMinutes: 60, linkedPlanGoalId: 'one-time-order' }
+  };
+  const result = buildDashboardControls({
+    clients: [client],
+    records: [validScopeRecord],
+    scopeRecords: [validScopeRecord],
+    dateValidationRecords: [
+      { ...validScopeRecord, id: 'missing-date', activityDate: '' },
+      { ...validScopeRecord, id: 'future-date', activityDate: '2026-10-01' },
+      { id: 'future-education', entityType: 'education_records', activityDate: '2026-10-02', payload: { hours: '2' } }
+    ],
+    projectStartDate: '2026-07-01',
+    projectEndDate: '2028-06-30',
+    referenceDate: '2026-09-03'
+  });
+  const risk = result.risks.find((item) => item.key === 'suspicious-date');
+
+  assert.equal(risk.count, 3);
+  assert.match(risk.issues[0].errors[0], /nemá platné datum/);
+  assert.match(risk.issues[1].errors[0], /v budoucnosti/);
+  assert.match(risk.issues[2].errors[0], /v budoucnosti/);
 });
 
 test('definice polí odpovídají kritériím obou indikátorů', () => {
