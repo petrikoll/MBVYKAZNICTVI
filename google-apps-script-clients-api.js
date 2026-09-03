@@ -664,7 +664,8 @@ function doPost(e) {
 
 function authorizeOnce() {
   authorizeBackupTriggers();
-  const spreadsheet = SpreadsheetApp.openById(CONFIG.spreadsheetId);
+  const spreadsheet = getSpreadsheet_();
+  const spreadsheetId = spreadsheet.getId();
   spreadsheet.getName();
   configureWriteSheetFormats_(spreadsheet);
   if (CONFIG.monitoringTemplateFileId) DriveApp.getFileById(CONFIG.monitoringTemplateFileId).getName();
@@ -675,7 +676,7 @@ function authorizeOnce() {
   testFolder.setTrashed(true);
   const testDoc = DocumentApp.create('__opravneni_test_zapis__');
   DriveApp.getFileById(testDoc.getId()).setTrashed(true);
-  UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + CONFIG.spreadsheetId + '?fields=id', {
+  UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + spreadsheetId + '?fields=id', {
     headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
     muteHttpExceptions: true
   });
@@ -689,12 +690,16 @@ function authorizeBackupTriggers() {
   return triggers.length;
 }
 
-function getSpreadsheet_() {
-  const spreadsheetId = String(
+function getConfiguredSpreadsheetId_() {
+  return String(
     PropertiesService.getScriptProperties().getProperty(SPREADSHEET_ID_PROPERTY_)
       || CONFIG.spreadsheetId
       || ''
   ).trim();
+}
+
+function getSpreadsheet_() {
+  const spreadsheetId = getConfiguredSpreadsheetId_();
   return spreadsheetId
     ? SpreadsheetApp.openById(spreadsheetId)
     : SpreadsheetApp.getActive();
@@ -3225,7 +3230,7 @@ function installSpreadsheetEditTrigger() {
   if (existing) return 'Trigger onEdit uz je nainstalovany.';
 
   ScriptApp.newTrigger('onEdit')
-    .forSpreadsheet(CONFIG.spreadsheetId)
+    .forSpreadsheet(getSpreadsheet_())
     .onEdit()
     .create();
   return 'Trigger onEdit byl nainstalovany.';
@@ -4197,18 +4202,20 @@ function createFullBackup_(runtime) {
   const zipName = buildBackupFileName_(generatedAt);
   const blobs = [];
   const usedArchivePaths = {};
+  const spreadsheet = getSpreadsheet_();
+  const spreadsheetId = spreadsheet.getId();
   const manifest = {
     schemaVersion: 1,
     generatedAt: generatedAt.toISOString(),
     projectName: CONFIG.projectName,
     projectCode: CONFIG.projectCode,
-    spreadsheetId: CONFIG.spreadsheetId,
+    spreadsheetId: spreadsheetId,
     clientFoldersRootId: CONFIG.clientFoldersRootId,
     files: [],
     errors: []
   };
 
-  const spreadsheetFile = DriveApp.getFileById(CONFIG.spreadsheetId);
+  const spreadsheetFile = DriveApp.getFileById(spreadsheetId);
   addFileToBackup_(spreadsheetFile, 'hlavni-tabulka', blobs, manifest, usedArchivePaths, runtime);
 
   const clientRoot = getClientFolderParent_();

@@ -48,6 +48,15 @@ test('produkční ID tabulky z vlastností skriptu má přednost před vývojov�
   assert.equal(spreadsheet.id, 'PRODUCTION-SHEET-ID');
 });
 
+test('všechny provozní cesty používají jednotný resolver ID tabulky', () => {
+  const directConfigReferences = source.match(/CONFIG\.spreadsheetId/g) || [];
+  assert.equal(directConfigReferences.length, 1);
+  assert.match(source, /function getConfiguredSpreadsheetId_\(\)/);
+  assert.match(source, /function authorizeOnce\(\)[\s\S]*?const spreadsheet = getSpreadsheet_\(\)/);
+  assert.match(source, /function installSpreadsheetEditTrigger\(\)[\s\S]*?\.forSpreadsheet\(getSpreadsheet_\(\)\)/);
+  assert.match(source, /function createFullBackup_\(runtime\)[\s\S]*?const spreadsheet = getSpreadsheet_\(\)/);
+});
+
 test('české datum se pro API vždy normalizuje na ISO a neobrátí den s měsícem', () => {
   assert.equal(context.formatDateValue_('3/7/2026'), '2026-07-03');
   assert.equal(context.formatDateValue_('2026-07-03T10:15:00.000Z'), '2026-07-03');
