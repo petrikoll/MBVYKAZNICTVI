@@ -56,4 +56,8 @@ test('XLSX sešit obsahuje oba základní listy', async () => {
   assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), ['Podrobné výkony', 'Klienti a podpora']);
   assert.equal(result.performanceCount, 3);
   assert.equal(result.clientCount, 2);
+  assert.ok(workbook.getWorksheet('Podrobné výkony').getCell('A5').value instanceof Date);
+  assert.equal(workbook.getWorksheet('Podrobné výkony').getCell('A5').numFmt, 'dd.mm.yyyy');
+  assert.equal(workbook.getWorksheet('Podrobné výkony').pageSetup.fitToWidth, 1);
+  assert.equal(workbook.getWorksheet('Podrobné výkony').pageSetup.orientation, 'landscape');
 });

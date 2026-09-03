@@ -9,7 +9,8 @@ import {
   contactsFromSheetRow,
   createEmptyActorContact,
   nextActorContactId,
-  normalizeActorContacts
+  normalizeActorContacts,
+  paginateAttendanceParticipants
 } from '../src/lib/actorContacts.js';
 
 test('starý záznam s jedním kontaktem zůstane podporovaný', () => {
@@ -124,4 +125,27 @@ test('nadpisy prezenční listiny neobsahují označení KA a volba jiné nabíz
   assert.equal(attendanceSheetTitle('meeting'), 'Prezenční listina – porada');
   assert.match(attendanceSheetTitle('other'), /^Prezenční listina – \.{20,}$/);
   ATTENDANCE_SHEET_TYPE_OPTIONS.forEach((option) => assert.doesNotMatch(attendanceSheetTitle(option.value), /\bKA\d*\b/i));
+});
+
+test('vícestránková prezenční listina rozděluje řádky bez překryvu a zachová pořadí', () => {
+  const participants = Array.from({ length: 40 }, (_, index) => ({
+    firstName: `Jméno ${index + 1}`,
+    lastName: `Příjmení ${index + 1}`,
+    organization: 'Organizace',
+    role: 'Role'
+  }));
+  const pages = paginateAttendanceParticipants(participants);
+
+  assert.deepEqual(pages.map((page) => page.length), [22, 18]);
+  assert.equal(pages[0][21].order, '22');
+  assert.equal(pages[1][0].order, '23');
+  assert.equal(pages[1][17].order, '40');
+});
+
+test('krátká prezenční listina doplní patnáct řádků na jednu stránku', () => {
+  const pages = paginateAttendanceParticipants([{ firstName: 'Jan', lastName: 'Novák' }]);
+  assert.equal(pages.length, 1);
+  assert.equal(pages[0].length, 15);
+  assert.equal(pages[0][0].firstName, 'Jan');
+  assert.equal(pages[0][14].firstName, '');
 });

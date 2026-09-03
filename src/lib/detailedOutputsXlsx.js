@@ -16,6 +16,12 @@ const isTelephoneRecord = (record) => normalize(record?.payload?.place).includes
 
 const roundHours = (minutes) => Math.round((Number(minutes || 0) / 60) * 100) / 100;
 
+const excelDateFromIso = (value) => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value || '';
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+};
+
 function buildDetailedOutputRows(records = [], clients = []) {
   const clientIndex = new Map(clients.map((client) => [client.id, client]));
   const detailedRows = records.map((record) => {
@@ -110,6 +116,18 @@ const styleWorksheet = (sheet, widths) => {
       row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
     }
   });
+  sheet.pageSetup = {
+    paperSize: 9,
+    orientation: widths.length > 6 ? 'landscape' : 'portrait',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    horizontalCentered: true,
+    margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
+    printArea: `A1:${sheet.getColumn(widths.length).letter}${Math.max(sheet.rowCount, 4)}`,
+    printTitlesRow: '1:4'
+  };
+  sheet.properties.pageSetUpPr = { fitToPage: true, autoPageBreaks: false };
 };
 
 function addTitle(sheet, title, filterLabel, columnCount) {
@@ -139,11 +157,12 @@ async function buildDetailedOutputsXlsx({ records = [], clients = [], filterLabe
   addTitle(detailSheet, 'Podrobný přehled výkonů', filterLabel, detailHeaders.length);
   detailSheet.addRow(detailHeaders);
   detailedRows.forEach((row) => detailSheet.addRow([
-    row.date, row.startTime, row.endTime, row.durationHours, row.ka, row.worker, row.clients,
+    excelDateFromIso(row.date), row.startTime, row.endTime, row.durationHours, row.ka, row.worker, row.clients,
     row.consultationType, row.supportArea, row.deliveryForm, row.linkedGoal, row.description,
     row.outcome, row.nextSteps, row.outreachComment, row.partners, row.documentText
   ]));
   styleWorksheet(detailSheet, [12, 9, 9, 12, 8, 24, 28, 28, 20, 19, 28, 42, 38, 38, 38, 38, 60]);
+  detailSheet.getColumn(1).numFmt = 'dd.mm.yyyy';
   detailSheet.getColumn(4).numFmt = '0.00';
 
   const clientSheet = workbook.addWorksheet('Klienti a podpora');

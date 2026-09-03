@@ -15,8 +15,7 @@ export const buildWorkReportWorkbook = async ({
   if (!worksheet) throw new Error("Šablona neobsahuje pracovní list.");
 
   const setCell = (address, value) => { worksheet.getCell(address).value = value; };
-  const pad = (value) => String(value).padStart(2, "0");
-  const monthEnd = `${pad(new Date(period.year, period.month, 0).getDate())}.${pad(period.month)}.${period.year}`;
+  const monthEnd = new Date(Date.UTC(period.year, period.month, 0));
 
   setCell("C7", settings.projectName);
   setCell("G7", workingDays * 8);
@@ -55,6 +54,20 @@ export const buildWorkReportWorkbook = async ({
   setCell("G41", workedHours + vacationHours);
   setCell("C44", monthEnd);
   setCell("C45", monthEnd);
+  worksheet.getCell("C44").numFmt = "dd.mm.yyyy";
+  worksheet.getCell("C45").numFmt = "dd.mm.yyyy";
+  worksheet.pageSetup = {
+    ...worksheet.pageSetup,
+    paperSize: 9,
+    orientation: "portrait",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 1,
+    scale: undefined,
+    horizontalCentered: true,
+    printArea: "A1:G45",
+  };
+  worksheet.properties.pageSetUpPr = { fitToPage: true, autoPageBreaks: false };
 
   return workbook;
 };

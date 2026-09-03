@@ -91,4 +91,13 @@ test('automatický monitoring lze exportovat do XLSX', async () => {
   const result = await buildMandatoryMonitoringXlsx({ clients, workRecords });
   assert.equal(result.summary.find((item) => item.key === 'independentSolution')?.count, 1);
   assert.ok(result.buffer.byteLength > 0);
+  const ExcelModule = await import('exceljs');
+  const ExcelJS = ExcelModule.default || ExcelModule;
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(result.buffer);
+  const detailSheet = workbook.getWorksheet('Započtené osoby');
+  assert.ok(detailSheet.getCell('E2').value instanceof Date);
+  assert.equal(detailSheet.getCell('E2').numFmt, 'dd.mm.yyyy');
+  assert.equal(detailSheet.pageSetup.fitToWidth, 1);
+  assert.equal(detailSheet.pageSetup.orientation, 'landscape');
 });

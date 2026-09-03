@@ -1172,22 +1172,135 @@ function downloadCsv(headers, rows, filename) {
   downloadHref(href, filename);
 }
 
-function downloadHtmlDocument(htmlContent, filename) {
-  const rawHtml = String(htmlContent || '');
-  let normalizedHtml = rawHtml;
-
-  if (/<meta[^>]*charset=/i.test(normalizedHtml)) {
-    normalizedHtml = normalizedHtml.replace(/<meta[^>]*charset=[^>]*>/i, '<meta charset="utf-8" />');
-  } else if (/<head[^>]*>/i.test(normalizedHtml)) {
-    normalizedHtml = normalizedHtml.replace(/<head[^>]*>/i, '$&\n<meta charset="utf-8" />');
-  } else {
-    normalizedHtml = `<!DOCTYPE html><html><head><meta charset="utf-8" /></head><body>${normalizedHtml}</body></html>`;
+function normalizeDocumentText(value, preserveLines = false) {
+  const text = String(value || '').replace(/\u00a0/g, ' ').replace(/\r\n/g, '\n');
+  if (preserveLines) {
+    return text
+      .split('\n')
+      .map((line) => line.replace(/[\t ]+/g, ' ').trim())
+      .filter((line, index, lines) => line || (index > 0 && lines[index - 1]))
+      .join('\n')
+      .trim();
   }
+  return text.replace(/\s+/g, ' ').trim();
+}
 
-  const blob = new Blob([`\ufeff${normalizedHtml}`], { type: 'application/msword;charset=utf-8' });
+function buildDocxPayloadFromHtml(htmlContent, filename = 'dokument.docx') {
+  if (typeof DOMParser === 'undefined') throw new Error('Prohlížeč nepodporuje převod dokumentu do DOCX.');
+  const parsed = new DOMParser().parseFromString(String(htmlContent || ''), 'text/html');
+  parsed.querySelectorAll('script, style, noscript').forEach((node) => node.remove());
+  const titleElement = parsed.querySelector('h1');
+  const title = normalizeDocumentText(titleElement?.textContent || parsed.title || 'Dokument');
+  const blocks = [];
+  let widestTable = 0;
+
+  const addBlock = (block) => {
+    if (!block) return;
+    if (block.type !== 'table' && !normalizeDocumentText(block.text, true)) return;
+    const previous = blocks[blocks.length - 1];
+    if (previous && block.type !== 'table' && previous.type === block.type && previous.text === block.text) return;
+    blocks.push(block);
+  };
+
+  const addMetadataTable = (element) => {
+    const rows = Array.from(element.children)
+      .filter((child) => child.tagName === 'DIV')
+      .map((child) => {
+        const labelElement = child.querySelector('.label, span');
+        const label = normalizeDocumentText(labelElement?.textContent || 'Údaj');
+        const fullText = normalizeDocumentText(child.textContent);
+        const value = normalizeDocumentText(fullText.startsWith(label) ? fullText.slice(label.length) : fullText);
+        return [label, value || 'Neuvedeno'];
+      })
+      .filter((row) => row.some(Boolean));
+    if (rows.length) {
+      widestTable = Math.max(widestTable, 2);
+      addBlock({ type: 'table', rows, headerRows: 0 });
+    }
+  };
+
+  const visit = (element) => {
+    if (!element || element.nodeType !== 1) return;
+    const tag = element.tagName.toLowerCase();
+    const classList = element.classList;
+    if (element === titleElement) return;
+    if (classList.contains('kicker') || classList.contains('record-index')) return;
+
+    if (/^h[2-4]$/.test(tag)) {
+      addBlock({ type: 'heading', level: Number(tag.slice(1)), text: normalizeDocumentText(element.textContent) });
+      return;
+    }
+    if (tag === 'h1') {
+      addBlock({ type: 'heading', level: 2, text: normalizeDocumentText(element.textContent) });
+      return;
+    }
+    if (tag === 'table') {
+      const rows = Array.from(element.querySelectorAll('tr')).map((row) =>
+        Array.from(row.children)
+          .filter((cell) => cell.matches('th, td'))
+          .map((cell) => normalizeDocumentText(cell.textContent, true))
+      ).filter((row) => row.some(Boolean));
+      if (rows.length) {
+        widestTable = Math.max(widestTable, ...rows.map((row) => row.length));
+        const headerRows = element.querySelector('thead') ? element.querySelectorAll('thead tr').length : 0;
+        addBlock({ type: 'table', rows, headerRows });
+      }
+      return;
+    }
+    if (classList.contains('meta') || classList.contains('record-meta-grid') || (classList.contains('client-meta') && element.querySelector(':scope > div'))) {
+      addMetadataTable(element);
+      return;
+    }
+    if (classList.contains('date-place') || classList.contains('signature-grid')) {
+      const cells = Array.from(element.children).map((child) => normalizeDocumentText(child.textContent)).filter(Boolean);
+      if (cells.length) {
+        widestTable = Math.max(widestTable, cells.length);
+        addBlock({ type: 'table', rows: [cells], headerRows: 0 });
+      }
+      return;
+    }
+    if (tag === 'p' || tag === 'pre' || classList.contains('text-box') || classList.contains('record-text') || classList.contains('goal-title') || (classList.contains('client-meta') && !element.querySelector(':scope > div'))) {
+      addBlock({ type: 'paragraph', text: normalizeDocumentText(element.textContent, tag === 'pre' || classList.contains('text-box') || classList.contains('record-text')) });
+      return;
+    }
+    if (classList.contains('goal-heading')) {
+      addBlock({ type: 'heading', level: 3, text: normalizeDocumentText(element.textContent) });
+      return;
+    }
+
+    const children = Array.from(element.children);
+    if (!children.length) {
+      addBlock({ type: 'paragraph', text: normalizeDocumentText(element.textContent) });
+      return;
+    }
+    children.forEach(visit);
+  };
+
+  visit(parsed.body);
+  return {
+    filename: String(filename || 'dokument.docx').replace(/\.doc$/i, '.docx'),
+    title,
+    orientation: widestTable >= 6 ? 'landscape' : 'portrait',
+    blocks
+  };
+}
+
+async function downloadHtmlDocument(htmlContent, filename) {
+  const payload = buildDocxPayloadFromHtml(htmlContent, filename);
+  const response = await fetch('/api/export-record-docx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.error || 'Export dokumentu do DOCX selhal.');
+  }
+  const blob = await response.blob();
   const href = window.URL.createObjectURL(blob);
-  downloadHref(href, filename);
+  downloadHref(href, payload.filename);
   window.setTimeout(() => window.URL.revokeObjectURL(href), 4000);
+  return payload.filename;
 }
 
 function buildDriveUploadPayload(record, client) {
@@ -1800,7 +1913,11 @@ function buildClientFolderHtml(client, timeline) {
       return `
         <section style="margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #e2e8f0;">
           <h2 style="font-size:18px;margin-bottom:8px;">${escapeHtml(record.title || 'Aktivita')}</h2>
-          <p style="color:#64748b;font-size:12px;">${escapeHtml(record.activityDate || '')} | ${escapeHtml(record.ka || '')} | ${escapeHtml(record.worker || '')}</p>
+          <p style="color:#64748b;font-size:12px;">${escapeHtml([
+            formatRecordExportDate(record.activityDate),
+            record.ka,
+            record.worker
+          ].filter(Boolean).join(' | '))}</p>
           <pre style="white-space:pre-wrap;font-family:Arial, sans-serif;font-size:13px;line-height:1.6;">${escapeHtml(
             record.entityType === 'plans' ? buildPlanExportText(record, client) : record.documentText || JSON.stringify(record.payload || {}, null, 2)
           )}</pre>
@@ -1843,7 +1960,7 @@ function buildMonitoringBundleHtml({ indicators, records, clients }) {
     .map(
       (record) => `
       <tr>
-        <td style="padding:8px;border:1px solid #cbd5e1;">${escapeHtml(record.activityDate || '')}</td>
+        <td style="padding:8px;border:1px solid #cbd5e1;">${escapeHtml(formatRecordExportDate(record.activityDate) || '')}</td>
         <td style="padding:8px;border:1px solid #cbd5e1;">${escapeHtml(record.ka || '')}</td>
         <td style="padding:8px;border:1px solid #cbd5e1;">${escapeHtml(record.entityType || '')}</td>
         <td style="padding:8px;border:1px solid #cbd5e1;">${escapeHtml(record.clientName || '')}</td>
@@ -1931,6 +2048,7 @@ export {
   truncate,
   copyToClipboard,
   downloadCsv,
+  buildDocxPayloadFromHtml,
   downloadHtmlDocument,
   buildDriveUploadPayload,
   buildDriveProvisionPayload,

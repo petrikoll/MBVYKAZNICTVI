@@ -158,11 +158,30 @@ function buildAttendanceParticipants(records = [], selection = {}) {
   });
 }
 
+function paginateAttendanceParticipants(participants = [], { minimumRows = 15, rowsPerPage = 22 } = {}) {
+  const safeRowsPerPage = Math.max(1, Number(rowsPerPage) || 22);
+  const totalRows = Math.max(Math.max(0, Number(minimumRows) || 0), participants.length);
+  const rows = Array.from({ length: totalRows }, (_, index) => {
+    const participant = participants[index];
+    return {
+      order: String(index + 1),
+      firstName: participant?.firstName || '',
+      lastName: participant?.lastName || '',
+      organization: participant?.organization || '',
+      role: participant?.role || ''
+    };
+  });
+  return Array.from({ length: Math.ceil(rows.length / safeRowsPerPage) }, (_, pageIndex) =>
+    rows.slice(pageIndex * safeRowsPerPage, (pageIndex + 1) * safeRowsPerPage)
+  );
+}
+
 export {
   ATTENDANCE_SHEET_TYPE_OPTIONS,
   actorContactsToSheetFields,
   attendanceSheetTitle,
   buildAttendanceParticipants,
+  paginateAttendanceParticipants,
   contactsFromSheetRow,
   createEmptyActorContact,
   isAttendanceReadyContact,

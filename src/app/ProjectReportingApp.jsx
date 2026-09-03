@@ -93,6 +93,7 @@ import {
   createEmptyActorContact,
   isAttendanceReadyContact,
   normalizeActorContacts,
+  paginateAttendanceParticipants,
   selectedContactIds
 } from '../lib/actorContacts.js';
 import { buildClientSelectionPool } from '../lib/clientSelection.js';
@@ -1224,6 +1225,8 @@ function buildPlanTemplatePayload(client, draft, generatedText) {
       .join(' ');
 
   return {
+    documentType: 'plan',
+    title: 'Individuální plán osobního rozvoje',
     filename: `plan-osobniho-rozvoje-${slugify(client.fullName)}.docx`,
     clientIdentification,
     currentSituation: sections.currentSituation || draft.currentSituation || '',
@@ -6598,17 +6601,7 @@ ${rawOutput}` }] }],
     }
 
     const attendanceTitle = attendanceSheetTitle(sheetType);
-    const attendanceRowCount = Math.max(15, selectedParticipants.length);
-    const rows = Array.from({ length: attendanceRowCount }, (_, index) => {
-      const participant = selectedParticipants[index];
-      return {
-        order: String(index + 1),
-        firstName: participant?.firstName || '',
-        lastName: participant?.lastName || '',
-        organization: participant?.organization || '',
-        role: participant?.role || ''
-      };
-    });
+    const attendancePages = paginateAttendanceParticipants(selectedParticipants);
 
     setFlash('Připravuji PDF prezenční listiny...');
     let wrapper = null;
@@ -6624,88 +6617,77 @@ ${rawOutput}` }] }],
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 
-      const rowsHtml = rows.map((row) => `
-        <tr>
-          <td style="border:1px solid #cbd5e1;padding:6px;text-align:center;">${escapeHtml(row.order)}</td>
-          <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.firstName)}</td>
-          <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.lastName)}</td>
-          <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.organization)}</td>
-          <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.role)}</td>
-          <td style="border:1px solid #cbd5e1;padding:6px;height:30px;"></td>
-        </tr>
-      `).join('');
-
-      wrapper = document.createElement('div');
-      wrapper.style.position = 'fixed';
-      wrapper.style.left = '0';
-      wrapper.style.top = '0';
-      wrapper.style.pointerEvents = 'none';
-      wrapper.style.zIndex = '2147483647';
-      wrapper.style.width = '1123px';
-      wrapper.style.background = '#ffffff';
-      wrapper.style.color = '#0f172a';
-      wrapper.style.fontFamily = 'Arial, sans-serif';
-      wrapper.style.padding = '28px';
-      wrapper.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;">
-          <div>
-            <h1 style="margin:0 0 8px 0;font-size:34px;line-height:1.2;">${escapeHtml(attendanceTitle)}</h1>
-            <p style="margin:0 0 6px 0;font-size:18px;">Datum vytvoření: ${escapeHtml(todayIso())}</p>
-            <p style="margin:0;font-size:18px;">Schůzka dne: ........................................   Od: ....................   Do: ....................</p>
-          </div>
-          <img src="${sfLogoImage}" alt="Spolufinancováno" style="width:420px;height:auto;" />
-        </div>
-        <table style="width:100%;border-collapse:collapse;font-size:16px;">
-          <thead>
-            <tr>
-              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">#</th>
-              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Jméno</th>
-              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Příjmení</th>
-              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Organizace</th>
-              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Funkce v organizaci</th>
-              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Podpis</th>
-            </tr>
-          </thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
-      `;
-      document.body.appendChild(wrapper);
-      const logoEl = wrapper.querySelector('img');
-      if (logoEl && !logoEl.complete) {
-        await new Promise((resolve) => {
-          logoEl.onload = () => resolve();
-          logoEl.onerror = () => resolve();
-        });
-      }
-
-      await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
-      const canvas = await html2canvas(wrapper, {
-        scale: 2,
-        useCORS: false,
-        backgroundColor: '#ffffff'
-      });
-      wrapper.remove();
-      wrapper = null;
-
-      const imgData = canvas.toDataURL('image/png');
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 8;
       const contentWidth = pageWidth - margin * 2;
       const contentHeight = pageHeight - margin * 2;
-      const imgHeight = (canvas.height * contentWidth) / canvas.width;
 
-      let heightLeft = imgHeight;
-      let y = margin;
-      doc.addImage(imgData, 'PNG', margin, y, contentWidth, imgHeight);
-      heightLeft -= contentHeight;
+      for (let pageIndex = 0; pageIndex < attendancePages.length; pageIndex += 1) {
+        const rowsHtml = attendancePages[pageIndex].map((row) => `
+          <tr>
+            <td style="border:1px solid #cbd5e1;padding:6px;text-align:center;">${escapeHtml(row.order)}</td>
+            <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.firstName)}</td>
+            <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.lastName)}</td>
+            <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.organization)}</td>
+            <td style="border:1px solid #cbd5e1;padding:6px;">${escapeHtml(row.role)}</td>
+            <td style="border:1px solid #cbd5e1;padding:6px;height:30px;"></td>
+          </tr>
+        `).join('');
 
-      while (heightLeft > 0) {
-        y = margin - (imgHeight - heightLeft);
-        doc.addPage();
-        doc.addImage(imgData, 'PNG', margin, y, contentWidth, imgHeight);
-        heightLeft -= contentHeight;
+        wrapper = document.createElement('div');
+        Object.assign(wrapper.style, {
+          position: 'fixed',
+          left: '0',
+          top: '0',
+          pointerEvents: 'none',
+          zIndex: '2147483647',
+          width: '1123px',
+          background: '#ffffff',
+          color: '#0f172a',
+          fontFamily: 'Arial, sans-serif',
+          padding: '28px'
+        });
+        wrapper.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;">
+            <div>
+              <h1 style="margin:0 0 8px 0;font-size:34px;line-height:1.2;">${escapeHtml(attendanceTitle)}</h1>
+              <p style="margin:0 0 6px 0;font-size:18px;">Datum vytvoření: ${escapeHtml(formatDateForDocument(todayIso()))}</p>
+              <p style="margin:0;font-size:18px;">Schůzka dne: ........................................   Od: ....................   Do: ....................</p>
+              ${attendancePages.length > 1 ? `<p style="margin:6px 0 0;font-size:16px;">Strana ${pageIndex + 1} z ${attendancePages.length}</p>` : ''}
+            </div>
+            <img src="${sfLogoImage}" alt="Spolufinancováno" style="width:420px;height:auto;" />
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:16px;">
+            <thead><tr>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">#</th>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Jméno</th>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Příjmení</th>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Organizace</th>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Funkce v organizaci</th>
+              <th style="border:1px solid #cbd5e1;padding:6px;background:#f8fafc;">Podpis</th>
+            </tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>`;
+        document.body.appendChild(wrapper);
+        const logoEl = wrapper.querySelector('img');
+        if (logoEl && !logoEl.complete) {
+          await new Promise((resolve) => {
+            logoEl.onload = () => resolve();
+            logoEl.onerror = () => resolve();
+          });
+        }
+        await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+        const canvas = await html2canvas(wrapper, { scale: 1.5, useCORS: false, backgroundColor: '#ffffff' });
+        wrapper.remove();
+        wrapper = null;
+
+        const scale = Math.min(contentWidth / canvas.width, contentHeight / canvas.height);
+        const imageWidth = canvas.width * scale;
+        const imageHeight = canvas.height * scale;
+        if (pageIndex > 0) doc.addPage();
+        doc.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', margin, margin, imageWidth, imageHeight, undefined, 'FAST');
       }
 
       doc.save(`prezencni_listina_${todayIso()}.pdf`);
@@ -6951,18 +6933,6 @@ ${rawOutput}` }] }],
       });
       if (isEsfExportRequestRef.current !== requestId) return;
 
-      const csv = serializeIsEsfPersonCsv(result.rows);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const href = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = href;
-      const periodSlug = slugify(selectedReportingPeriod?.label || 'cele-obdobi');
-      link.download = `PodporeneOsoby-MBV-${periodSlug}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(href), 4000);
-
       const fallbackText = result.addressFallbacks.length > 0
         ? ` U ${result.addressFallbacks.length} osob se nepodařilo potvrdit úplné adresní místo; v CSV je uvedena pouze obec.`
         : ' Všechny obce, čísla domů a PSČ byly potvrzeny.';
@@ -6976,15 +6946,38 @@ ${rawOutput}` }] }],
         : unrecognizedEducationCount === 0
           ? ` U ${missingEducationCount} osob není v klientském registru vyplněno vzdělání; CSV používá obecný kód VZJN.`
           : ` U ${missingEducationCount} osob není vzdělání vyplněno a u ${unrecognizedEducationCount} osob nemá rozpoznaný formát; CSV používá obecný kód VZJN.`;
+
+      if (result.blockingIssues.length > 0) {
+        setIsEsfExportStatus({
+          state: 'error',
+          message: `CSV nebylo staženo. U ${result.blockingIssues.length} osob je nutné doplnit povinné údaje pro IS ESF.${fallbackText}${adjustedText}${educationText}`,
+          addressFallbacks: result.addressFallbacks,
+          addressAdjustments: result.addressAdjustments,
+          educationFallbacks: result.educationFallbacks,
+          dataIssues: result.blockingIssues
+        });
+        return;
+      }
+
+      const csv = serializeIsEsfPersonCsv(result.rows);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = href;
+      const periodSlug = slugify(selectedReportingPeriod?.label || 'cele-obdobi');
+      link.download = `PodporeneOsoby-MBV-${periodSlug}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(href), 4000);
+
       setIsEsfExportStatus({
-        state: result.blockingIssues.length > 0 ? 'warning' : 'success',
-        message: result.blockingIssues.length > 0
-          ? `CSV pro IS ESF bylo vytvořeno (${result.rows.length} osob), ale obsahuje ${result.blockingIssues.length} upozornění k doplnění.${fallbackText}${adjustedText}${educationText}`
-          : `CSV pro IS ESF bylo vytvořeno (${result.rows.length} osob).${fallbackText}${adjustedText}${educationText}`,
+        state: 'success',
+        message: `CSV pro IS ESF bylo vytvořeno (${result.rows.length} osob).${fallbackText}${adjustedText}${educationText}`,
         addressFallbacks: result.addressFallbacks,
         addressAdjustments: result.addressAdjustments,
         educationFallbacks: result.educationFallbacks,
-        dataIssues: result.blockingIssues
+        dataIssues: []
       });
     } catch (error) {
       if (isEsfExportRequestRef.current !== requestId) return;
@@ -7139,7 +7132,7 @@ ${rawOutput}` }] }],
     }
   };
 
-  const exportAllRecordsBackup = () => {
+  const exportAllRecordsBackup = async () => {
     const supportRecords = filteredClientSupportRecords;
     const content = buildAllRecordsBackupHtml(supportRecords, clients);
     const filterSlug = slugify([
@@ -7147,7 +7140,13 @@ ${rawOutput}` }] }],
       dashboardFilters.ka === 'all' ? 'vsechny-ka' : dashboardFilters.ka,
       dashboardFilters.worker === 'all' ? 'vsichni-pracovnici' : dashboardFilters.worker
     ].join('-'));
-    downloadHtmlDocument(content, `zapisy-podpory-${filterSlug}-${todayIso()}.doc`);
+    try {
+      await downloadHtmlDocument(content, `zapisy-podpory-${filterSlug}-${todayIso()}.docx`);
+      setFlash('Zápisy podpory byly staženy do DOCX.');
+    } catch (error) {
+      console.error('All records DOCX export error:', error);
+      setFlash(error.message || 'Export zápisů podpory do DOCX selhal.');
+    }
   };
   const exportDetailedOutputsXlsx = async () => {
     if (isExportingDetailedOutputs) return;
@@ -7190,10 +7189,16 @@ ${rawOutput}` }] }],
       setIsExportingDetailedOutputs(false);
     }
   };
-  const exportClientFolder = () => {
+  const exportClientFolder = async () => {
     if (!selectedClient) return;
     const content = buildClientFolderHtml(selectedClient, clientJourneyTimeline);
-    downloadHtmlDocument(content, `slozka-klienta-${slugify(selectedClient.fullName)}.doc`);
+    try {
+      await downloadHtmlDocument(content, `slozka-klienta-${slugify(selectedClient.fullName)}.docx`);
+      setFlash('Klientská složka byla stažena do DOCX.');
+    } catch (error) {
+      console.error('Client folder DOCX export error:', error);
+      setFlash(error.message || 'Export klientské složky do DOCX selhal.');
+    }
   };
 
   const summarizeClientCase = async () => {
@@ -7303,7 +7308,7 @@ ${rawOutput}` }] }],
     }
   };
 
-  const exportJourneyRecord = (record) => {
+  const exportJourneyRecord = async (record) => {
     if (!record || !selectedClient) return;
     const content = buildRecordHtmlDocument(record, selectedClient);
     const filenameParts = [
@@ -7311,7 +7316,13 @@ ${rawOutput}` }] }],
       record.ka || record.entityType || 'zaznam',
       record.title || 'zapis'
     ];
-    downloadHtmlDocument(content, `${slugify(filenameParts.join('-'))}.doc`);
+    try {
+      await downloadHtmlDocument(content, `${slugify(filenameParts.join('-'))}.docx`);
+      setFlash('Zápis byl stažen do DOCX.');
+    } catch (error) {
+      console.error('Journey record DOCX export error:', error);
+      setFlash(error.message || 'Export zápisu do DOCX selhal.');
+    }
   };
 
   const toggleJourneyPrintSelection = (recordId) => {
@@ -7320,7 +7331,7 @@ ${rawOutput}` }] }],
     );
   };
 
-  const exportSelectedJourneyRecords = () => {
+  const exportSelectedJourneyRecords = async () => {
     if (!selectedClient) return;
     const selectedRecords = clientJourneyTimeline.filter((record) => selectedJourneyPrintIds.includes(record.id));
     if (!selectedRecords.length) {
@@ -7328,7 +7339,13 @@ ${rawOutput}` }] }],
       return;
     }
     const content = buildSelectedJourneyPrintHtml(selectedClient, selectedRecords);
-    downloadHtmlDocument(content, `vybrane-zapisy-${slugify(selectedClient.fullName)}-${todayIso()}.doc`);
+    try {
+      await downloadHtmlDocument(content, `vybrane-zapisy-${slugify(selectedClient.fullName)}-${todayIso()}.docx`);
+      setFlash('Vybrané zápisy byly staženy do DOCX.');
+    } catch (error) {
+      console.error('Selected records DOCX export error:', error);
+      setFlash(error.message || 'Export vybraných zápisů do DOCX selhal.');
+    }
   };
 
   const buildJourneyPlanAiPrompt = (record) => [
@@ -7672,7 +7689,7 @@ ${rawPlanOutput}` }] }],
         const description = payload.description || payload.notes || '';
         return `
           <tr>
-            <td>${escapeExportHtml(record.activityDate || '')}</td>
+            <td>${escapeExportHtml(formatDateForDocument(record.activityDate) || '')}</td>
             <td>${escapeExportHtml(type)}</td>
             <td class="time">${escapeExportHtml(startTime)}</td>
             <td class="time">${escapeExportHtml(endTime)}</td>
@@ -7739,17 +7756,28 @@ ${rawPlanOutput}` }] }],
         </body>
       </html>`;
 
-    downloadHtmlDocument(content, `ka02-hromadny-export-${todayIso()}.doc`);
-    setFlash('Hromadn\u00fd export aktivit KA02 byl sta\u017een.');
+    try {
+      await downloadHtmlDocument(content, `ka02-hromadny-export-${todayIso()}.docx`);
+      setFlash('Hromadn\u00fd export aktivit KA02 byl sta\u017een do DOCX.');
+    } catch (error) {
+      console.error('KA02 bulk DOCX export error:', error);
+      setFlash(error.message || 'Hromadn\u00fd export aktivit KA02 selhal.');
+    }
   };
 
-  const exportMonitoringBundle = () => {
+  const exportMonitoringBundle = async () => {
     const content = buildMonitoringBundleHtml({
       indicators: computedIndicators,
       records: filteredRecords,
       clients
     });
-    downloadHtmlDocument(content, 'souhrnna-monitorovaci-dokumentace.doc');
+    try {
+      await downloadHtmlDocument(content, 'souhrnna-monitorovaci-dokumentace.docx');
+      setFlash('Souhrnná monitorovací dokumentace byla stažena do DOCX.');
+    } catch (error) {
+      console.error('Monitoring bundle DOCX export error:', error);
+      setFlash(error.message || 'Export monitorovací dokumentace do DOCX selhal.');
+    }
   };
 
   const kuStatisticsOverview = useMemo(

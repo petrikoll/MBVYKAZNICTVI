@@ -3115,12 +3115,21 @@ function finishLastovica0053DeletionAfterPartialFailure() {
   }
 }
 
-function getDeletedClientsArchiveFolder_() {
+function findDeletedClientsArchiveFolder_() {
   const clientRoot = getClientFolderParent_();
   const parents = clientRoot.getParents();
   const parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
   const existing = parent.getFoldersByName(CONFIG.deletedClientsArchiveName);
-  return existing.hasNext() ? existing.next() : parent.createFolder(CONFIG.deletedClientsArchiveName);
+  return existing.hasNext() ? existing.next() : null;
+}
+
+function getDeletedClientsArchiveFolder_() {
+  const existing = findDeletedClientsArchiveFolder_();
+  if (existing) return existing;
+  const clientRoot = getClientFolderParent_();
+  const parents = clientRoot.getParents();
+  const parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+  return parent.createFolder(CONFIG.deletedClientsArchiveName);
 }
 
 // Rucni uprava v Google Sheetu take zmeni verzi radku. Programove zapisy z API
@@ -4220,6 +4229,11 @@ function createFullBackup_(runtime) {
 
   const clientRoot = getClientFolderParent_();
   collectFolderForBackup_(clientRoot, 'klientske-slozky', blobs, manifest, usedArchivePaths, runtime);
+  const deletedClientsArchive = findDeletedClientsArchiveFolder_();
+  if (deletedClientsArchive) {
+    collectFolderForBackup_(deletedClientsArchive, 'archiv-smazanych-klientu', blobs, manifest, usedArchivePaths, runtime);
+  }
+  manifest.deletedClientsArchiveIncluded = Boolean(deletedClientsArchive);
 
   manifest.fileCount = manifest.files.length;
   manifest.errorCount = manifest.errors.length;

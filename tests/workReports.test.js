@@ -44,6 +44,11 @@ test('integrovaný export vytvoří XLSX z projektové šablony', async () => {
   });
   assert.equal(workbook.worksheets[0].getCell('C9').value, DEFAULT_SETTINGS.employeeName);
   assert.equal(workbook.worksheets[0].getCell('G29').value, 24);
+  assert.ok(workbook.worksheets[0].getCell('C44').value instanceof Date);
+  assert.equal(workbook.worksheets[0].getCell('C44').numFmt, 'dd.mm.yyyy');
+  assert.equal(workbook.worksheets[0].pageSetup.fitToWidth, 1);
+  assert.equal(workbook.worksheets[0].pageSetup.fitToHeight, 1);
+  assert.equal(workbook.worksheets[0].pageSetup.printArea, 'A1:G45');
 });
 
 test('uložené porady, vzdělávání a supervize vytvoří třetí činnost paní Vysloužilové', () => {

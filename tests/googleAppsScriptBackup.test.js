@@ -100,3 +100,9 @@ test('pravidelně aktualizovaná záloha zůstane aktivní', () => {
   assert.equal(normalized.state, 'running');
   assert.equal(normalized.processedFiles, 24);
 });
+
+test('kompletní záloha zahrnuje také archiv smazaných klientů', () => {
+  assert.match(source, /findDeletedClientsArchiveFolder_\(\)/);
+  assert.match(source, /collectFolderForBackup_\(deletedClientsArchive, 'archiv-smazanych-klientu'/);
+  assert.match(source, /deletedClientsArchiveIncluded/);
+});

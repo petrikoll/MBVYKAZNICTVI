@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { JSDOM } from 'jsdom';
 import {
+  buildDocxPayloadFromHtml,
   buildFallbackGeneratedText,
   getClientSupportBreakdown,
   isDepistageRecord,
@@ -8,6 +10,28 @@ import {
   isShortTermProjectGoalEvidenceRecord,
   mapSheetRowToClient
 } from '../src/lib/projectUtils.js';
+
+test('Word export převádí HTML na strukturovaný DOCX payload bez spojování popisků', () => {
+  const previousDomParser = globalThis.DOMParser;
+  globalThis.DOMParser = new JSDOM('').window.DOMParser;
+  try {
+    const payload = buildDocxPayloadFromHtml(`
+      <html><head><title>Záloha</title></head><body>
+        <h1>Klientská složka</h1>
+        <div class="meta"><div><span class="label">Klient</span>Jan Novák</div><div><span class="label">Datum</span>3. 9. 2026</div></div>
+        <h2>Text zápisu</h2><div class="text-box">Český text</div>
+      </body></html>`, 'slozka.doc');
+
+    assert.equal(payload.filename, 'slozka.docx');
+    assert.equal(payload.title, 'Klientská složka');
+    assert.deepEqual(payload.blocks[0].rows, [['Klient', 'Jan Novák'], ['Datum', '3. 9. 2026']]);
+    assert.equal(payload.blocks[1].text, 'Text zápisu');
+    assert.equal(payload.blocks[2].text, 'Český text');
+  } finally {
+    if (previousDomParser) globalThis.DOMParser = previousDomParser;
+    else delete globalThis.DOMParser;
+  }
+});
 
 test('depistáž s komentářem se započítá pouze do krátkodobých cílů', () => {
   const outreach = {

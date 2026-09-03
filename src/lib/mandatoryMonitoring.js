@@ -123,6 +123,12 @@ function isNationalMinorityClient(client = {}) {
   return normalizeText(client.znevyhodneni).includes('narodnostni mensiny');
 }
 
+function excelDateFromIso(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value || '';
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+}
+
 function buildMandatoryMonitoringOverview({ clients = [], workRecords = [], period = null } = {}) {
   const details = [];
 
@@ -178,17 +184,47 @@ async function buildMandatoryMonitoringXlsx(options = {}) {
   const detailSheet = workbook.addWorksheet('Započtené osoby');
   detailSheet.addRow(['Klient ID', 'Klient', 'Skupina', 'Sledovaná položka', 'Datum dosažení', 'Doložení', 'Zdroj']);
   overview.details.forEach((row) => detailSheet.addRow([
-    row.clientId, row.clientName, row.group, row.label, row.date, row.evidence, row.source
+    row.clientId, row.clientName, row.group, row.label, excelDateFromIso(row.date), row.evidence, row.source
   ]));
 
   [summarySheet, detailSheet].forEach((sheet) => {
     sheet.views = [{ state: 'frozen', ySplit: sheet === summarySheet ? 3 : 1 }];
     sheet.getRow(sheet === summarySheet ? 3 : 1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
     sheet.getRow(sheet === summarySheet ? 3 : 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1D4ED8' } };
+    sheet.getRow(sheet === summarySheet ? 3 : 1).alignment = { vertical: 'middle', wrapText: true };
     sheet.autoFilter = sheet === summarySheet ? 'A3:C3' : 'A1:G1';
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber <= (sheet === summarySheet ? 3 : 1)) return;
+      row.alignment = { vertical: 'top', wrapText: true };
+    });
   });
   summarySheet.columns = [{ width: 34 }, { width: 72 }, { width: 14 }];
-  detailSheet.columns = [{ width: 16 }, { width: 30 }, { width: 34 }, { width: 72 }, { width: 18 }, { width: 60 }, { width: 38 }];
+  detailSheet.columns = [{ width: 16 }, { width: 28 }, { width: 28 }, { width: 48 }, { width: 16 }, { width: 42 }, { width: 30 }];
+  detailSheet.getColumn(5).numFmt = 'dd.mm.yyyy';
+  summarySheet.pageSetup = {
+    paperSize: 9,
+    orientation: 'portrait',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    horizontalCentered: true,
+    margins: { left: 0.35, right: 0.35, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
+    printArea: `A1:C${Math.max(summarySheet.rowCount, 3)}`,
+    printTitlesRow: '1:3'
+  };
+  detailSheet.pageSetup = {
+    paperSize: 9,
+    orientation: 'landscape',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    horizontalCentered: true,
+    margins: { left: 0.25, right: 0.25, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
+    printArea: `A1:G${Math.max(detailSheet.rowCount, 1)}`,
+    printTitlesRow: '1:1'
+  };
+  summarySheet.properties.pageSetUpPr = { fitToPage: true, autoPageBreaks: false };
+  detailSheet.properties.pageSetUpPr = { fitToPage: true, autoPageBreaks: false };
 
   return {
     buffer: await workbook.xlsx.writeBuffer(),
