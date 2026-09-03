@@ -138,3 +138,62 @@ test('dialog prezenční listiny lze ovládat myší i klávesou Escape', async 
     delete globalThis.IS_REACT_ACT_ENVIRONMENT;
   }
 });
+
+test('list Porady vytvoří prezenční listinu přímo z osob ve formuláři', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url: 'http://localhost/'
+  });
+  const previousGlobals = {
+    window: globalThis.window,
+    document: globalThis.document,
+    HTMLElement: globalThis.HTMLElement
+  };
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true
+  });
+  const exports = [];
+  const props = createProps([]);
+  props.viewMode = 'meetings';
+  props.ka01Draft = {
+    ...props.ka01Draft,
+    networkType: 'Porada',
+    networkStartTime: '09:00',
+    networkEndTime: '10:30',
+    networkPlace: 'Moravský Beroun',
+    networkActorEntries: [
+      { actorType: 'Mgr. Lea Ledecká', customName: '' },
+      { actorType: '__custom__', customName: 'Petr Novák — host' }
+    ]
+  };
+  props.exportKa01AttendanceSheet = (type, options) => exports.push({ type, options });
+  const root = createRoot(document.getElementById('root'));
+
+  try {
+    await act(async () => {
+      root.render(React.createElement(Ka01View, props));
+    });
+    const attendanceButton = Array.from(document.querySelectorAll('button'))
+      .find((button) => button.textContent.includes('Vytisknout prezenční listinu'));
+    assert.ok(attendanceButton);
+    assert.match(attendanceButton.textContent, /2 osob/);
+
+    await act(async () => attendanceButton.click());
+
+    assert.equal(exports[0].type, 'meeting');
+    assert.equal(exports[0].options.eventDate, '2026-07-31');
+    assert.equal(exports[0].options.startTime, '09:00');
+    assert.equal(exports[0].options.endTime, '10:30');
+    assert.deepEqual(exports[0].options.participants.map(({ firstName, lastName, role }) => ({ firstName, lastName, role })), [
+      { firstName: 'Mgr. Lea', lastName: 'Ledecká', role: 'Realizační tým' },
+      { firstName: 'Petr', lastName: 'Novák', role: 'host' }
+    ]);
+  } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+    Object.assign(globalThis, previousGlobals);
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  }
+});

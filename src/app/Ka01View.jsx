@@ -1,10 +1,12 @@
 import React from 'react';
-import { CalendarDays, Download, Plus, Save, Sparkles, Trash2, Users } from 'lucide-react';
+import { CalendarDays, Download, Plus, Printer, Save, Sparkles, Trash2, Users } from 'lucide-react';
 
 import { EmptyState, HelpIcon, InputField, Panel, SaveInlineNotice, SelectField, TextAreaField } from '../components/ui.jsx';
 import { HELP } from '../config/helpCatalog.js';
+import { WORKERS } from '../config/projectConfig.js';
 import {
   ATTENDANCE_SHEET_TYPE_OPTIONS,
+  buildMeetingAttendanceParticipants,
   createEmptyActorContact,
   isAttendanceReadyContact,
   nextActorContactId,
@@ -16,7 +18,6 @@ import { PROJECT_TIME_OPTIONS } from '../lib/timeOptions.js';
 
 const ACTIVITY_OPTIONS = [
   { value: 'koordina\u010dn\u00ed setk\u00e1n\u00ed', label: 'Koordina\u010dn\u00ed setk\u00e1n\u00ed' },
-  { value: 'Porada', label: 'Porada' },
   { value: 'roz\u0161\u00ed\u0159en\u00ed nebo udr\u017een\u00ed s\u00edt\u011b', label: 'Roz\u0161\u00ed\u0159en\u00ed nebo udr\u017een\u00ed s\u00edt\u011b' },
   { value: 'skupinov\u00e1', label: 'Skupinov\u00e1' },
   { value: 'individu\u00e1ln\u00ed', label: 'Individu\u00e1ln\u00ed' }
@@ -89,6 +90,7 @@ function useAccessibleDialog(open, onClose) {
 }
 
 function Ka01View({
+  viewMode = 'network',
   ka01Draft, setKa01Draft, ka01ActorDraft, setKa01ActorDraft,
   ka01ActorCustomValue, updateKa01ActorEntry, ka01PlaceOptions,
   ka01PlaceCustomValue, updateKa01PlaceSelection, updateKa01PlaceCustom,
@@ -108,7 +110,8 @@ function Ka01View({
   const [attendanceContactIds, setAttendanceContactIds] = React.useState([]);
   const [attendanceTypePickerOpen, setAttendanceTypePickerOpen] = React.useState(false);
   const timesWithCurrent = (value) => value && !PROJECT_TIME_OPTIONS.includes(value) ? [value, ...PROJECT_TIME_OPTIONS] : PROJECT_TIME_OPTIONS;
-  const isTeamMeeting = String(ka01Draft.networkType || '').toLowerCase() === 'porada';
+  const isMeetingsView = viewMode === 'meetings';
+  const isTeamMeeting = isMeetingsView || String(ka01Draft.networkType || '').toLowerCase() === 'porada';
   const sortedActors = React.useMemo(
     () => [...ka01ActorRegistryRecords].sort((a, b) => String(a.payload?.name || '').localeCompare(String(b.payload?.name || ''), 'cs')),
     [ka01ActorRegistryRecords]
@@ -133,11 +136,22 @@ function Ka01View({
         if (firstIsMoravskyBeroun !== secondIsMoravskyBeroun) return firstIsMoravskyBeroun ? -1 : 1;
         return String(first).localeCompare(String(second), 'cs');
       });
-    const options = actorNames;
+    const options = isTeamMeeting ? [...WORKERS, ...actorNames] : actorNames;
     return Array.from(new Set(options)).map((value) => ({ value, label: value })).concat([
       { value: ka01ActorCustomValue, label: 'Dal\u0161\u00ed osoba (ru\u010dn\u011b)' }
     ]);
-  }, [ka01ActorCustomValue, sortedActors]);
+  }, [isTeamMeeting, ka01ActorCustomValue, sortedActors]);
+  const meetingParticipantNames = React.useMemo(
+    () => (ka01Draft.networkActorEntries || [])
+      .map((entry) => entry?.actorType === ka01ActorCustomValue ? entry?.customName : entry?.actorType)
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+    [ka01ActorCustomValue, ka01Draft.networkActorEntries]
+  );
+  const meetingAttendanceParticipants = React.useMemo(
+    () => buildMeetingAttendanceParticipants(meetingParticipantNames, ka01ActorRegistryRecords, WORKERS),
+    [ka01ActorRegistryRecords, meetingParticipantNames]
+  );
   const actorOrigin = (record) => String(record.payload?.networkOrigin || '').toLocaleLowerCase('cs');
   const networkActors = sortedActors.filter((record) => !actorOrigin(record).includes('potenci'));
   const currentActors = networkActors.filter((record) => actorOrigin(record).includes('stávaj')).length;
@@ -210,15 +224,20 @@ function Ka01View({
     <div className="flex w-full min-w-0 flex-col gap-4">
       <div className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="font-semibold uppercase text-slate-300">KA02 - Tvorba sítě:</span>
-          <span>Aktéři <strong>{networkActors.length}</strong></span>
-          <span>Stávající síť <strong>{currentActors}</strong></span>
-          <span>Nově zapojení <strong>{newActors}</strong></span>
-          <span>Aktivity <strong>{ka01NetworkRecords.length}</strong></span>
+          <span className="font-semibold uppercase text-slate-300">{isMeetingsView ? 'Porady realizačního týmu:' : 'KA02 - Tvorba sítě:'}</span>
+          {!isMeetingsView && <span>Aktéři <strong>{networkActors.length}</strong></span>}
+          {!isMeetingsView && <span>Stávající síť <strong>{currentActors}</strong></span>}
+          {!isMeetingsView && <span>Nově zapojení <strong>{newActors}</strong></span>}
+          <span>{isMeetingsView ? 'Porady' : 'Aktivity'} <strong>{ka01NetworkRecords.length}</strong></span>
         </div>
       </div>
 
-      <Panel title="KA02 - Záznam schůzky / aktivity sítě" description="Individuální a skupinové schůzky partnerů a porady realizačního týmu." icon={Users} className="w-full min-w-0">
+      <Panel
+        title={isMeetingsView ? 'Zápis z porady' : 'KA02 - Záznam schůzky / aktivity sítě'}
+        description={isMeetingsView ? 'Porady realizačního týmu projektu.' : 'Individuální a skupinové schůzky partnerů a aktivity rozvoje sítě.'}
+        icon={Users}
+        className="w-full min-w-0"
+      >
         <div className="grid gap-3">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div>
@@ -228,7 +247,14 @@ function Ka01View({
                 <button type="button" onClick={() => document.getElementById('ka02-network-date')?.showPicker?.()} className="rounded-lg border border-slate-300 bg-white px-3" title="Otevřít kalendář"><CalendarDays className="h-4 w-4" /></button>
               </div>
             </div>
-            <SelectField label="Typ aktivity" help={HELP.networkType} value={ka01Draft.networkType} onChange={(value) => setKa01Draft((previous) => ({ ...previous, networkType: value }))} options={ACTIVITY_OPTIONS} />
+            {isMeetingsView ? (
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Typ aktivity</label>
+                <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-900">Porada</div>
+              </div>
+            ) : (
+              <SelectField label="Typ aktivity" help={HELP.networkType} value={ka01Draft.networkType} onChange={(value) => setKa01Draft((previous) => ({ ...previous, networkType: value }))} options={ACTIVITY_OPTIONS} />
+            )}
             <div><label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">{'Po\u010det \u00fa\u010dastn\u00edk\u016f'}</label><input type="text" value={ka01Draft.networkCount} readOnly className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700" /></div>
           </div>
 
@@ -263,19 +289,35 @@ function Ka01View({
           <TextAreaField label="Výstup zápisu" help={HELP.networkOutput} value={ka01Draft.networkDescription || ''} onChange={(value) => setKa01Draft((previous) => ({ ...previous, networkDescription: value }))} rows={5} placeholder="Po vygenerování se zde zobrazí návrh textu dokumentu" />
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={handleGenerateKa01NetworkDescription} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"><Sparkles className="h-4 w-4" />Vygenerovat návrh AI</button>
-            <button onClick={handleSaveKa01Network} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"><Save className="h-4 w-4" />{editingKa01NetworkRecordId ? 'Uložit úpravu' : 'Uložit aktivitu'}</button>
+            <button onClick={handleSaveKa01Network} disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"><Save className="h-4 w-4" />{editingKa01NetworkRecordId ? 'Uložit úpravu' : isMeetingsView ? 'Uložit poradu' : 'Uložit aktivitu'}</button>
             <SaveInlineNotice notice={networkSaveNotice} />
-            <button type="button" onClick={exportKa01NetworkBulk} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><Download className="h-4 w-4" />Hromadné stažení</button>
+            <button type="button" onClick={() => exportKa01NetworkBulk(isMeetingsView ? 'meetings' : 'network')} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><Download className="h-4 w-4" />Hromadné stažení</button>
+            {isMeetingsView && (
+              <button
+                type="button"
+                onClick={() => exportKa01AttendanceSheet('meeting', {
+                  participants: meetingAttendanceParticipants,
+                  eventDate: ka01Draft.date,
+                  startTime: ka01Draft.networkStartTime,
+                  endTime: ka01Draft.networkEndTime,
+                  place: ka01Draft.networkPlace
+                })}
+                disabled={isSaving}
+                className="inline-flex items-center gap-2 rounded-lg border border-cyan-300 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-900 disabled:opacity-50"
+              >
+                <Printer className="h-4 w-4" />Vytisknout prezenční listinu ({meetingAttendanceParticipants.length} osob)
+              </button>
+            )}
             {editingKa01NetworkRecordId && <button type="button" onClick={cancelKa01NetworkEdit} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold">Zrušit úpravu</button>}
             {ka01NetworkTimeError && <span className="inline-flex items-center text-sm font-semibold text-red-600">{ka01NetworkTimeError}</span>}
           </div>
 
           <div>
-            <div className="mb-2 text-sm font-bold">Uložené schůzky a aktivity sítě</div>
+            <div className="mb-2 text-sm font-bold">{isMeetingsView ? 'Uložené porady' : 'Uložené schůzky a aktivity sítě'}</div>
             {recordDeleteNotice?.entityType === 'network_activities' && (
               <div className="mb-2"><SaveInlineNotice notice={recordDeleteNotice} /></div>
             )}
-            {ka01NetworkRecords.length === 0 ? <EmptyState icon={Users} title="Zatím není uložena žádná aktivita sítě." /> : (
+            {ka01NetworkRecords.length === 0 ? <EmptyState icon={Users} title={isMeetingsView ? 'Zatím není uložena žádná porada.' : 'Zatím není uložena žádná aktivita sítě.'} /> : (
               <div className="overflow-auto rounded-lg border border-slate-200 bg-white"><table className="min-w-[900px] w-full divide-y divide-slate-200 text-xs"><thead className="bg-sky-50 font-semibold uppercase text-sky-800"><tr><th className="px-2 py-2 text-left">Datum</th><th className="px-2 py-2 text-left">Typ</th><th className="px-2 py-2 text-left">Účastníci</th><th className="px-2 py-2 text-left">Zápis</th><th className="px-2 py-2 text-right">Akce</th></tr></thead><tbody className="divide-y divide-slate-100">
                 {ka01NetworkRecords.map((record) => { const expanded = expandedKa01NetworkRecordIds.includes(record.id); const text = record.payload?.description || record.payload?.notes || ''; return <tr key={record.id} className="even:bg-slate-50/60"><td className="px-2 py-2">{record.activityDate || '-'}</td><td className="px-2 py-2 font-semibold">{record.payload?.type || record.title}</td><td className="max-w-[220px] px-2 py-2">{truncate(record.payload?.participants || '-', 80)}</td><td className="max-w-[360px] px-2 py-2">{expanded ? text : truncate(text, 150)} {text.length > 150 && <button type="button" onClick={() => toggleKa01NetworkDescription(record.id)} className="font-semibold text-blue-700">{expanded ? 'Méně' : 'Více'}</button>}</td><td className="whitespace-nowrap px-2 py-2 text-right"><button type="button" onClick={() => exportKa01NetworkDocx(record)} className="mr-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">DOCX</button><button type="button" onClick={() => handleEditKa01Network(record)} className="mr-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-blue-700">Upravit</button><button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700">Smazat</button></td></tr>; })}
               </tbody></table></div>
@@ -284,6 +326,7 @@ function Ka01View({
         </div>
       </Panel>
 
+      {!isMeetingsView && (
       <Panel title="KA02 - Evidence subjektů partnerské sítě" icon={Users} className="w-full min-w-0 overflow-hidden">
         <div className="grid gap-3">
           {ka01ActorDraft.id && (
@@ -384,8 +427,9 @@ function Ka01View({
           </div>
         </div>
       </Panel>
+      )}
 
-      {attendanceTypePickerOpen && (
+      {!isMeetingsView && attendanceTypePickerOpen && (
         <div
           ref={attendanceTypeDialogRef}
           tabIndex={-1}
@@ -424,7 +468,7 @@ function Ka01View({
         </div>
       )}
 
-      {attendanceActorRecord && (
+      {!isMeetingsView && attendanceActorRecord && (
         <div
           ref={attendancePersonDialogRef}
           tabIndex={-1}

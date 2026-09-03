@@ -1,6 +1,7 @@
 ﻿import { REPORT_PROMPTS, TARGETS } from '../config/projectConfig.js';
 
 import { goalStatusLabel } from './goalStatus.js';
+import { isTeamMeetingRecord } from './networkActivity.js';
 import { WORKER_NAMES, canonicalizeWorkerName, canonicalizeWorkerReferences } from '../config/projectConfig.js';
 
 function todayIso() {
@@ -465,7 +466,9 @@ function computedIndicatorsMapRaw(clients, records) {
 
   const networkRecords = records.filter((record) => record.entityType === 'network_activities');
   const meetingRecords = networkRecords.filter((record) => normalizeType(record.payload?.type).includes('koordinacni setkani'));
-  const teamMeetingRecords = networkRecords.filter((record) => normalizeType(record.payload?.type).includes('porada tymu'));
+  const teamMeetingRecords = networkRecords.filter((record) =>
+    isTeamMeetingRecord(record) || normalizeType(record.payload?.type).includes('porada tymu')
+  );
   const networkSupportRecords = networkRecords.filter((record) => {
     const type = normalizeType(record.payload?.type);
     return type.includes('sit akteru') || type.includes('rozsireni nebo udrzeni site');

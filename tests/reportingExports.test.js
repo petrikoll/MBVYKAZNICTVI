@@ -49,3 +49,13 @@ test('tlačítko podrobných výstupů je na dashboardu oranžové', () => {
   assert.match(buttonSource, /hover:bg-orange-600/);
   assert.match(buttonSource, /Podrobné výstupy/);
 });
+
+test('kontrolní upozornění mají přístupný hover a focus detail klientů a chyb', () => {
+  assert.match(source, /const RiskControlRow/);
+  assert.match(source, /role="tooltip"/);
+  assert.match(source, /aria-describedby=\{tooltipId\}/);
+  assert.match(source, /group-hover:visible/);
+  assert.match(source, /group-focus:visible/);
+  assert.match(source, /Klienti a zjištěné chyby/);
+  assert.match(source, /Najeďte pro seznam klientů a chyb/);
+});

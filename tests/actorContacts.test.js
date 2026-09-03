@@ -6,6 +6,7 @@ import {
   actorContactsToSheetFields,
   attendanceSheetTitle,
   buildAttendanceParticipants,
+  buildMeetingAttendanceParticipants,
   contactsFromSheetRow,
   createEmptyActorContact,
   nextActorContactId,
@@ -125,6 +126,27 @@ test('nadpisy prezenční listiny neobsahují označení KA a volba jiné nabíz
   assert.equal(attendanceSheetTitle('meeting'), 'Prezenční listina – porada');
   assert.match(attendanceSheetTitle('other'), /^Prezenční listina – \.{20,}$/);
   ATTENDANCE_SHEET_TYPE_OPTIONS.forEach((option) => assert.doesNotMatch(attendanceSheetTitle(option.value), /\bKA\d*\b/i));
+});
+
+test('prezenční listina porady převezme členy týmu, kontakty aktérů i ruční osoby', () => {
+  const participants = buildMeetingAttendanceParticipants([
+    'Mgr. Lea Ledecká',
+    'Město — Mgr. Jana Malá',
+    'Petr Novák — host',
+    'Mgr. Lea Ledecká'
+  ], [{
+    id: 'partner-1',
+    payload: {
+      name: 'Město',
+      contacts: [{ id: 'contact-1', name: 'Mgr. Jana Malá', role: 'koordinátorka' }]
+    }
+  }], ['Mgr. Lea Ledecká']);
+
+  assert.deepEqual(participants, [
+    { firstName: 'Mgr. Lea', lastName: 'Ledecká', organization: 'Město Moravský Beroun', role: 'Realizační tým' },
+    { firstName: 'Mgr. Jana', lastName: 'Malá', organization: 'Město', role: 'koordinátorka' },
+    { firstName: 'Petr', lastName: 'Novák', organization: '', role: 'host' }
+  ]);
 });
 
 test('vícestránková prezenční listina rozděluje řádky bez překryvu a zachová pořadí', () => {

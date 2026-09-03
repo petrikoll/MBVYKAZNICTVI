@@ -46,6 +46,7 @@ import {
   GOOGLE_DRIVE_UPLOAD_URL,
   GOOGLE_SHEET_MACRO_URL,
   PROJECT_START_DATE,
+  PROJECT_END_DATE,
   REPORTING_PERIODS,
   REPORT_PROMPTS,
   TARGETS,
@@ -98,6 +99,7 @@ import {
 } from '../lib/actorContacts.js';
 import { buildClientSelectionPool } from '../lib/clientSelection.js';
 import { buildClientCaseAiPrompt, buildClientCaseSummaryPrintHtml, filterClientCaseAiRecords } from '../lib/clientCaseSummary.js';
+import { buildDashboardControls } from '../lib/dashboardRisks.js';
 import { GOAL_STATUS, goalStatusLabel, isGoalCompleted, isGoalTerminal, normalizeGoalStatus } from '../lib/goalStatus.js';
 import { buildIsEsfPersonExport, serializeIsEsfPersonCsv } from '../lib/isEsfExport.js';
 import { validateClientAddress } from '../lib/ruianAddress.js';
@@ -110,6 +112,7 @@ import {
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { isKa1SupportCombinationAllowed } from '../lib/ka01SupportRules.js';
 import { isBackupStatusActive } from '../lib/backupStatus.js';
+import { isTeamMeetingRecord } from '../lib/networkActivity.js';
 import {
   readSafeRecordIndex,
   readSafeStartupRecords,
@@ -1267,6 +1270,12 @@ const VIEW_THEMES = {
     accent: 'bg-violet-300/20',
     label: 'text-violet-700'
   },
+  meetings: {
+    page: 'bg-[radial-gradient(circle_at_top_left,#cffafe_0,#e6f4f5_36%,#edf1ef_62%,#e8edf0_100%)]',
+    header: 'border-cyan-200 bg-cyan-50/85',
+    accent: 'bg-cyan-300/20',
+    label: 'text-cyan-700'
+  },
   education: {
     page: 'bg-[radial-gradient(circle_at_top_left,#fef3c7_0,#f5ead2_36%,#eee8dc_62%,#e8edf0_100%)]',
     header: 'border-amber-200 bg-amber-50/85',
@@ -1303,6 +1312,10 @@ const NAV_THEMES = {
   ka01: {
     active: 'border-violet-300 bg-violet-600 text-white shadow-sm shadow-violet-200/70',
     idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-800'
+  },
+  meetings: {
+    active: 'border-cyan-300 bg-cyan-700 text-white shadow-sm shadow-cyan-200/70',
+    idle: 'border-stone-200 bg-white/80 text-stone-600 hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800'
   },
   education: {
     active: 'border-amber-300 bg-amber-600 text-white shadow-sm shadow-amber-200/70',
@@ -3205,6 +3218,9 @@ function App() {
   const switchMainView = (nextView) => {
     if (!nextView || nextView === mainView) return true;
     if (!confirmAndResetBeforeViewChange()) return false;
+    if (nextView === 'meetings') {
+      setKa01Draft((previous) => ({ ...previous, networkType: 'Porada' }));
+    }
     setMainView(nextView);
     return true;
   };
@@ -3400,15 +3416,6 @@ function App() {
         .replace(/[\u0300-\u036f]/g, '')
         .trim();
 
-    const contextRecordsByClient = new Map(clients.map((client) => [client.id, []]));
-    records.forEach((record) => {
-      const clientIds = Array.isArray(record.clientIds) ? record.clientIds : record.clientId ? [record.clientId] : [];
-      clientIds.forEach((clientId) => {
-        if (!contextRecordsByClient.has(clientId)) contextRecordsByClient.set(clientId, []);
-        contextRecordsByClient.get(clientId).push(record);
-      });
-    });
-
     const filteredRecordsByClient = new Map(clients.map((client) => [client.id, []]));
     const supportMinutesByClient = new Map();
     filteredRecords.forEach((record) => {
@@ -3421,21 +3428,23 @@ function App() {
       });
     });
 
-    const hoursFor = (clientId) => (supportMinutesByClient.get(clientId) || 0) / 60;
-    const supportedClients = clients.filter((client) => hoursFor(client.id) > 0);
-    const longTermClients = supportedClients.filter((client) => hoursFor(client.id) >= 40);
-    const shortTermClients = supportedClients.filter((client) => hoursFor(client.id) < 40);
-
-    const hasMinimumData = (client) =>
-      Boolean(client.id && client.fullName && client.datumNarozeni && client.datumVstupu);
-    const hasCompleteMonitoringData = (client) =>
-      Boolean(
-        client.monitoringListUrl && client.datumNarozeni && client.pohlavi && client.postaveniNaTrhu &&
-        client.vzdelani && client.znevyhodneni && client.datumVstupu && client.mesto && client.psc
-      );
-
-    const longEligible = longTermClients.filter(hasCompleteMonitoringData);
-    const shortEligible = shortTermClients.filter(hasMinimumData);
+    const {
+      contextRecordsByClient,
+      supportedClients,
+      longTermClients,
+      shortTermClients,
+      longEligible,
+      shortEligible,
+      risks
+    } = buildDashboardControls({
+      clients,
+      records,
+      scopeRecords: filteredRecords,
+      supportMinutesByClient,
+      projectStartDate: PROJECT_START_DATE,
+      projectEndDate: PROJECT_END_DATE,
+      referenceDate: todayIso()
+    });
     const areaMatches = (record, aliases) => {
       const area = normalize(record.payload?.supportArea);
       return aliases.some((alias) => area.includes(normalize(alias)));
@@ -3596,15 +3605,6 @@ function App() {
         supervisionTotalHours: roundHours(stats.supervisionTotalHours)
       };
     });
-    const missingPlanCount = longTermClients.filter(
-      (client) => !(contextRecordsByClient.get(client.id) || []).some((record) => record.entityType === 'plans')
-    ).length;
-    const missingGoalEvaluationCount = supportedClients.filter((client) =>
-      (contextRecordsByClient.get(client.id) || [])
-        .filter((record) => record.entityType === 'plans')
-        .some((plan) => getPlanGoals(plan).some((goal) => isGoalTerminal(goal) && !String(goal.goalEvaluation || '').trim()))
-    ).length;
-    const completeMonitoringCount = longTermClients.filter(hasCompleteMonitoringData).length;
     const partnerStats = buildPartnerStats({
       records: filteredRecords,
       partners: records.filter((record) => record.entityType === 'actor_registry'),
@@ -3661,13 +3661,7 @@ function App() {
         { key: 'partners-once', label: 'Jednorázově zapojení partneři', current: activePartners.filter((partner) => partner.totalActivityCount === 1).length, detail: 'Právě jedna doložená aktivita' },
         { key: 'partners-90-days', label: 'Aktivní partneři za 90 dní', current: activePartners.filter((partner) => partner.isActiveLast90Days).length, detail: 'Aktivita v posledních 90 dnech období' }
       ],
-      risks: [
-        { key: 'near-40', label: 'Klienti bl\u00edzko 40 hodin', count: supportedClients.filter((client) => hoursFor(client.id) >= 30 && hoursFor(client.id) < 40).length, detail: '30\u201339,99 hodiny podpory' },
-        { key: 'long-not-counted', label: 'Nad 40 hodin, ale nezapo\u010dteno do 600 000', count: longTermClients.length - longEligible.length, detail: 'Chyb\u00ed povinn\u00e9 monitorovac\u00ed \u00fadaje' },
-        { key: 'short-not-counted', label: 'Pod 40 hodin, ale nezapo\u010dteno do 670 102', count: shortTermClients.length - shortEligible.length, detail: 'Chyb\u00ed minim\u00e1ln\u00ed registra\u010dn\u00ed \u00fadaje' },
-        { key: 'missing-plan', label: 'Chyb\u00ed individu\u00e1ln\u00ed pl\u00e1n u 40+', count: missingPlanCount, detail: 'Riziko pro dolo\u017een\u00ed dlouhodob\u00e9 podpory' },
-        { key: 'missing-evaluation', label: 'Chyb\u00ed vyhodnocen\u00ed c\u00edle', count: missingGoalEvaluationCount, detail: 'Uzav\u0159en\u00fd c\u00edl nem\u00e1 slovn\u00ed vyhodnocen\u00ed' }
-      ]
+      risks
     };
   }, [clients, filteredRecords, isReportingViewActive, professionalDevelopmentRecords, records, selectedReportingPeriod]);
 
@@ -3859,12 +3853,20 @@ function App() {
         .sort((a, b) => (b.payload?.employmentStartDate || b.activityDate || '').localeCompare(a.payload?.employmentStartDate || a.activityDate || '')),
     [records]
   );
-  const ka01NetworkRecords = useMemo(
+  const ka01AllNetworkRecords = useMemo(
     () =>
       records
         .filter((record) => record.entityType === 'network_activities')
         .sort((a, b) => (b.activityDate || '').localeCompare(a.activityDate || '')),
     [records]
+  );
+  const ka01NetworkRecords = useMemo(
+    () => ka01AllNetworkRecords.filter((record) => !isTeamMeetingRecord(record)),
+    [ka01AllNetworkRecords]
+  );
+  const ka01MeetingRecords = useMemo(
+    () => ka01AllNetworkRecords.filter(isTeamMeetingRecord),
+    [ka01AllNetworkRecords]
   );
   const ka01ActorRegistryRecords = useMemo(
     () => {
@@ -6315,7 +6317,11 @@ ${rawOutput}` }] }],
       console.warn('Network meetings refresh error:', error);
     }
 
-    setFlash(editingKa01NetworkRecordId ? 'Aktivita tvorby s\u00edt\u011b byla upravena.' : 'Aktivita tvorby s\u00edt\u011b byla ulo\u017eena.');
+    setFlash(
+      isTeamMeeting
+        ? (editingKa01NetworkRecordId ? 'Porada byla upravena.' : 'Porada byla uložena.')
+        : (editingKa01NetworkRecordId ? 'Aktivita tvorby sítě byla upravena.' : 'Aktivita tvorby sítě byla uložena.')
+    );
     setEditingKa01NetworkRecordId('');
     setKa01Draft((previous) => ({
       ...previous,
@@ -6373,7 +6379,7 @@ ${rawOutput}` }] }],
       networkDescription: payload.description || payload.notes || ''
     }));
     setEditingKa01NetworkRecordId(record.id);
-    setFlash('Záznam KA01 byl načten do formuláře pro úpravu.');
+    setFlash(isTeamMeetingRecord(record) ? 'Porada byla načtena do formuláře pro úpravu.' : 'Aktivita sítě byla načtena do formuláře pro úpravu.');
   };
 
   const cancelKa01NetworkEdit = () => {
@@ -6613,10 +6619,13 @@ ${rawOutput}` }] }],
     }));
   };
 
-  const exportKa01AttendanceSheet = async (sheetType = 'network') => {
-    const selectedParticipants = buildAttendanceParticipants(ka01ActorRegistryRecords, ka01AttendanceSelection);
+  const exportKa01AttendanceSheet = async (sheetType = 'network', options = {}) => {
+    const hasParticipantOverride = Array.isArray(options.participants);
+    const selectedParticipants = hasParticipantOverride
+      ? options.participants
+      : buildAttendanceParticipants(ka01ActorRegistryRecords, ka01AttendanceSelection);
 
-    if (selectedParticipants.length === 0) {
+    if (!hasParticipantOverride && selectedParticipants.length === 0) {
       setFlash('Vyberte alespoň jednu osobu s vyplněným jménem a příjmením.');
       return;
     }
@@ -6675,7 +6684,8 @@ ${rawOutput}` }] }],
             <div>
               <h1 style="margin:0 0 8px 0;font-size:34px;line-height:1.2;">${escapeHtml(attendanceTitle)}</h1>
               <p style="margin:0 0 6px 0;font-size:18px;">Datum vytvoření: ${escapeHtml(formatDateForDocument(todayIso()))}</p>
-              <p style="margin:0;font-size:18px;">Schůzka dne: ........................................   Od: ....................   Do: ....................</p>
+              <p style="margin:0;font-size:18px;">Schůzka dne: ${escapeHtml(options.eventDate ? formatDateForDocument(options.eventDate) : '........................................')}   Od: ${escapeHtml(options.startTime || '....................')}   Do: ${escapeHtml(options.endTime || '....................')}</p>
+              ${options.place ? `<p style="margin:6px 0 0;font-size:18px;">Místo: ${escapeHtml(options.place)}</p>` : ''}
               ${attendancePages.length > 1 ? `<p style="margin:6px 0 0;font-size:16px;">Strana ${pageIndex + 1} z ${attendancePages.length}</p>` : ''}
             </div>
             <img src="${sfLogoImage}" alt="Spolufinancováno" style="width:420px;height:auto;" />
@@ -6711,8 +6721,13 @@ ${rawOutput}` }] }],
         doc.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', margin, margin, imageWidth, imageHeight, undefined, 'FAST');
       }
 
-      doc.save(`prezencni_listina_${todayIso()}.pdf`);
-      setFlash(`Prezenční listina byla stažena do PDF pro ${selectedParticipants.length} osob.`);
+      const attendanceFilename = hasParticipantOverride
+        ? `prezencni_listina_porada_${options.eventDate || todayIso()}.pdf`
+        : `prezencni_listina_${todayIso()}.pdf`;
+      doc.save(attendanceFilename);
+      setFlash(selectedParticipants.length
+        ? `Prezenční listina byla stažena do PDF pro ${selectedParticipants.length} osob.`
+        : 'Prázdná prezenční listina byla stažena do PDF.');
     } catch (error) {
       wrapper?.remove();
       console.error('KA01 attendance PDF export error:', error);
@@ -7652,8 +7667,10 @@ ${rawPlanOutput}` }] }],
       setFlash(error.message || 'Export aktivity tvorby sítě do DOCX selhal.');
     }
   };
-  const exportKa01NetworkBulk = async () => {
-    let exportRecords = ka01NetworkRecords;
+  const exportKa01NetworkBulk = async (exportKind = 'network') => {
+    const meetingsOnly = exportKind === 'meetings';
+    const matchesExportKind = (record) => meetingsOnly ? isTeamMeetingRecord(record) : !isTeamMeetingRecord(record);
+    let exportRecords = meetingsOnly ? ka01MeetingRecords : ka01NetworkRecords;
     if (GOOGLE_SHEET_MACRO_URL) {
       try {
         const url = new URL(GOOGLE_SHEET_MACRO_URL, window.location.origin);
@@ -7662,14 +7679,14 @@ ${rawPlanOutput}` }] }],
         const json = await response.json();
         if (!response.ok || json.ok === false) throw new Error(json.error || 'Na\u010dten\u00ed aktivit selhalo.');
         const freshRecords = mapSheetRecordsToAppRecords({ networkMeetings: json.networkMeetings || [] }, clientIndex)
-          .filter((record) => record.entityType === 'network_activities');
+          .filter((record) => record.entityType === 'network_activities' && matchesExportKind(record));
         if (freshRecords.length) exportRecords = freshRecords;
       } catch (error) {
         console.warn('Fresh network export data load failed:', error);
       }
     }
     if (!exportRecords.length) {
-      setFlash('Nejsou ulo\u017een\u00e9 \u017e\u00e1dn\u00e9 aktivity tvorby s\u00edt\u011b ke sta\u017een\u00ed.');
+      setFlash(meetingsOnly ? 'Nejsou uložené žádné porady ke stažení.' : 'Nejsou uložené žádné aktivity tvorby sítě ke stažení.');
       return;
     }
 
@@ -7727,7 +7744,7 @@ ${rawPlanOutput}` }] }],
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>KA2 - hromadn\u00fd export aktivit</title>
+          <title>${meetingsOnly ? 'Porady – hromadný export' : 'KA2 - hromadný export aktivit'}</title>
           <style>
             @page Section1 {
               size: 841.9pt 595.3pt;
@@ -7744,7 +7761,7 @@ ${rawPlanOutput}` }] }],
         </head>
         <body>
           <div class="Section1">
-            <h1 style="margin:0 0 8px;">KA2 - hromadn\u00fd export aktivit</h1>
+            <h1 style="margin:0 0 8px;">${meetingsOnly ? 'Porady realizačního týmu – hromadný export' : 'KA2 - hromadný export aktivit'}</h1>
             <p style="margin:0 0 16px;color:#475569;">Po\u010det z\u00e1znam\u016f: ${exportRecords.length}</p>
             <table>
               <colgroup>
@@ -7778,11 +7795,12 @@ ${rawPlanOutput}` }] }],
       </html>`;
 
     try {
-      await downloadHtmlDocument(content, `ka02-hromadny-export-${todayIso()}.docx`);
-      setFlash('Hromadn\u00fd export aktivit KA02 byl sta\u017een do DOCX.');
+      const filename = meetingsOnly ? `porady-hromadny-export-${todayIso()}.docx` : `ka02-hromadny-export-${todayIso()}.docx`;
+      await downloadHtmlDocument(content, filename);
+      setFlash(meetingsOnly ? 'Hromadný export porad byl stažen do DOCX.' : 'Hromadný export aktivit KA02 byl stažen do DOCX.');
     } catch (error) {
       console.error('KA02 bulk DOCX export error:', error);
-      setFlash(error.message || 'Hromadn\u00fd export aktivit KA02 selhal.');
+      setFlash(error.message || (meetingsOnly ? 'Hromadný export porad selhal.' : 'Hromadný export aktivit KA02 selhal.'));
     }
   };
 
@@ -8813,6 +8831,7 @@ ${rawPlanOutput}` }] }],
         {mainView === 'ka01' && (
           <React.Suspense fallback={<LazyViewFallback />}>
             <Ka01View
+              viewMode="network"
               ka01Draft={ka01Draft}
               setKa01Draft={setKa01Draft}
               ka01ActorDraft={ka01ActorDraft}
@@ -8845,6 +8864,55 @@ ${rawPlanOutput}` }] }],
               ka01NetworkTimeError={ka01NetworkTimeError}
               cancelKa01NetworkEdit={cancelKa01NetworkEdit}
               ka01NetworkRecords={ka01NetworkRecords}
+              ka01ActorRegistryRecords={ka01ActorRegistryRecords}
+              expandedKa01NetworkRecordIds={expandedKa01NetworkRecordIds}
+              toggleKa01NetworkDescription={toggleKa01NetworkDescription}
+              exportKa01NetworkDocx={exportKa01NetworkDocx}
+              handleEditKa01Network={handleEditKa01Network}
+              deleteRecord={deleteRecord}
+              recordDeleteNotice={recordDeleteNotice}
+              computedIndicators={computedIndicators}
+              formatDurationFromTimes={formatDurationFromTimes}
+            />
+          </React.Suspense>
+        )}
+
+        {mainView === 'meetings' && (
+          <React.Suspense fallback={<LazyViewFallback />}>
+            <Ka01View
+              viewMode="meetings"
+              ka01Draft={ka01Draft}
+              setKa01Draft={setKa01Draft}
+              ka01ActorDraft={ka01ActorDraft}
+              setKa01ActorDraft={setKa01ActorDraft}
+              ka01ActorOptions={ka01ActorOptions}
+              ka01ActorCustomValue={KA01_ACTOR_CUSTOM}
+              updateKa01ActorEntry={updateKa01ActorEntry}
+              ka01PlaceOptions={KA01_PLACE_OPTIONS}
+              ka01PlaceCustomValue={KA01_PLACE_CUSTOM}
+              updateKa01PlaceSelection={updateKa01PlaceSelection}
+              updateKa01PlaceCustom={updateKa01PlaceCustom}
+              clients={accessibleClients}
+              handleSaveKa01Assessment={handleSaveKa01Assessment}
+              isSaving={isSaving}
+              ka01NetworkDuration={ka01NetworkDuration}
+              ka01StartTimeSuggestions={ka01StartTimeSuggestions}
+              ka01EndTimeSuggestions={ka01EndTimeSuggestions}
+              editingKa01NetworkRecordId={editingKa01NetworkRecordId}
+              handleGenerateKa01NetworkDescription={handleGenerateKa01NetworkDescription}
+              handleSaveKa01Network={handleSaveKa01Network}
+              handleSaveKa01ActorRegistry={handleSaveKa01ActorRegistry}
+              networkSaveNotice={saveButtonNotices.network}
+              actorSaveNotice={saveButtonNotices.actor}
+              setKa01ActorAttendanceContacts={setKa01ActorAttendanceContacts}
+              ka01AttendanceSelection={ka01AttendanceSelection}
+              exportKa01AttendanceSheet={exportKa01AttendanceSheet}
+              handleEditKa01ActorRegistry={handleEditKa01ActorRegistry}
+              cancelKa01ActorRegistryEdit={cancelKa01ActorRegistryEdit}
+              exportKa01NetworkBulk={exportKa01NetworkBulk}
+              ka01NetworkTimeError={ka01NetworkTimeError}
+              cancelKa01NetworkEdit={cancelKa01NetworkEdit}
+              ka01NetworkRecords={ka01MeetingRecords}
               ka01ActorRegistryRecords={ka01ActorRegistryRecords}
               expandedKa01NetworkRecordIds={expandedKa01NetworkRecordIds}
               toggleKa01NetworkDescription={toggleKa01NetworkDescription}

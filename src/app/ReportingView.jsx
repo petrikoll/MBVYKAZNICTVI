@@ -131,6 +131,62 @@ const ProfessionalDevelopmentCard = ({ item }) => {
   );
 };
 
+const RiskControlRow = ({ risk }) => {
+  const issues = Array.isArray(risk.issues) ? risk.issues : [];
+  const tooltipId = `risk-detail-${risk.key}`;
+  const hasIssues = Number(risk.count || 0) > 0;
+  return (
+    <div
+      className="group relative flex cursor-help items-center gap-3 px-4 py-3 outline-none transition hover:z-30 hover:bg-amber-50/60 focus:z-30 focus:bg-amber-50/60 focus:ring-2 focus:ring-inset focus:ring-amber-300"
+      tabIndex={0}
+      aria-describedby={tooltipId}
+    >
+      <AlertTriangle className={`h-4 w-4 shrink-0 ${hasIssues ? 'text-amber-600' : 'text-emerald-600'}`} />
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold text-slate-900">{risk.label}</div>
+        <div className="text-xs text-slate-500">{risk.detail}</div>
+        {hasIssues && (
+          <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-amber-700">
+            <Users className="h-3.5 w-3.5" />
+            Najeďte pro seznam klientů a chyb
+          </div>
+        )}
+      </div>
+      <div className={`min-w-10 text-right text-lg font-bold ${hasIssues ? 'text-amber-700' : 'text-emerald-700'}`}>{risk.count}</div>
+      <div
+        id={tooltipId}
+        role="tooltip"
+        className="invisible absolute left-2 top-full z-50 mt-1 w-[min(42rem,calc(100vw-3rem))] translate-y-1 rounded-xl border border-amber-200 bg-white p-3 text-left opacity-0 shadow-xl transition sm:left-10 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus:visible group-focus:translate-y-0 group-focus:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100"
+      >
+        <div className="mb-2 flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
+          <strong className="text-xs text-slate-900">{risk.tooltipLabel || 'Klienti a zjištěné chyby'}</strong>
+          <span className={`text-xs font-bold ${hasIssues ? 'text-amber-700' : 'text-emerald-700'}`}>{issues.length}</span>
+        </div>
+        {issues.length === 0 ? (
+          <p className="text-xs text-emerald-700">Kontrola je v pořádku, žádný klient nevyžaduje opravu.</p>
+        ) : (
+          <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
+            {issues.map((issue, index) => (
+              <li key={issue.key || `${risk.key}-${index}`} className="rounded-lg bg-amber-50 px-3 py-2 text-xs">
+                <div className="font-bold text-slate-900">{issue.clientName || 'Klient bez jména'}</div>
+                {issue.context && <div className="mt-0.5 text-slate-500">{issue.context}</div>}
+                <ul className="mt-1 space-y-0.5 text-slate-700">
+                  {(issue.errors || []).map((error, errorIndex) => (
+                    <li key={`${issue.key || index}-error-${errorIndex}`} className="flex gap-1.5">
+                      <span aria-hidden="true">•</span>
+                      <span>{error}</span>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const KuStatisticsPanel = ({
   overview,
   sourceRowCount = 0,
@@ -631,13 +687,9 @@ function ReportingView({
 
       <section>
         <h2 className="mb-3 flex items-center gap-1 text-base font-bold text-slate-900">Kontrolní upozornění <HelpIcon help={HELP.dashboardRisks} /></h2>
-        <div className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-300 bg-white">
+        <div className="divide-y divide-slate-200 rounded-lg border border-slate-300 bg-white">
           {overview.risks.map((risk) => (
-            <div key={risk.key} className="flex items-center gap-3 px-4 py-3">
-              <AlertTriangle className={'h-4 w-4 shrink-0 ' + (risk.count > 0 ? 'text-amber-600' : 'text-emerald-600')} />
-              <div className="min-w-0 flex-1"><div className="text-sm font-semibold text-slate-900">{risk.label}</div><div className="text-xs text-slate-500">{risk.detail}</div></div>
-              <div className={'min-w-10 text-right text-lg font-bold ' + (risk.count > 0 ? 'text-amber-700' : 'text-emerald-700')}>{risk.count}</div>
-            </div>
+            <RiskControlRow key={risk.key} risk={risk} />
           ))}
         </div>
       </section>

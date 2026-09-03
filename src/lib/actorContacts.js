@@ -158,6 +158,50 @@ function buildAttendanceParticipants(records = [], selection = {}) {
   });
 }
 
+function buildMeetingAttendanceParticipants(participantNames = [], actorRecords = [], workers = []) {
+  const workerNames = new Set((workers || []).map((name) => String(name || '').trim()).filter(Boolean));
+  const actorParticipants = new Map();
+
+  (actorRecords || []).forEach((record) => {
+    const payload = record?.payload || {};
+    const organization = String(payload.name || '').trim();
+    if (!organization) return;
+    const contacts = normalizeActorContacts(payload);
+    if (!contacts.length) {
+      actorParticipants.set(organization, { firstName: '', lastName: '', organization, role: '' });
+      return;
+    }
+    contacts.forEach((contact) => {
+      const participant = {
+        firstName: [contact.title, contact.firstName].filter(Boolean).join(' '),
+        lastName: contact.lastName,
+        organization,
+        role: contact.role
+      };
+      actorParticipants.set(`${organization} — ${contact.name}`, participant);
+    });
+  });
+
+  const seen = new Set();
+  return (participantNames || []).flatMap((participantName) => {
+    const value = String(participantName || '').trim();
+    const dedupeKey = value.toLocaleLowerCase('cs');
+    if (!value || seen.has(dedupeKey)) return [];
+    seen.add(dedupeKey);
+
+    if (actorParticipants.has(value)) return [{ ...actorParticipants.get(value) }];
+
+    const [namePart, ...roleParts] = value.split(/\s+[|–—]\s+/);
+    const contact = normalizeActorContact({ name: namePart });
+    return [{
+      firstName: [contact.title, contact.firstName].filter(Boolean).join(' '),
+      lastName: contact.lastName,
+      organization: workerNames.has(value) ? 'Město Moravský Beroun' : '',
+      role: workerNames.has(value) ? 'Realizační tým' : roleParts.join(' — ')
+    }];
+  });
+}
+
 function paginateAttendanceParticipants(participants = [], { minimumRows = 15, rowsPerPage = 22 } = {}) {
   const safeRowsPerPage = Math.max(1, Number(rowsPerPage) || 22);
   const totalRows = Math.max(Math.max(0, Number(minimumRows) || 0), participants.length);
@@ -181,6 +225,7 @@ export {
   actorContactsToSheetFields,
   attendanceSheetTitle,
   buildAttendanceParticipants,
+  buildMeetingAttendanceParticipants,
   paginateAttendanceParticipants,
   contactsFromSheetRow,
   createEmptyActorContact,
