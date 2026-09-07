@@ -22,7 +22,7 @@ export const getContractTerms = (period) => {
   const value = periodNumber(period);
 
   if (value >= 202607 && value <= 202608) {
-    return { contractType: "DPP", monthlyHours: 24 };
+    return { contractType: "DPP", monthlyHours: 25 };
   }
   if (value >= 202609 && value <= 202709) {
     return { contractType: "DPP", monthlyHours: 32 };
