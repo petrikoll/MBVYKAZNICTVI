@@ -1,5 +1,21 @@
 const CONTACT_TITLE_PATTERN = /^(Bc\.?|BcA\.?|Mgr\.?|MgA\.?|Ing\.?|JUDr\.?|MUDr\.?|MDDr\.?|MVDr\.?|RNDr\.?|PharmDr\.?|PhDr\.?|PaedDr\.?|ThDr\.?|ThLic\.?|doc\.?|prof\.?|DiS\.?)$/i;
 
+const PROJECT_WORKER_ATTENDANCE_ROLES = new Map([
+  ['radka vyslouzilova', 'vedoucí OSSVŠ'],
+  ['josef jakubec', 'sociální pracovník OSSVŠ'],
+  ['lea ledecka', 'sociální pracovník OSSVŠ']
+]);
+
+function projectWorkerAttendanceRole(name = '') {
+  const normalizedName = String(name || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('cs')
+    .replace(/^(?:(?:mgr|bc)\.?\s+)*/, '')
+    .replace(/(?:,?\s*dis\.?)$/, '')
+    .trim();
+  return PROJECT_WORKER_ATTENDANCE_ROLES.get(normalizedName) || '';
+}
+
 const ATTENDANCE_SHEET_TYPE_OPTIONS = [
   { value: 'network', label: 'Aktéři sítě' },
   { value: 'supervision', label: 'Supervize' },
@@ -153,7 +169,7 @@ function buildAttendanceParticipants(records = [], selection = {}) {
         firstName: [contact.title, contact.firstName].filter(Boolean).join(' '),
         lastName: contact.lastName,
         organization,
-        role: contact.role
+        role: projectWorkerAttendanceRole([contact.title, contact.firstName, contact.lastName].filter(Boolean).join(' ')) || contact.role
       }));
   });
 }
@@ -176,7 +192,7 @@ function buildMeetingAttendanceParticipants(participantNames = [], actorRecords 
         firstName: [contact.title, contact.firstName].filter(Boolean).join(' '),
         lastName: contact.lastName,
         organization,
-        role: contact.role
+        role: projectWorkerAttendanceRole([contact.title, contact.firstName, contact.lastName].filter(Boolean).join(' ')) || contact.role
       };
       actorParticipants.set(`${organization} — ${contact.name}`, participant);
     });
@@ -193,11 +209,12 @@ function buildMeetingAttendanceParticipants(participantNames = [], actorRecords 
 
     const [namePart, ...roleParts] = value.split(/\s+[|–—]\s+/);
     const contact = normalizeActorContact({ name: namePart });
+    const workerRole = projectWorkerAttendanceRole(namePart);
     return [{
       firstName: [contact.title, contact.firstName].filter(Boolean).join(' '),
       lastName: contact.lastName,
-      organization: workerNames.has(value) ? 'Město Moravský Beroun' : '',
-      role: workerNames.has(value) ? 'Realizační tým' : roleParts.join(' — ')
+      organization: workerRole || workerNames.has(value) ? 'Město Moravský Beroun' : '',
+      role: workerRole || (workerNames.has(value) ? 'Realizační tým' : roleParts.join(' — '))
     }];
   });
 }

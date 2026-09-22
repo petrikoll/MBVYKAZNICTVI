@@ -187,7 +187,7 @@ test('list Porady vytvoří prezenční listinu přímo z osob ve formuláři', 
     assert.equal(exports[0].options.startTime, '09:00');
     assert.equal(exports[0].options.endTime, '10:30');
     assert.deepEqual(exports[0].options.participants.map(({ firstName, lastName, role }) => ({ firstName, lastName, role })), [
-      { firstName: 'Mgr. Lea', lastName: 'Ledecká', role: 'Realizační tým' },
+      { firstName: 'Mgr. Lea', lastName: 'Ledecká', role: 'sociální pracovník OSSVŠ' },
       { firstName: 'Petr', lastName: 'Novák', role: 'host' }
     ]);
   } finally {

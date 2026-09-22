@@ -96,6 +96,25 @@ test('prezenční listina zachová titul před jménem', () => {
   assert.equal(participant.lastName, 'Malá');
 });
 
+test('funkce pracovníků projektu se v listině aktérů vypíše místo uloženého jména', () => {
+  const records = [{
+    id: 'city',
+    payload: {
+      name: 'Město Moravský Beroun',
+      contacts: [
+        { id: 'radka', name: 'Mgr. Radka Vysloužilová', role: 'Mgr. Radka Vysloužilová' },
+        { id: 'josef', name: 'Bc. Josef Jakubec', role: 'Bc. Josef Jakubec' },
+        { id: 'lea', name: 'Mgr. Lea Ledecká, DiS.', role: 'Mgr. Lea Ledecká, DiS.' }
+      ]
+    }
+  }];
+
+  assert.deepEqual(
+    buildAttendanceParticipants(records, { city: ['radka', 'josef', 'lea'] }).map(({ role }) => role),
+    ['vedoucí OSSVŠ', 'sociální pracovník OSSVŠ', 'sociální pracovník OSSVŠ']
+  );
+});
+
 test('více titulů před jménem se zachová a titul za jménem zůstane v příjmení', () => {
   assert.deepEqual(normalizeActorContacts({
     contacts: [{ id: 'contact-1', name: 'doc. RNDr. Petr Novák, Ph.D.' }]
@@ -143,9 +162,45 @@ test('prezenční listina porady převezme členy týmu, kontakty aktérů i ru�
   }], ['Mgr. Lea Ledecká']);
 
   assert.deepEqual(participants, [
-    { firstName: 'Mgr. Lea', lastName: 'Ledecká', organization: 'Město Moravský Beroun', role: 'Realizační tým' },
+    { firstName: 'Mgr. Lea', lastName: 'Ledecká', organization: 'Město Moravský Beroun', role: 'sociální pracovník OSSVŠ' },
     { firstName: 'Mgr. Jana', lastName: 'Malá', organization: 'Město', role: 'koordinátorka' },
     { firstName: 'Petr', lastName: 'Novák', organization: '', role: 'host' }
+  ]);
+});
+
+test('list porady přiřadí všem třem pracovníkům funkci i při jménu s DiS.', () => {
+  const participants = buildMeetingAttendanceParticipants([
+    'Mgr. Radka Vysloužilová',
+    'Bc. Josef Jakubec',
+    'Mgr. Lea Ledecká, DiS.'
+  ], [], ['Mgr. Radka Vysloužilová', 'Bc. Josef Jakubec', 'Mgr. Lea Ledecká']);
+
+  assert.deepEqual(participants.map(({ organization, role }) => ({ organization, role })), [
+    { organization: 'Město Moravský Beroun', role: 'vedoucí OSSVŠ' },
+    { organization: 'Město Moravský Beroun', role: 'sociální pracovník OSSVŠ' },
+    { organization: 'Město Moravský Beroun', role: 'sociální pracovník OSSVŠ' }
+  ]);
+});
+
+test('list porady přepíše chybné funkce pracovníků převzatých z evidence aktérů', () => {
+  const participants = buildMeetingAttendanceParticipants([
+    'Město Moravský Beroun — Mgr. Radka Vysloužilová',
+    'Město Moravský Beroun — Bc. Josef Jakubec',
+    'Město Moravský Beroun — Mgr. Lea Ledecká, DiS.'
+  ], [{
+    id: 'city',
+    payload: {
+      name: 'Město Moravský Beroun',
+      contacts: [
+        { name: 'Mgr. Radka Vysloužilová', role: 'Mgr. Radka Vysloužilová' },
+        { name: 'Bc. Josef Jakubec', role: 'Bc. Josef Jakubec' },
+        { name: 'Mgr. Lea Ledecká, DiS.', role: 'Mgr. Lea Ledecká, DiS.' }
+      ]
+    }
+  }]);
+
+  assert.deepEqual(participants.map(({ role }) => role), [
+    'vedoucí OSSVŠ', 'sociální pracovník OSSVŠ', 'sociální pracovník OSSVŠ'
   ]);
 });
 
