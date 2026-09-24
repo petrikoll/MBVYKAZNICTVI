@@ -44,3 +44,14 @@ test('starší jména se převedou také uvnitř načtených záznamů', () => {
     payload: { workers: ['Bc. Josef Jakubec', 'Mgr. Radka Vysloužilová'] }
   });
 });
+
+test('převod pracovníků nemění kontakty ani volně zadané texty', () => {
+  const payload = {
+    name: 'Lea Ledecká, DiS.', contactName: 'Lea Ledecká, DiS.',
+    contactRole: 'case manager', notes: 'Sociální pracovník',
+    contacts: [{ name: 'Lea Ledecká, DiS.', role: 'case manager' }]
+  };
+  assert.deepEqual(canonicalizeWorkerReferences({ worker: 'Case manager', payload }), {
+    worker: 'Bc. Josef Jakubec', payload
+  });
+});

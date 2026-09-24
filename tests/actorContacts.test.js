@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { canonicalizeWorkerReferences } from '../src/config/projectConfig.js';
 
 import {
   ATTENDANCE_SHEET_TYPE_OPTIONS,
@@ -268,6 +269,24 @@ test('vymazané jméno se po uložení neobnoví ze starých rozdělených polí
   assert.equal(reloaded.lastName, '');
   assert.equal(reloaded.role, '');
   assert.equal(reloaded.phone, '123');
+});
+
+test('uložení a opětovné načtení zachová zadané jméno i funkci shodnou s označením pracovníka', () => {
+  const contacts = [
+    { id: 'contact-1', name: 'Bc. Josef Jakubec', role: 'case manager' },
+    { id: 'contact-2', name: 'Lea Ledecká, DiS.', role: 'Sociální pracovník' },
+    { id: 'contact-3', name: 'Radka Vysloužilová', role: 'Garant projektu' }
+  ];
+  const sheetRow = actorContactsToSheetFields({ contacts });
+  const [reloadedRecord] = canonicalizeWorkerReferences([{
+    id: 'actor', worker: 'Case manager',
+    payload: { name: 'Město', contacts: contactsFromSheetRow(sheetRow) }
+  }]);
+  const displayed = reloadedRecord.payload.contacts.map(displayActorContact);
+  const printed = buildAttendanceParticipants([reloadedRecord], { actor: contacts.map((c) => c.id) });
+  assert.equal(reloadedRecord.worker, 'Bc. Josef Jakubec');
+  assert.deepEqual(displayed.map(({ name, role }) => ({ name, role })), contacts.map(({ name, role }) => ({ name, role })));
+  assert.deepEqual(printed.map(({ firstName, lastName, role }) => ({ name: `${firstName} ${lastName}`, role })), contacts.map(({ name, role }) => ({ name, role })));
 });
 
 test('vícestránková prezenční listina rozděluje řádky bez překryvu a zachová pořadí', () => {

@@ -57,14 +57,16 @@ const canonicalizeWorkerName = (value) => {
   return WORKER_ALIASES.get(normalizeWorkerIdentity(original)) || original;
 };
 
-const canonicalizeWorkerReferences = (value) => {
-  if (Array.isArray(value)) return value.map(canonicalizeWorkerReferences);
+const WORKER_REFERENCE_FIELDS = new Set(['worker', 'workers', 'keyWorker', 'ownerWorker']);
+
+const canonicalizeWorkerReferences = (value, field = '') => {
+  if (Array.isArray(value)) return value.map((item) => canonicalizeWorkerReferences(item, field));
   if (value && typeof value === 'object') {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return value;
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, canonicalizeWorkerReferences(item)]));
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, canonicalizeWorkerReferences(item, key)]));
   }
-  return typeof value === 'string' ? canonicalizeWorkerName(value) : value;
+  return typeof value === 'string' && WORKER_REFERENCE_FIELDS.has(field) ? canonicalizeWorkerName(value) : value;
 };
 
 const isCaseManagerWorker = (value) => canonicalizeWorkerName(value) === WORKER_NAMES.caseManager;

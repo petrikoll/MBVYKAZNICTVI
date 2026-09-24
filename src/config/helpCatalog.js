@@ -65,7 +65,7 @@ const HELP = {
   networkPlace: { title: 'Místo setkání', text: 'Vyberte přednastavené místo nebo doplňte jiné konkrétní místo jednání.' },
   networkAttendees: { title: 'Přítomné osoby', text: 'Vyberte pouze skutečně přítomné osoby. U porady jsou dostupné také role realizačního týmu.' },
   networkOutput: { title: 'Výstup zápisu', text: 'Finální text síťového zápisu. Používá se v uložené evidenci i v exportech.' },
-  actorOrigin: { title: 'Zapojení aktéra', text: 'Rozlišuje stávajícího, nově zapojeného a potenciálního aktéra. Potenciální aktér bez doložené aktivity se do spolupracujících partnerů nepočítá.' },
+  actorOrigin: { title: 'Původ', text: 'Určuje hodnotu ve sloupci Původ v tabulce aktérů. Po kliknutí na Upravit zvolte stávajícího, nově zapojeného nebo potenciálního aktéra a změnu uložte. Potenciální aktér bez doložené aktivity se do spolupracujících partnerů nepočítá.' },
   actorDate: { title: 'Datum zapojení', text: 'Vyplňuje se u nově zapojeného aktéra a pomáhá určit, zda byl partner zapojen v průběhu projektu.' },
   dashboardPeriod: { title: 'Vykazované období', text: 'Omezuje záznamy používané pro výpočty hodin, indikátorů, cílů, rizik a partnerské sítě.' },
   dashboardExport: { title: 'Podporované osoby do IS ESF', text: 'Vytvoří oficiální 32sloupcové CSV pouze pro klienty s evidovanou podporou KA1 ve zvoleném monitorovacím období. Adresy před stažením ověří proti RÚIAN pro celou ČR.' },
