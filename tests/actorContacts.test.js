@@ -118,22 +118,22 @@ test('prezenční listina použije jméno viditelné v registru i při starých 
   assert.equal(participant.role, 'strážník');
 });
 
-test('funkce pracovníků projektu se v listině aktérů vypíše místo uloženého jména', () => {
+test('funkce pracovníků projektu zůstávají přesně podle evidence', () => {
   const records = [{
     id: 'city',
     payload: {
       name: 'Město Moravský Beroun',
       contacts: [
-        { id: 'radka', name: 'Mgr. Radka Vysloužilová', role: 'Mgr. Radka Vysloužilová' },
-        { id: 'josef', name: 'Bc. Josef Jakubec', role: 'Bc. Josef Jakubec' },
-        { id: 'lea', name: 'Mgr. Lea Ledecká, DiS.', role: 'Mgr. Lea Ledecká, DiS.' }
+        { id: 'radka', name: 'Mgr. Radka Vysloužilová', role: 'garant' },
+        { id: 'josef', name: 'Bc. Josef Jakubec', role: 'case manager' },
+        { id: 'lea', name: 'Mgr. Lea Ledecká, DiS.', role: 'soc. pracovník' }
       ]
     }
   }];
 
   assert.deepEqual(
     buildAttendanceParticipants(records, { city: ['radka', 'josef', 'lea'] }).map(({ role }) => role),
-    ['vedoucí OSSVŠ', 'sociální pracovník OSSVŠ', 'sociální pracovník OSSVŠ']
+    ['garant', 'case manager', 'soc. pracovník']
   );
 });
 
@@ -150,7 +150,7 @@ test('tabulka aktérů a prezenční listina používají stejné zobrazené jm�
 
   assert.equal(shown.name, `${printed.firstName} ${printed.lastName}`);
   assert.equal(shown.role, printed.role);
-  assert.equal(shown.role, 'vedoucí OSSVŠ');
+  assert.equal(shown.role, 'garant');
   assert.equal(shown.phone, '');
 });
 
@@ -237,7 +237,7 @@ test('list porady přiřadí všem třem pracovníkům funkci i při jménu s Di
   ]);
 });
 
-test('list porady přepíše chybné funkce pracovníků převzatých z evidence aktérů', () => {
+test('list porady zachová funkce převzaté z evidence aktérů', () => {
   const participants = buildMeetingAttendanceParticipants([
     'Město Moravský Beroun — Mgr. Radka Vysloužilová',
     'Město Moravský Beroun — Bc. Josef Jakubec',
@@ -255,8 +255,19 @@ test('list porady přepíše chybné funkce pracovníků převzatých z evidence
   }]);
 
   assert.deepEqual(participants.map(({ role }) => role), [
-    'vedoucí OSSVŠ', 'sociální pracovník OSSVŠ', 'sociální pracovník OSSVŠ'
+    'Mgr. Radka Vysloužilová', 'Bc. Josef Jakubec', 'Mgr. Lea Ledecká, DiS.'
   ]);
+});
+
+test('vymazané jméno se po uložení neobnoví ze starých rozdělených polí', () => {
+  const [original] = normalizeActorContacts({ contacts: [{ id: 'contact-1', name: 'Mgr. Jan Novák', role: 'vedoucí', phone: '123' }] });
+  const fields = actorContactsToSheetFields({ contacts: [{ ...original, name: '', role: '', phone: '123' }] });
+  const [reloaded] = contactsFromSheetRow(fields);
+  assert.equal(reloaded.name, '');
+  assert.equal(reloaded.firstName, '');
+  assert.equal(reloaded.lastName, '');
+  assert.equal(reloaded.role, '');
+  assert.equal(reloaded.phone, '123');
 });
 
 test('vícestránková prezenční listina rozděluje řádky bez překryvu a zachová pořadí', () => {

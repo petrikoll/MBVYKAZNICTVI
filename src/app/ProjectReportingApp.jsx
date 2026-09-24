@@ -2198,14 +2198,7 @@ function actorSheetRowMatchesPayload(row, partner) {
   const expectedDate = asSheetDate(partner.datum_zapojeni);
   if (expectedDate && asSheetDate(row.datum_zapojeni) !== expectedDate) return false;
 
-  const comparableContacts = (source) => normalizeActorContacts({
-    kontaktni_osoby_json: source.kontaktni_osoby_json,
-    contactName: source.kontaktni_osoba,
-    contactRole: source.funkce,
-    phone: source.telefon,
-    email: source.email
-  }).map(({ id, name, title, firstName, lastName, role, phone, email }) => ({
-    id,
+  const comparableContacts = (source) => contactsFromSheetRow(source).map(({ name, title, firstName, lastName, role, phone, email }) => ({
     name,
     title,
     firstName,
@@ -4730,7 +4723,9 @@ function App() {
         });
       } catch (error) {
         if (error?.code !== 'INVALID_JSON_RESPONSE') throw error;
-        const verification = await fetchGoogleSheetAction('listPartners').catch(() => null);
+        const verification = await fetchGoogleSheetAction('listPartners', 1, GOOGLE_SHEET_REQUEST_TIMEOUT_MS, {
+          write_verification_nonce: createClientMutationRequestId('verify-partner')
+        }).catch(() => null);
         const verifiedPartners = (verification?.partners || []).filter((row) => {
           if (String(row.status || '').toLowerCase().includes('smaz')) return false;
           if (partnerToSave.partner_id && asSheetText(row.partner_id) !== partnerToSave.partner_id) return false;
@@ -4741,7 +4736,30 @@ function App() {
         result = { ok: true, partner: verifiedPartner, recoveredConfirmation: true };
       }
       const savedPartner = requireSavedGoogleSheetRecord(result, 'partner', 'partner_id', 'aktéra');
-      return withSheetVersion({ ...record, id: savedPartner.partner_id }, savedPartner);
+      if (!actorSheetRowMatchesPayload(savedPartner, partnerToSave)) {
+        throw new Error('Server vrátil jiné údaje aktéra, než byly odeslány. Uložení nelze potvrdit; vaše změny zůstaly ve formuláři.');
+      }
+      const savedContacts = contactsFromSheetRow(savedPartner);
+      const savedPrimary = savedContacts[0] || createEmptyActorContact();
+      return withSheetVersion({
+        ...record,
+        id: savedPartner.partner_id,
+        payload: {
+          ...payload,
+          name: asSheetText(savedPartner.nazev_subjektu),
+          actorType: asSheetText(savedPartner.typ_aktera),
+          networkOrigin: asSheetText(savedPartner.puvod_site),
+          joinedNetworkDate: asSheetDate(savedPartner.datum_zapojeni),
+          contacts: savedContacts,
+          contactName: savedPrimary.name,
+          contactTitle: savedPrimary.title,
+          contactFirstName: savedPrimary.firstName,
+          contactLastName: savedPrimary.lastName,
+          contactRole: savedPrimary.role,
+          phone: savedPrimary.phone,
+          email: savedPrimary.email
+        }
+      }, savedPartner);
     }
 
     if (record.entityType === 'network_activities') {

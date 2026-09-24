@@ -536,7 +536,17 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
       readResponseCache.clear();
     }
 
-    const snapshot = await fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs);
+    let snapshot;
+    try {
+      snapshot = await fetchUpstreamSnapshot(fetchImpl, upstreamUrl, fetchOptions, upstreamTimeoutMs);
+    } finally {
+      // A read started while the write was pending may have cached the old row.
+      // Finish the write in a new generation so reloads cannot reuse that snapshot.
+      if (request.method === 'POST' && postPayload?.action !== 'logUiNotices') {
+        mutationGeneration += 1;
+        readResponseCache.clear();
+      }
+    }
     if (
       request.method === 'POST'
       && IDEMPOTENT_MUTATION_ACTIONS.has(postPayload?.action)

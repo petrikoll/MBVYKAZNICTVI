@@ -391,6 +391,56 @@ test('zápis zneplatní cache čtecích požadavků', async () => {
   assert.equal(upstreamCalls, 3);
 });
 
+for (const lateRead of [false, true]) test(`obnova po uložení aktéra nepřevezme starý souběžný požadavek (${lateRead ? 'čekající načtení' : 'naplněná cache'})`, async () => {
+  let startWrite;
+  let finishWrite;
+  let startRead;
+  let finishRead;
+  const writeStarted = new Promise((resolve) => { startWrite = resolve; });
+  const writeReady = new Promise((resolve) => { finishWrite = resolve; });
+  const readStarted = new Promise((resolve) => { startRead = resolve; });
+  const readReady = new Promise((resolve) => { finishRead = resolve; });
+  let role = 'původní funkce';
+  let reads = 0;
+  const overrides = {
+    appsScriptUrl: `https://example.test/macros/s/partner-write-race-${lateRead}/exec`,
+    appsScriptToken: 'server-secret',
+    fetchImpl: async (_url, options) => {
+      if (options.method === 'POST') {
+        startWrite();
+        await writeReady;
+        role = 'case manager';
+        return Response.json({ ok: true, partner: { partner_id: 'PARTNER-1', funkce: role } });
+      }
+      const capturedRole = role;
+      reads += 1;
+      if (reads === 1) {
+        startRead();
+        if (lateRead) await readReady;
+      }
+      return Response.json({ ok: true, partners: [{ partner_id: 'PARTNER-1', funkce: capturedRole }] });
+    }
+  };
+  const saved = createResponse();
+  const writing = handleGoogleAppsScriptProxy(createRequest('POST', '/api/google-sheets', JSON.stringify({ action: 'savePartner', partner: {} })), saved, overrides);
+  await writeStarted;
+  const stale = createResponse();
+  const reading = handleGoogleAppsScriptProxy(createRequest('GET', '/api/google-sheets?action=listPartners'), stale, overrides);
+  await readStarted;
+  if (!lateRead) await reading;
+  finishWrite();
+  await writing;
+  const reloaded = createResponse();
+  await handleGoogleAppsScriptProxy(createRequest('GET', '/api/google-sheets?action=listPartners'), reloaded, overrides);
+  assert.equal(JSON.parse(reloaded.body).partners[0].funkce, 'case manager');
+  assert.equal(reloaded.headers['X-Data-Revision'], saved.headers['X-Data-Revision']);
+  finishRead();
+  await reading;
+  const afterLateRead = createResponse();
+  await handleGoogleAppsScriptProxy(createRequest('GET', '/api/google-sheets?action=listPartners'), afterLateRead, overrides);
+  assert.equal(JSON.parse(afterLateRead.body).partners[0].funkce, 'case manager');
+});
+
 test('proxy ukončí zaseknutý Apps Script časovým limitem', async () => {
   const response = createResponse();
   const fetchImpl = async (_url, options) => new Promise((_resolve, reject) => {

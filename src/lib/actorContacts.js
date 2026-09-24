@@ -55,11 +55,12 @@ function splitContactName(value = '') {
 }
 
 function normalizeActorContact(contact = {}, index = 0) {
-  const name = String(contact.name || contact.contactName || '').trim();
+  const hasName = contact.name != null || contact.contactName != null;
+  const name = String(contact.name ?? contact.contactName ?? '').trim();
   const parsed = splitContactName(name);
-  const title = name ? parsed.title : String(contact.title || contact.contactTitle || '').trim();
-  const firstName = name ? parsed.firstName : String(contact.firstName || contact.contactFirstName || '').trim();
-  const lastName = name ? parsed.lastName : String(contact.lastName || contact.contactLastName || '').trim();
+  const title = hasName ? parsed.title : String(contact.title || contact.contactTitle || '').trim();
+  const firstName = hasName ? parsed.firstName : String(contact.firstName || contact.contactFirstName || '').trim();
+  const lastName = hasName ? parsed.lastName : String(contact.lastName || contact.contactLastName || '').trim();
   const normalizedName = name || [title, firstName, lastName].filter(Boolean).join(' ');
 
   return {
@@ -68,7 +69,7 @@ function normalizeActorContact(contact = {}, index = 0) {
     title,
     firstName,
     lastName,
-    role: String(contact.role || contact.contactRole || '').trim(),
+    role: String(contact.role ?? contact.contactRole ?? '').trim(),
     phone: String(contact.phone || '').trim(),
     email: String(contact.email || '').trim()
   };
@@ -142,7 +143,7 @@ function displayActorContact(contact = {}) {
     ...normalized,
     name,
     ...parsedName,
-    role: projectWorkerAttendanceRole(name) || clean(normalized.role),
+    role: clean(normalized.role),
     phone: clean(normalized.phone),
     email: clean(normalized.email)
   };
