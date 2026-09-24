@@ -108,6 +108,11 @@ function Ka01View({
   toggleKa01NetworkDescription, exportKa01NetworkDocx,
   handleEditKa01Network, deleteRecord, recordDeleteNotice
 }) {
+  const actorFormRef = React.useRef(null);
+  const editActor = (record) => {
+    handleEditKa01ActorRegistry(record);
+    actorFormRef.current?.scrollIntoView({ block: 'start', behavior: 'auto' });
+  };
   const [expandedActorIds, setExpandedActorIds] = React.useState([]);
   const [attendanceActorRecord, setAttendanceActorRecord] = React.useState(null);
   const [attendanceContactIds, setAttendanceContactIds] = React.useState([]);
@@ -331,7 +336,7 @@ function Ka01View({
 
       {!isMeetingsView && (
       <Panel title="KA02 - Evidence subjektů partnerské sítě" icon={Users} className="w-full min-w-0 overflow-hidden">
-        <div className="grid gap-3">
+        <div ref={actorFormRef} className="grid scroll-mt-4 gap-3">
           {ka01ActorDraft.id && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
               <span><strong>Upravujete aktéra:</strong> {ka01ActorDraft.name || ka01ActorDraft.id}</span>
@@ -419,7 +424,7 @@ function Ka01View({
                             {selectedIds.length > 0 && <button type="button" onClick={() => openAttendanceContactPicker(record)} className="text-xs font-semibold text-sky-700 underline">Změnit osoby</button>}
                           </div>
                         </td>
-                        <td className="whitespace-nowrap px-2 py-2 text-right"><button type="button" onClick={() => toggleActor(record.id)} className="mr-1 rounded-full border border-slate-200 px-2 py-1 font-semibold">{expanded ? 'Skrýt' : 'Detail'}</button><button type="button" onClick={() => handleEditKa01ActorRegistry(record)} className="mr-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-blue-700">Upravit</button><button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700">Smazat</button></td>
+                        <td className="whitespace-nowrap px-2 py-2 text-right"><button type="button" onClick={() => toggleActor(record.id)} className="mr-1 rounded-full border border-slate-200 px-2 py-1 font-semibold">{expanded ? 'Skrýt' : 'Detail'}</button><button type="button" onClick={() => editActor(record)} className="mr-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-blue-700">Upravit</button><button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700">Smazat</button></td>
                       </tr>
                       {expanded && <tr><td colSpan={9} className="bg-white px-3 py-2 text-slate-600">{contacts.length ? contacts.map((contact) => <div key={contact.id}>{[contact.name, contact.role, contact.phone, contact.email].filter(Boolean).join(' | ')}</div>) : 'Žádné kontaktní osoby.'}</td></tr>}
                     </React.Fragment>
