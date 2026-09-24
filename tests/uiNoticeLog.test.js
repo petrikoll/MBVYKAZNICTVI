@@ -19,6 +19,7 @@ test('hláška přečká chybné odeslání a další otevření aplikace', asyn
   const storage = createStorage();
   const timestamp = new Date('2026-09-24T05:28:00.000Z');
   const first = createUiNoticeLogger({
+    enabled: true,
     storage,
     clock: () => timestamp,
     makeId: () => 'notice-0001',
@@ -30,6 +31,7 @@ test('hláška přečká chybné odeslání a další otevření aplikace', asyn
 
   let sent;
   const second = createUiNoticeLogger({
+    enabled: true,
     storage,
     clock: () => timestamp,
     fetchImpl: async (_url, options) => {
@@ -50,6 +52,20 @@ test('hláška přečká chybné odeslání a další otevření aplikace', asyn
     tone: 'error',
     message: 'Záznam nebyl uložen.'
   });
+});
+
+test('vypnutá historie nečte úložiště, neposílá požadavky a nespouští časovače', async () => {
+  const unexpected = () => { throw new Error('History must remain inactive'); };
+  const logger = createUiNoticeLogger({
+    storage: new Proxy({}, { get: unexpected }),
+    fetchImpl: unexpected, schedule: unexpected,
+    eventTarget: new Proxy({}, { get: unexpected })
+  });
+  logger.start();
+  assert.equal(logger.enqueue({ message: 'Aktér byl uložen.' }), null);
+  assert.equal(await logger.flush(), false);
+  assert.equal(logger.pendingCount(), 0);
+  logger.stop();
 });
 
 test('Apps Script uloží přesný čas a při opakování event_id nepřidá duplicitní řádek', () => {

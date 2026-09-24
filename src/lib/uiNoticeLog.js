@@ -1,10 +1,14 @@
 const NOTICE_STORAGE_PREFIX = 'mb-ui-notice-v1:';
 const UI_NOTICE_EVENT = 'mb:ui-notice';
+// Keep history off while the application is being stabilized. This flag also
+// stops uploads from older open browser tabs at the server proxy.
+const UI_NOTICE_HISTORY_ENABLED = false;
 const MAX_PENDING_NOTICES = 200;
 const MAX_NOTICE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const BATCH_SIZE = 20;
 
 function createUiNoticeLogger({
+  enabled = UI_NOTICE_HISTORY_ENABLED,
   storage = safeLocalStorage(),
   fetchImpl = globalThis.fetch,
   clock = () => new Date(),
@@ -13,6 +17,10 @@ function createUiNoticeLogger({
   cancel = globalThis.clearTimeout,
   makeId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
 } = {}) {
+  if (!enabled) return {
+    enqueue: () => null, flush: async () => false,
+    start: () => {}, stop: () => {}, pendingCount: () => 0
+  };
   const memory = new Map();
   let timer = null;
   let sending = false;
@@ -145,4 +153,4 @@ function safeLocalStorage() {
   try { return globalThis.localStorage; } catch { return null; }
 }
 
-export { NOTICE_STORAGE_PREFIX, UI_NOTICE_EVENT, createUiNoticeLogger };
+export { NOTICE_STORAGE_PREFIX, UI_NOTICE_EVENT, UI_NOTICE_HISTORY_ENABLED, createUiNoticeLogger };

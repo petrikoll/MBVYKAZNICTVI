@@ -1,5 +1,7 @@
 # Historie hlášek aplikace
 
+Od 24. 9. 2026 je automatická evidence hlášek vypnutá kvůli hlášenému zpomalování aplikace. Nová verze hlášky neukládá lokálně, neplánuje odesílání ani opakované pokusy. Server také zastavuje požadavky starších otevřených karet před voláním Apps Scriptu. Běžná zobrazená potvrzení a chyby zůstávají funkční. Dříve uložené řádky v listu `Hlaseni_aplikace` zůstávají zachované. Následující text popisuje nyní neaktivní funkci.
+
 Po nasazení nové verze Apps Scriptu vznikne při první hlášce ve zdrojové tabulce list `Hlaseni_aplikace`. Každý řádek obsahuje čas zobrazení a přijetí včetně sekund, ID události, pracovníka vybraného v aplikaci, oblast aplikace, ID vybraného klienta, místo a typ hlášky a přesný zobrazený text. Jde o nově zobrazované hlášky; starší události nelze zpětně doplnit.
 
 Zaznamenávají se plovoucí hlášky, hlášky u tlačítek, stav generování, potvrzení uložení KA1, upozornění na chybějící povinná pole KA1 a chyba spojení s evidencí. Neukládají se vyplněné formuláře ani texty zápisů. Jméno pracovníka je hodnota vybraná v horní liště, nikoli ověřená identita přihlášeného uživatele.

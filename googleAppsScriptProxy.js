@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { UI_NOTICE_HISTORY_ENABLED } from './src/lib/uiNoticeLog.js';
 
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 60000;
@@ -476,6 +477,10 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
       const payload = rawBody ? JSON.parse(rawBody) : {};
       postPayload = payload;
       const isNotice = payload.action === 'logUiNotices';
+      if (isNotice && !UI_NOTICE_HISTORY_ENABLED) {
+        sendJson(response, 200, { ok: true, disabled: true, saved: 0 });
+        return;
+      }
       if (isNotice && (!noticeAppsScriptUrl || !noticeAppsScriptToken)) {
         sendJson(response, 503, { ok: false, error: 'Evidence hlášek není nakonfigurovaná.' });
         return;

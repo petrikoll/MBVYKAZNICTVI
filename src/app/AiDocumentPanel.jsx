@@ -7,7 +7,7 @@ import { KU_SUPPORT_DEFAULT_CODE, KU_SUPPORT_TYPE_OPTIONS, WORKER_NAMES } from '
 import { getKa1SupportTypeOptions, KA1_SUPPORT_TYPE_OPTIONS } from '../lib/ka01SupportRules.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { PROJECT_TIME_OPTIONS } from '../lib/timeOptions.js';
-import { UI_NOTICE_EVENT } from '../lib/uiNoticeLog.js';
+import { UI_NOTICE_EVENT, UI_NOTICE_HISTORY_ENABLED } from '../lib/uiNoticeLog.js';
 
 function AiDocumentPanel({
   allowedKeys,
@@ -42,7 +42,7 @@ function AiDocumentPanel({
 }) {
   const missingFieldsText = saveMissingFields.join(', ');
   React.useEffect(() => {
-    if (generatorDraft.selectedKey !== 'consultation' || !generatorDraft.clientId || typeof window === 'undefined') return;
+    if (!UI_NOTICE_HISTORY_ENABLED || generatorDraft.selectedKey !== 'consultation' || !generatorDraft.clientId || typeof window === 'undefined') return;
     if (['success', 'warning'].includes(saveNotice?.tone)) return;
     const message = missingFieldsText
       ? `Před uložením doplňte: ${missingFieldsText}.`

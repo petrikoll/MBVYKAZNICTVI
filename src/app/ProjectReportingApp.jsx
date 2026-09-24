@@ -86,7 +86,7 @@ import IdleFlyScreensaver from '../components/IdleFlyScreensaver.jsx';
 import RuianAddressFields from '../components/RuianAddressFields.jsx';
 import { buildSensitiveTerms, parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
 import { parseGoogleSheetResponse, requireSavedGoogleSheetRecord } from '../lib/googleSheetApi.js';
-import { UI_NOTICE_EVENT, createUiNoticeLogger } from '../lib/uiNoticeLog.js';
+import { UI_NOTICE_EVENT, UI_NOTICE_HISTORY_ENABLED, createUiNoticeLogger } from '../lib/uiNoticeLog.js';
 import {
   actorContactsToSheetFields,
   attendanceSheetTitle,
@@ -3068,6 +3068,7 @@ function App() {
   };
   useEffect(() => {
     const logger = uiNoticeLoggerRef.current;
+    if (!UI_NOTICE_HISTORY_ENABLED) return;
     const onInlineNotice = (event) => logger.enqueue({
       ...uiNoticeContextRef.current,
       ...(event.detail || {})

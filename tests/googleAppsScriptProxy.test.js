@@ -66,7 +66,7 @@ test('GET proxy odstraní token klienta a použije serverový token', async () =
   assert.equal(response.statusCode, 200);
 });
 
-test('hlášky jdou jen do odděleného Apps Scriptu a nezatěžují evidenci klientů', async () => {
+test('vypnutá historie zastaví hlášky starých karet před Apps Scriptem a nemění revizi dat', async () => {
   const upstreamCalls = [];
   const overrides = {
     appsScriptUrl: 'https://example.test/macros/s/clients/exec',
@@ -91,13 +91,12 @@ test('hlášky jdou jen do odděleného Apps Scriptu a nezatěžují evidenci kl
   await handleGoogleAppsScriptProxy(createRequest('GET', '/api/google-sheets?action=getDataRevision'), after, overrides);
 
   assert.equal(response.statusCode, 200);
-  assert.equal(upstreamCalls.length, 1);
-  assert.equal(upstreamCalls[0].url, overrides.noticeAppsScriptUrl);
-  assert.equal(upstreamCalls[0].body.token, overrides.noticeAppsScriptToken);
+  assert.equal(upstreamCalls.length, 0);
+  assert.deepEqual(JSON.parse(response.body), { ok: true, disabled: true, saved: 0 });
   assert.equal(JSON.parse(before.body).revision, JSON.parse(after.body).revision);
 });
 
-test('nenakonfigurovaná evidence hlášek se nepošle do klientského Apps Scriptu', async () => {
+test('vypnutá historie nevyvolává opakování požadavku ani bez konfigurace', async () => {
   let upstreamCalls = 0;
   const response = createResponse();
   await handleGoogleAppsScriptProxy(createRequest('POST', '/api/google-sheets', JSON.stringify({
@@ -107,7 +106,7 @@ test('nenakonfigurovaná evidence hlášek se nepošle do klientského Apps Scri
     appsScriptToken: 'client-secret',
     fetchImpl: async () => { upstreamCalls += 1; throw new Error('Unexpected request'); }
   });
-  assert.equal(response.statusCode, 503);
+  assert.equal(response.statusCode, 200);
   assert.equal(upstreamCalls, 0);
 });
 
