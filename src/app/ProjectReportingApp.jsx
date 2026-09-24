@@ -3080,12 +3080,12 @@ function App() {
       ...(event.detail || {})
     });
     window.addEventListener(UI_NOTICE_EVENT, onInlineNotice);
-    logger.start();
+    if (isClientRegistryAvailable) logger.start();
     return () => {
       window.removeEventListener(UI_NOTICE_EVENT, onInlineNotice);
       logger.stop();
     };
-  }, []);
+  }, [isClientRegistryAvailable]);
   useEffect(() => {
     if (statusMessage) uiNoticeLoggerRef.current.enqueue({
       ...uiNoticeContextRef.current,
