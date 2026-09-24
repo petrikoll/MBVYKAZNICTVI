@@ -28,7 +28,7 @@ const ACTOR_OPTIONS = [
   '\u0161kola', 'neziskov\u00e1 organizace', 'komunitn\u00ed akt\u00e9r', 'jin\u00fd subjekt'
 ].map((value) => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) }));
 
-const actorTableValue = (value) => String(value || '').replace(/doplnit po oslovení/gi, '').trim();
+const actorTableValue = (value) => String(value || '').replace(/doplnit po (?:oslovení|ověření)/gi, '').trim();
 
 const DIALOG_FOCUSABLE_SELECTOR = [
   'button:not([disabled])',
