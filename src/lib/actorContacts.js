@@ -133,6 +133,21 @@ function normalizeActorContacts(payload = {}) {
   return source.map(normalizeActorContact).filter(hasActorContactContent);
 }
 
+function displayActorContact(contact = {}) {
+  const normalized = normalizeActorContact(contact);
+  const clean = (value) => String(value || '').replace(/doplnit po (?:oslovení|ověření)/gi, '').trim();
+  const name = clean(normalized.name);
+  const parsedName = splitContactName(name);
+  return {
+    ...normalized,
+    name,
+    ...parsedName,
+    role: projectWorkerAttendanceRole(name) || clean(normalized.role),
+    phone: clean(normalized.phone),
+    email: clean(normalized.email)
+  };
+}
+
 function actorContactsToSheetFields(payload = {}) {
   const contacts = normalizeActorContacts(payload);
   return {
@@ -159,7 +174,7 @@ function buildAttendanceParticipants(records = [], selection = {}) {
     const payload = record?.payload || {};
     const organization = String(payload.name || '').trim();
     if (!organization) return [];
-    const contacts = normalizeActorContacts(payload);
+    const contacts = normalizeActorContacts(payload).map(displayActorContact);
     const selectedIds = new Set(selectedContactIds(selection[record.id], contacts));
     return contacts
       .filter((contact) => selectedIds.has(contact.id) && isAttendanceReadyContact(contact))
@@ -169,7 +184,7 @@ function buildAttendanceParticipants(records = [], selection = {}) {
         firstName: [contact.title, contact.firstName].filter(Boolean).join(' '),
         lastName: contact.lastName,
         organization,
-        role: projectWorkerAttendanceRole([contact.title, contact.firstName, contact.lastName].filter(Boolean).join(' ')) || contact.role
+        role: contact.role
       }));
   });
 }
@@ -182,7 +197,7 @@ function buildMeetingAttendanceParticipants(participantNames = [], actorRecords 
     const payload = record?.payload || {};
     const organization = String(payload.name || '').trim();
     if (!organization) return;
-    const contacts = normalizeActorContacts(payload);
+    const contacts = normalizeActorContacts(payload).map(displayActorContact);
     if (!contacts.length) {
       actorParticipants.set(organization, { firstName: '', lastName: '', organization, role: '' });
       return;
@@ -192,7 +207,7 @@ function buildMeetingAttendanceParticipants(participantNames = [], actorRecords 
         firstName: [contact.title, contact.firstName].filter(Boolean).join(' '),
         lastName: contact.lastName,
         organization,
-        role: projectWorkerAttendanceRole([contact.title, contact.firstName, contact.lastName].filter(Boolean).join(' ')) || contact.role
+        role: contact.role
       };
       actorParticipants.set(`${organization} — ${contact.name}`, participant);
     });
@@ -246,6 +261,7 @@ export {
   paginateAttendanceParticipants,
   contactsFromSheetRow,
   createEmptyActorContact,
+  displayActorContact,
   isAttendanceReadyContact,
   nextActorContactId,
   normalizeActorContact,

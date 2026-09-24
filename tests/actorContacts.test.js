@@ -9,6 +9,7 @@ import {
   buildMeetingAttendanceParticipants,
   contactsFromSheetRow,
   createEmptyActorContact,
+  displayActorContact,
   nextActorContactId,
   normalizeActorContacts,
   paginateAttendanceParticipants
@@ -134,6 +135,39 @@ test('funkce pracovníků projektu se v listině aktérů vypíše místo ulože
     buildAttendanceParticipants(records, { city: ['radka', 'josef', 'lea'] }).map(({ role }) => role),
     ['vedoucí OSSVŠ', 'sociální pracovník OSSVŠ', 'sociální pracovník OSSVŠ']
   );
+});
+
+test('tabulka aktérů a prezenční listina používají stejné zobrazené jméno a funkci', () => {
+  const records = [{
+    id: 'city',
+    payload: {
+      name: 'Město Moravský Beroun',
+      contacts: [{ id: 'radka', name: 'Mgr. Radka Vysloužilová', role: 'garant', phone: 'doplnit po ověření  ' }]
+    }
+  }];
+  const shown = displayActorContact(normalizeActorContacts(records[0].payload)[0]);
+  const [printed] = buildAttendanceParticipants(records, { city: ['radka'] });
+
+  assert.equal(shown.name, `${printed.firstName} ${printed.lastName}`);
+  assert.equal(shown.role, printed.role);
+  assert.equal(shown.role, 'vedoucí OSSVŠ');
+  assert.equal(shown.phone, '');
+});
+
+test('texty k doplnění se neobjeví v tabulce ani v prezenční listině', () => {
+  const records = [{
+    id: 'police',
+    payload: {
+      name: 'Městská policie',
+      contacts: [{ id: 'representative', name: 'Radek Hrdý', role: 'doplnit po oslovení', email: 'doplnit po ověření  ' }]
+    }
+  }];
+  const shown = displayActorContact(normalizeActorContacts(records[0].payload)[0]);
+  const [printed] = buildAttendanceParticipants(records, { police: ['representative'] });
+
+  assert.equal(shown.role, '');
+  assert.equal(shown.email, '');
+  assert.equal(printed.role, shown.role);
 });
 
 test('více titulů před jménem se zachová a titul za jménem zůstane v příjmení', () => {

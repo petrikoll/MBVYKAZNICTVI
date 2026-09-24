@@ -8,6 +8,7 @@ import {
   ATTENDANCE_SHEET_TYPE_OPTIONS,
   buildMeetingAttendanceParticipants,
   createEmptyActorContact,
+  displayActorContact,
   isAttendanceReadyContact,
   nextActorContactId,
   normalizeActorContacts,
@@ -124,7 +125,7 @@ function Ka01View({
         const payload = record.payload || {};
         const institutionName = String(payload.name || '').trim();
         if (!institutionName) return [];
-        const contacts = normalizeActorContacts(payload);
+        const contacts = normalizeActorContacts(payload).map(displayActorContact);
         const namedContacts = contacts.filter((contact) => contact.name);
         return namedContacts.length
           ? namedContacts.map((contact) => `${institutionName} — ${contact.name}`)
@@ -159,7 +160,7 @@ function Ka01View({
   const currentActors = networkActors.filter((record) => actorOrigin(record).includes('stávaj')).length;
   const newActors = networkActors.filter((record) => actorOrigin(record).includes('nov')).length;
   const attendanceCount = sortedActors.reduce((count, record) => {
-    const contacts = normalizeActorContacts(record.payload || {});
+    const contacts = normalizeActorContacts(record.payload || {}).map(displayActorContact);
     return count + selectedContactIds(ka01AttendanceSelection?.[record.id], contacts).length;
   }, 0);
   const isNewActor = String(ka01ActorDraft.networkOrigin || '').toLowerCase().includes('nov');
@@ -189,7 +190,7 @@ function Ka01View({
     });
   };
   const openAttendanceContactPicker = (record) => {
-    const contacts = normalizeActorContacts(record.payload || {});
+    const contacts = normalizeActorContacts(record.payload || {}).map(displayActorContact);
     const readyContactIds = contacts.filter(isAttendanceReadyContact).map((contact) => contact.id);
     const currentIds = selectedContactIds(ka01AttendanceSelection?.[record.id], contacts)
       .filter((contactId) => readyContactIds.includes(contactId));
@@ -206,7 +207,7 @@ function Ka01View({
     closeAttendanceContactPicker();
   };
   const attendanceModalContacts = attendanceActorRecord
-    ? normalizeActorContacts(attendanceActorRecord.payload || {})
+    ? normalizeActorContacts(attendanceActorRecord.payload || {}).map(displayActorContact)
     : [];
   const toggleAttendanceContact = (contactId, checked) => {
     setAttendanceContactIds((previous) => checked
@@ -389,7 +390,7 @@ function Ka01View({
               <div className="overflow-auto rounded-lg border border-slate-200 bg-white"><table className="min-w-[1100px] w-full divide-y divide-slate-200 text-xs"><thead className="sticky top-0 bg-sky-50 font-semibold uppercase text-sky-800"><tr><th className="px-2 py-2 text-left">Subjekt</th><th className="px-2 py-2 text-left">Typ</th><th className="px-2 py-2 text-left">Kontaktní osoba</th><th className="px-2 py-2 text-left">Funkce</th><th className="px-2 py-2 text-left">Kontakt</th><th className="px-2 py-2 text-left">Původ</th><th className="px-2 py-2 text-left">Datum zapojení</th><th className="px-2 py-2 text-left">Prezenční listina</th><th className="px-2 py-2 text-right">Akce</th></tr></thead><tbody className="divide-y divide-slate-100">
                 {sortedActors.map((record) => {
                   const payload = record.payload || {};
-                  const contacts = normalizeActorContacts(payload);
+                  const contacts = normalizeActorContacts(payload).map(displayActorContact);
                   const readyContacts = contacts.filter(isAttendanceReadyContact);
                   const selectedIds = selectedContactIds(ka01AttendanceSelection?.[record.id], contacts);
                   const expanded = expandedActorIds.includes(record.id);
@@ -398,9 +399,9 @@ function Ka01View({
                       <tr className="even:bg-slate-50/60">
                         <td className="px-2 py-2 font-semibold">{actorTableValue(payload.name)}</td>
                         <td className="px-2 py-2">{actorTableValue(payload.actorType)}</td>
-                        <td className="px-2 py-2">{contacts.map((contact) => <div key={contact.id}>{actorTableValue(contact.name)}</div>)}</td>
-                        <td className="px-2 py-2">{contacts.map((contact) => <div key={contact.id}>{actorTableValue(contact.role)}</div>)}</td>
-                        <td className="px-2 py-2">{contacts.map((contact) => <div key={contact.id}>{[contact.phone, contact.email].map(actorTableValue).filter(Boolean).join(' / ')}</div>)}</td>
+                        <td className="px-2 py-2">{contacts.map((contact) => <div key={contact.id}>{contact.name}</div>)}</td>
+                        <td className="px-2 py-2">{contacts.map((contact) => <div key={contact.id}>{contact.role}</div>)}</td>
+                        <td className="px-2 py-2">{contacts.map((contact) => <div key={contact.id}>{[contact.phone, contact.email].filter(Boolean).join(' / ')}</div>)}</td>
                         <td className="px-2 py-2">{actorTableValue(payload.networkOrigin)}</td>
                         <td className="px-2 py-2">{String(payload.networkOrigin || '').toLowerCase().includes('nov') ? actorTableValue(payload.joinedNetworkDate) : ''}</td>
                         <td className="px-2 py-2">
@@ -420,7 +421,7 @@ function Ka01View({
                         </td>
                         <td className="whitespace-nowrap px-2 py-2 text-right"><button type="button" onClick={() => toggleActor(record.id)} className="mr-1 rounded-full border border-slate-200 px-2 py-1 font-semibold">{expanded ? 'Skrýt' : 'Detail'}</button><button type="button" onClick={() => handleEditKa01ActorRegistry(record)} className="mr-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-blue-700">Upravit</button><button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700">Smazat</button></td>
                       </tr>
-                      {expanded && <tr><td colSpan={9} className="bg-white px-3 py-2 text-slate-600">{contacts.length ? contacts.map((contact) => <div key={contact.id}>{[contact.name, contact.role, contact.phone, contact.email].map(actorTableValue).filter(Boolean).join(' | ')}</div>) : 'Žádné kontaktní osoby.'}</td></tr>}
+                      {expanded && <tr><td colSpan={9} className="bg-white px-3 py-2 text-slate-600">{contacts.length ? contacts.map((contact) => <div key={contact.id}>{[contact.name, contact.role, contact.phone, contact.email].filter(Boolean).join(' | ')}</div>) : 'Žádné kontaktní osoby.'}</td></tr>}
                     </React.Fragment>
                   );
                 })}
