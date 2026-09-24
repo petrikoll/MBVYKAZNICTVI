@@ -28,6 +28,8 @@ const ACTOR_OPTIONS = [
   '\u0161kola', 'neziskov\u00e1 organizace', 'komunitn\u00ed akt\u00e9r', 'jin\u00fd subjekt'
 ].map((value) => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) }));
 
+const actorTableValue = (value) => String(value || '').replace(/doplnit po oslovení/gi, '').trim();
+
 const DIALOG_FOCUSABLE_SELECTOR = [
   'button:not([disabled])',
   'input:not([disabled])',
@@ -394,13 +396,13 @@ function Ka01View({
                   return (
                     <React.Fragment key={record.id}>
                       <tr className="even:bg-slate-50/60">
-                        <td className="px-2 py-2 font-semibold">{payload.name || '-'}</td>
-                        <td className="px-2 py-2">{payload.actorType || '-'}</td>
-                        <td className="px-2 py-2">{contacts.length ? contacts.map((contact) => <div key={contact.id}>{contact.name || '-'}</div>) : '-'}</td>
-                        <td className="px-2 py-2">{contacts.length ? contacts.map((contact) => <div key={contact.id}>{contact.role || '-'}</div>) : '-'}</td>
-                        <td className="px-2 py-2">{contacts.length ? contacts.map((contact) => <div key={contact.id}>{[contact.phone, contact.email].filter(Boolean).join(' / ') || '-'}</div>) : '-'}</td>
-                        <td className="px-2 py-2">{payload.networkOrigin || '-'}</td>
-                        <td className="px-2 py-2">{String(payload.networkOrigin || '').toLowerCase().includes('nov') ? payload.joinedNetworkDate || '-' : '-'}</td>
+                        <td className="px-2 py-2 font-semibold">{actorTableValue(payload.name)}</td>
+                        <td className="px-2 py-2">{actorTableValue(payload.actorType)}</td>
+                        <td className="px-2 py-2">{contacts.map((contact) => <div key={contact.id}>{actorTableValue(contact.name)}</div>)}</td>
+                        <td className="px-2 py-2">{contacts.map((contact) => <div key={contact.id}>{actorTableValue(contact.role)}</div>)}</td>
+                        <td className="px-2 py-2">{contacts.map((contact) => <div key={contact.id}>{[contact.phone, contact.email].map(actorTableValue).filter(Boolean).join(' / ')}</div>)}</td>
+                        <td className="px-2 py-2">{actorTableValue(payload.networkOrigin)}</td>
+                        <td className="px-2 py-2">{String(payload.networkOrigin || '').toLowerCase().includes('nov') ? actorTableValue(payload.joinedNetworkDate) : ''}</td>
                         <td className="px-2 py-2">
                           <div className="flex flex-col items-start gap-1">
                             <label className="inline-flex items-center gap-2">
@@ -418,7 +420,7 @@ function Ka01View({
                         </td>
                         <td className="whitespace-nowrap px-2 py-2 text-right"><button type="button" onClick={() => toggleActor(record.id)} className="mr-1 rounded-full border border-slate-200 px-2 py-1 font-semibold">{expanded ? 'Skrýt' : 'Detail'}</button><button type="button" onClick={() => handleEditKa01ActorRegistry(record)} className="mr-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-blue-700">Upravit</button><button type="button" onClick={() => deleteRecord(record)} disabled={isSaving} className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700">Smazat</button></td>
                       </tr>
-                      {expanded && <tr><td colSpan={9} className="bg-white px-3 py-2 text-slate-600">{contacts.length ? contacts.map((contact) => <div key={contact.id}>{[contact.name, contact.role, contact.phone, contact.email].filter(Boolean).join(' | ')}</div>) : 'Žádné kontaktní osoby.'}</td></tr>}
+                      {expanded && <tr><td colSpan={9} className="bg-white px-3 py-2 text-slate-600">{contacts.length ? contacts.map((contact) => <div key={contact.id}>{[contact.name, contact.role, contact.phone, contact.email].map(actorTableValue).filter(Boolean).join(' | ')}</div>) : 'Žádné kontaktní osoby.'}</td></tr>}
                     </React.Fragment>
                   );
                 })}
