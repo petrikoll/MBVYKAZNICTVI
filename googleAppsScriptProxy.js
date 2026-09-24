@@ -523,7 +523,7 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
       return;
     }
 
-    if (request.method === 'POST') {
+    if (request.method === 'POST' && postPayload?.action !== 'logUiNotices') {
       mutationGeneration += 1;
       readResponseCache.clear();
     }

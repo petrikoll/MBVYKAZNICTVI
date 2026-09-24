@@ -44,6 +44,11 @@ const CLIENT_MUTATION_RESULT_PREFIX_ = 'client-mutation-v1:';
 const CLIENT_MUTATION_RESULT_TTL_MS_ = 24 * 60 * 60 * 1000;
 const CLIENT_MUTATION_PROCESSING_TTL_MS_ = 10 * 60 * 1000;
 const DRIVE_AUDIT_SHEET_NAME_ = 'Audit_Drive';
+const UI_NOTICE_SHEET_NAME_ = 'Hlaseni_aplikace';
+const UI_NOTICE_HEADERS_ = [
+  'prijato_v', 'zobrazeno_v', 'event_id', 'pracovnik_v_aplikaci', 'oblast_aplikace',
+  'klient_id', 'misto_hlasky', 'typ', 'hlaska'
+];
 const DRIVE_REPAIR_LOG_SHEET_NAME_ = 'Drive_Repair_Log';
 const DRIVE_REPAIR_BACKUP_MAX_AGE_MS_ = 24 * 60 * 60 * 1000;
 const DRIVE_AUDIT_HEADERS_ = [
@@ -472,6 +477,10 @@ function doPost(e) {
           return json_(buildMutationReplayResponse_(clientMutationRequestId));
         }
       }
+    }
+
+    if (payload.action === 'logUiNotices') {
+      return json_({ ok: true, saved: logUiNotices_(payload.notices) });
     }
 
     if (payload.action === 'saveClient') {
@@ -4608,6 +4617,53 @@ function ensureHeaders_(sheet, requiredHeaders, currentHeadersOverride) {
   }
   sheet.getRange(CONFIG.headerRow, firstNewColumn, 1, missingHeaders.length).setValues([missingHeaders]);
   return currentHeaders.concat(missingHeaders);
+}
+
+function uiNoticeText_(value, maxLength) {
+  const text = String(value || '').trim().slice(0, maxLength);
+  return /^[=+\-@]/.test(text) ? "'" + text : text;
+}
+
+function logUiNotices_(notices) {
+  const incoming = Array.isArray(notices) ? notices.slice(0, 20) : [];
+  const valid = incoming.filter(function(notice) {
+    return notice && /^[A-Za-z0-9_-]{8,128}$/.test(String(notice.event_id || ''))
+      && String(notice.message || '').trim();
+  });
+  if (!valid.length) return 0;
+
+  const spreadsheet = getSpreadsheet_();
+  const existed = Boolean(spreadsheet.getSheetByName(UI_NOTICE_SHEET_NAME_));
+  const sheet = getOrCreateSheet_(UI_NOTICE_SHEET_NAME_, UI_NOTICE_HEADERS_, spreadsheet);
+  if (!existed) {
+    sheet.getRange(2, 1, Math.max(1, sheet.getMaxRows() - 1), 2)
+      .setNumberFormat('dd.MM.yyyy HH:mm:ss');
+  }
+  const lastRow = sheet.getLastRow();
+  const existingIds = new Set(lastRow > 1
+    ? sheet.getRange(2, 3, lastRow - 1, 1).getValues().map(function(row) { return String(row[0] || ''); })
+    : []);
+  const receivedAt = new Date();
+  const rows = [];
+  valid.forEach(function(notice) {
+    const id = String(notice.event_id);
+    if (existingIds.has(id)) return;
+    existingIds.add(id);
+    const shownAt = new Date(String(notice.shown_at || ''));
+    rows.push([
+      receivedAt,
+      isNaN(shownAt.getTime()) ? receivedAt : shownAt,
+      id,
+      uiNoticeText_(notice.worker, 100),
+      uiNoticeText_(notice.view, 60),
+      uiNoticeText_(notice.client_id, 80),
+      uiNoticeText_(notice.source, 60),
+      uiNoticeText_(notice.tone, 20),
+      uiNoticeText_(notice.message, 1200)
+    ]);
+  });
+  if (rows.length) sheet.getRange(lastRow + 1, 1, rows.length, UI_NOTICE_HEADERS_.length).setValues(rows);
+  return rows.length;
 }
 
 function getOrCreateSheet_(sheetName, headers, spreadsheetOverride) {

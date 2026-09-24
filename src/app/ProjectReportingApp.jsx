@@ -86,6 +86,7 @@ import IdleFlyScreensaver from '../components/IdleFlyScreensaver.jsx';
 import RuianAddressFields from '../components/RuianAddressFields.jsx';
 import { buildSensitiveTerms, parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
 import { parseGoogleSheetResponse, requireSavedGoogleSheetRecord } from '../lib/googleSheetApi.js';
+import { UI_NOTICE_EVENT, createUiNoticeLogger } from '../lib/uiNoticeLog.js';
 import {
   actorContactsToSheetFields,
   attendanceSheetTitle,
@@ -2393,6 +2394,8 @@ function App() {
   const [saveNotice, setSaveNotice] = useState(null);
   const [saveButtonNotices, setSaveButtonNotices] = useState({});
   const [recordDeleteNotice, setRecordDeleteNotice] = useState(null);
+  const uiNoticeLoggerRef = useRef(null);
+  if (!uiNoticeLoggerRef.current) uiNoticeLoggerRef.current = createUiNoticeLogger();
   const pendingRecordSaveSignaturesRef = useRef(new Set());
   const pendingRecordMutationIdsRef = useRef(new Set());
   const pendingClientSaveSignaturesRef = useRef(new Set());
@@ -3064,6 +3067,58 @@ function App() {
   }, [canLoadSheetRecords]);
 
   const currentWorker = globalWorker || WORKERS[0];
+  const uiNoticeContextRef = useRef(null);
+  uiNoticeContextRef.current = {
+    worker: currentWorker,
+    view: mainView,
+    clientId: selectedClientId || generatorDraft.clientId || ''
+  };
+  useEffect(() => {
+    const logger = uiNoticeLoggerRef.current;
+    const onInlineNotice = (event) => logger.enqueue({
+      ...uiNoticeContextRef.current,
+      ...(event.detail || {})
+    });
+    window.addEventListener(UI_NOTICE_EVENT, onInlineNotice);
+    logger.start();
+    return () => {
+      window.removeEventListener(UI_NOTICE_EVENT, onInlineNotice);
+      logger.stop();
+    };
+  }, []);
+  useEffect(() => {
+    if (statusMessage) uiNoticeLoggerRef.current.enqueue({
+      ...uiNoticeContextRef.current,
+      source: 'toast',
+      message: statusMessage
+    });
+  }, [statusMessage]);
+  useEffect(() => {
+    if (sheetError) uiNoticeLoggerRef.current.enqueue({
+      ...uiNoticeContextRef.current,
+      source: 'pripojeni',
+      tone: 'error',
+      message: sheetError
+    });
+  }, [sheetError]);
+  useEffect(() => {
+    if (generationNotice) uiNoticeLoggerRef.current.enqueue({
+      ...uiNoticeContextRef.current,
+      source: 'generovani',
+      message: generationNotice
+    });
+  }, [generationNotice]);
+  useEffect(() => {
+    if (generatorDraft.selectedKey === 'consultation' && saveNotice?.text && ['success', 'warning'].includes(saveNotice.tone)) {
+      uiNoticeLoggerRef.current.enqueue({
+        ...uiNoticeContextRef.current,
+        clientId: generatorDraft.clientId || selectedClientId || '',
+        source: 'ulozeni-ka1',
+        tone: saveNotice.tone,
+        message: saveNotice.text
+      });
+    }
+  }, [saveNotice]);
   const recordWriteBlockMessage = (record) => {
     const sourceAction = recordSourceAction(record);
     if (!sourceAction || verifiedRecordActions.has(sourceAction)) return '';

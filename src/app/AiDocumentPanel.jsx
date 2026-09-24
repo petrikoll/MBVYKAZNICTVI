@@ -7,6 +7,7 @@ import { KU_SUPPORT_DEFAULT_CODE, KU_SUPPORT_TYPE_OPTIONS, WORKER_NAMES } from '
 import { getKa1SupportTypeOptions, KA1_SUPPORT_TYPE_OPTIONS } from '../lib/ka01SupportRules.js';
 import { buildPhysicalSignedFiledOutreachText } from '../lib/physicalOutreach.js';
 import { PROJECT_TIME_OPTIONS } from '../lib/timeOptions.js';
+import { UI_NOTICE_EVENT } from '../lib/uiNoticeLog.js';
 
 function AiDocumentPanel({
   allowedKeys,
@@ -39,6 +40,17 @@ function AiDocumentPanel({
   hideStyleFeedback = false,
   panelClassName = ''
 }) {
+  const missingFieldsText = saveMissingFields.join(', ');
+  React.useEffect(() => {
+    if (generatorDraft.selectedKey !== 'consultation' || !generatorDraft.clientId || typeof window === 'undefined') return;
+    if (['success', 'warning'].includes(saveNotice?.tone)) return;
+    const message = missingFieldsText
+      ? `Před uložením doplňte: ${missingFieldsText}.`
+      : 'Všechna povinná pole pro uložení jsou vyplněna.';
+    window.dispatchEvent(new window.CustomEvent(UI_NOTICE_EVENT, {
+      detail: { source: 'povinna-pole-ka1', tone: missingFieldsText ? 'warning' : 'success', clientId: generatorDraft.clientId, message }
+    }));
+  }, [generatorDraft.selectedKey, generatorDraft.clientId, missingFieldsText, saveNotice?.tone]);
   const KA02_PLACE_OPTIONS = [
     'ambulantn\u00ed',
     'ter\u00e9nn\u00ed',
