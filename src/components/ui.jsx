@@ -1,6 +1,6 @@
 import React from 'react';
 import { CircleHelp, Loader2 } from 'lucide-react';
-import { UI_NOTICE_EVENT, UI_NOTICE_HISTORY_ENABLED } from '../lib/uiNoticeLog.js';
+import { UI_NOTICE_EVENT } from '../lib/uiNoticeLog.js';
 const HelpIcon = ({ help, className = '' }) => {
   const [open, setOpen] = React.useState(false);
   const id = React.useId();
@@ -177,7 +177,7 @@ const LoadingCard = ({ text }) => (
 
 const SaveInlineNotice = ({ notice }) => {
   React.useEffect(() => {
-    if (!UI_NOTICE_HISTORY_ENABLED || !notice?.text || typeof window === 'undefined') return;
+    if (!notice?.text || typeof window === 'undefined') return;
     window.dispatchEvent(new window.CustomEvent(UI_NOTICE_EVENT, {
       detail: { source: 'inline', tone: notice.tone || 'info', message: notice.text }
     }));

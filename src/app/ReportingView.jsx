@@ -2,6 +2,7 @@ import React from 'react';
 import { Activity, AlertTriangle, Archive, ArrowLeft, ArrowRight, BarChart3, Brain, ClipboardCopy, Download, FileClock, FileSpreadsheet, FileText, HardDriveDownload, Loader2, Network, ShieldCheck, Target, Upload, Users, X } from 'lucide-react';
 
 import { EmptyState, HelpIcon, InputField, Panel, SelectField } from '../components/ui.jsx';
+import LocalDiagnosticsControl from '../components/LocalDiagnosticsControl.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { REPORTING_PERIODS, WORKERS } from '../config/projectConfig.js';
 import { backupProgressText, isBackupStatusActive } from '../lib/backupStatus.js';
@@ -325,6 +326,7 @@ const WorkflowStep = ({ number, title, format, description, children, state = 'i
 };
 
 function ReportingView({
+  diagnosticsRecorder,
   dashboardOverview,
   exportClientsIsEsfCsv,
   isEsfExportStatus,
@@ -634,7 +636,10 @@ function ReportingView({
       )}
 
       <section>
-        <h2 className="mb-3 text-base font-bold text-slate-900">Vzdělávání a supervize podle pozic</h2>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <h2 className="text-base font-bold text-slate-900">Vzdělávání a supervize podle pozic</h2>
+          {diagnosticsRecorder && <LocalDiagnosticsControl recorder={diagnosticsRecorder} />}
+        </div>
         <div className="grid gap-4 lg:grid-cols-3">
           {(overview.professionalDevelopmentStats || []).map((item) => (
             <ProfessionalDevelopmentCard key={item.key || item.worker} item={item} />

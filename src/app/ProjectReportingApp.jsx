@@ -86,7 +86,7 @@ import IdleFlyScreensaver from '../components/IdleFlyScreensaver.jsx';
 import RuianAddressFields from '../components/RuianAddressFields.jsx';
 import { buildSensitiveTerms, parseAiJson, redactClientIdentifiers, sanitizeAiInput, validatePlanOutput, validateRecordOutput } from '../lib/aiSafety.js';
 import { parseGoogleSheetResponse, requireSavedGoogleSheetRecord } from '../lib/googleSheetApi.js';
-import { UI_NOTICE_EVENT, UI_NOTICE_HISTORY_ENABLED, createUiNoticeLogger } from '../lib/uiNoticeLog.js';
+import { createLocalDiagnostics } from '../lib/localDiagnostics.js';
 import {
   actorContactsToSheetFields,
   attendanceSheetTitle,
@@ -2388,7 +2388,7 @@ function App() {
   const [saveButtonNotices, setSaveButtonNotices] = useState({});
   const [recordDeleteNotice, setRecordDeleteNotice] = useState(null);
   const uiNoticeLoggerRef = useRef(null);
-  if (!uiNoticeLoggerRef.current) uiNoticeLoggerRef.current = createUiNoticeLogger();
+  if (!uiNoticeLoggerRef.current) uiNoticeLoggerRef.current = createLocalDiagnostics();
   const pendingRecordSaveSignaturesRef = useRef(new Set());
   const pendingRecordMutationIdsRef = useRef(new Set());
   const pendingClientSaveSignaturesRef = useRef(new Set());
@@ -3066,20 +3066,13 @@ function App() {
     view: mainView,
     clientId: selectedClientId || generatorDraft.clientId || ''
   };
-  useEffect(() => {
+  uiNoticeLoggerRef.current.setContext(uiNoticeContextRef.current);
+  React.useLayoutEffect(() => {
     const logger = uiNoticeLoggerRef.current;
-    if (!UI_NOTICE_HISTORY_ENABLED) return;
-    const onInlineNotice = (event) => logger.enqueue({
-      ...uiNoticeContextRef.current,
-      ...(event.detail || {})
-    });
-    window.addEventListener(UI_NOTICE_EVENT, onInlineNotice);
-    if (isClientRegistryAvailable) logger.start();
-    return () => {
-      window.removeEventListener(UI_NOTICE_EVENT, onInlineNotice);
-      logger.stop();
-    };
-  }, [isClientRegistryAvailable]);
+    logger.start();
+    return () => logger.stop();
+  }, []);
+  useEffect(() => { uiNoticeLoggerRef.current.navigation(mainView); }, [mainView]);
   useEffect(() => {
     if (statusMessage) uiNoticeLoggerRef.current.enqueue({
       ...uiNoticeContextRef.current,
@@ -9174,6 +9167,7 @@ ${rawPlanOutput}` }] }],
         {mainView === 'dashboard' && (
           <React.Suspense fallback={<LazyViewFallback />}>
             <ReportingView
+              diagnosticsRecorder={uiNoticeLoggerRef.current}
               dashboardOverview={dashboardOverview}
               exportClientsIsEsfCsv={exportClientsIsEsfCsv}
               isEsfExportStatus={isEsfExportStatus}
