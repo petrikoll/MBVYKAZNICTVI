@@ -6,4 +6,4 @@ Zaznamenávají se plovoucí hlášky, hlášky u tlačítek, stav generování,
 
 Při výpadku spojení čeká nejvýše 200 hlášek v prohlížeči maximálně 30 dní a aplikace se je pokouší znovu odeslat. Evidence hlášek nemění výsledek ukládání klientských dat. Při nedostupném místním úložišti se neodeslané hlášky po zavření karty ztratí.
 
-Nasazení vyžaduje novou verzi projektu Google Apps Script `MB` a nové sestavení webové aplikace. Nejdříve nasaďte Apps Script, poté web. List se vytvoří automaticky po prvním úspěšném odeslání hlášky.
+Evidence hlášek používá samostatné nasazení projektu Google Apps Script `MB`. Na webovém serveru se nastaví `GOOGLE_APPS_SCRIPT_LOG_URL` a `GOOGLE_APPS_SCRIPT_LOG_TOKEN` podle tohoto nasazení. Běžné čtení a zápis klientských dat nadále používá vlastní spojení. List se vytvoří automaticky po prvním úspěšném odeslání hlášky.

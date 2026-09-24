@@ -66,6 +66,51 @@ test('GET proxy odstraní token klienta a použije serverový token', async () =
   assert.equal(response.statusCode, 200);
 });
 
+test('hlášky jdou jen do odděleného Apps Scriptu a nezatěžují evidenci klientů', async () => {
+  const upstreamCalls = [];
+  const overrides = {
+    appsScriptUrl: 'https://example.test/macros/s/clients/exec',
+    appsScriptToken: 'client-secret',
+    noticeAppsScriptUrl: 'https://example.test/macros/s/notices/exec',
+    noticeAppsScriptToken: 'notice-secret',
+    fetchImpl: async (url, options) => {
+      upstreamCalls.push({ url: String(url), body: JSON.parse(options.body) });
+      return new Response(JSON.stringify({ ok: true, saved: 1 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  };
+  const before = createResponse();
+  await handleGoogleAppsScriptProxy(createRequest('GET', '/api/google-sheets?action=getDataRevision'), before, overrides);
+  const response = createResponse();
+  await handleGoogleAppsScriptProxy(createRequest('POST', '/api/google-sheets', JSON.stringify({
+    action: 'logUiNotices', notices: [{ event_id: 'notice-123', message: 'Uložení se nezdařilo.' }]
+  })), response, overrides);
+  const after = createResponse();
+  await handleGoogleAppsScriptProxy(createRequest('GET', '/api/google-sheets?action=getDataRevision'), after, overrides);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(upstreamCalls.length, 1);
+  assert.equal(upstreamCalls[0].url, overrides.noticeAppsScriptUrl);
+  assert.equal(upstreamCalls[0].body.token, overrides.noticeAppsScriptToken);
+  assert.equal(JSON.parse(before.body).revision, JSON.parse(after.body).revision);
+});
+
+test('nenakonfigurovaná evidence hlášek se nepošle do klientského Apps Scriptu', async () => {
+  let upstreamCalls = 0;
+  const response = createResponse();
+  await handleGoogleAppsScriptProxy(createRequest('POST', '/api/google-sheets', JSON.stringify({
+    action: 'logUiNotices', notices: [{ event_id: 'notice-123', message: 'Chyba.' }]
+  })), response, {
+    appsScriptUrl: 'https://example.test/macros/s/clients/exec',
+    appsScriptToken: 'client-secret',
+    fetchImpl: async () => { upstreamCalls += 1; throw new Error('Unexpected request'); }
+  });
+  assert.equal(response.statusCode, 503);
+  assert.equal(upstreamCalls, 0);
+});
+
 test('proxy retries a transient 404 while loading the authoritative client registry', async () => {
   const requestedUrls = [];
   const response = createResponse();

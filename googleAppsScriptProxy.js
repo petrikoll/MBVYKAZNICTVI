@@ -125,7 +125,9 @@ function readRequestBody(request) {
 function getProxyConfig(overrides = {}) {
   return {
     appsScriptUrl: overrides.appsScriptUrl || process.env.GOOGLE_APPS_SCRIPT_URL || process.env.VITE_CLIENTS_API_URL || '',
-    appsScriptToken: overrides.appsScriptToken || process.env.GOOGLE_APPS_SCRIPT_TOKEN || process.env.VITE_CLIENTS_API_TOKEN || ''
+    appsScriptToken: overrides.appsScriptToken || process.env.GOOGLE_APPS_SCRIPT_TOKEN || process.env.VITE_CLIENTS_API_TOKEN || '',
+    noticeAppsScriptUrl: overrides.noticeAppsScriptUrl || process.env.GOOGLE_APPS_SCRIPT_LOG_URL || '',
+    noticeAppsScriptToken: overrides.noticeAppsScriptToken || process.env.GOOGLE_APPS_SCRIPT_LOG_TOKEN || ''
   };
 }
 
@@ -435,7 +437,7 @@ async function fetchCompatibleReadSnapshot(
 async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
   response.__proxyStartedAt = Date.now();
   response.__proxyRequestId = normalizeRequestId(request.headers?.['x-request-id']);
-  const { appsScriptUrl, appsScriptToken } = getProxyConfig(overrides);
+  const { appsScriptUrl, appsScriptToken, noticeAppsScriptUrl, noticeAppsScriptToken } = getProxyConfig(overrides);
   const fetchImpl = overrides.fetchImpl || fetch;
   const upstreamTimeoutMs = overrides.upstreamTimeoutMs || DEFAULT_UPSTREAM_TIMEOUT_MS;
   const readTotalBudgetMs = overrides.readTotalBudgetMs ?? DEFAULT_READ_TOTAL_BUDGET_MS;
@@ -461,7 +463,7 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
       sendJson(response, 200, { ok: true, revision: getDataRevision() });
       return;
     }
-    const upstreamUrl = new URL(appsScriptUrl);
+    let upstreamUrl = new URL(appsScriptUrl);
     incomingUrl.searchParams.forEach((value, key) => {
       if (key !== 'token' && !READ_CACHE_BYPASS_PARAMS.has(key)) upstreamUrl.searchParams.set(key, value);
     });
@@ -473,8 +475,14 @@ async function handleGoogleAppsScriptProxy(request, response, overrides = {}) {
       const rawBody = await readRequestBody(request);
       const payload = rawBody ? JSON.parse(rawBody) : {};
       postPayload = payload;
+      const isNotice = payload.action === 'logUiNotices';
+      if (isNotice && (!noticeAppsScriptUrl || !noticeAppsScriptToken)) {
+        sendJson(response, 503, { ok: false, error: 'Evidence hlášek není nakonfigurovaná.' });
+        return;
+      }
+      if (isNotice) upstreamUrl = new URL(noticeAppsScriptUrl);
       fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
-      fetchOptions.body = JSON.stringify({ ...payload, token: appsScriptToken });
+      fetchOptions.body = JSON.stringify({ ...payload, token: isNotice ? noticeAppsScriptToken : appsScriptToken });
     }
 
     action = incomingUrl.searchParams.get('action') || '';
