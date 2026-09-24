@@ -57,9 +57,9 @@ function splitContactName(value = '') {
 function normalizeActorContact(contact = {}, index = 0) {
   const name = String(contact.name || contact.contactName || '').trim();
   const parsed = splitContactName(name);
-  const title = String(contact.title || contact.contactTitle || parsed.title || '').trim();
-  const firstName = String(contact.firstName || contact.contactFirstName || parsed.firstName || '').trim();
-  const lastName = String(contact.lastName || contact.contactLastName || parsed.lastName || '').trim();
+  const title = name ? parsed.title : String(contact.title || contact.contactTitle || '').trim();
+  const firstName = name ? parsed.firstName : String(contact.firstName || contact.contactFirstName || '').trim();
+  const lastName = name ? parsed.lastName : String(contact.lastName || contact.contactLastName || '').trim();
   const normalizedName = name || [title, firstName, lastName].filter(Boolean).join(' ');
 
   return {

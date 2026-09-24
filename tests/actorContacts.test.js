@@ -96,6 +96,27 @@ test('prezenční listina zachová titul před jménem', () => {
   assert.equal(participant.lastName, 'Malá');
 });
 
+test('prezenční listina použije jméno viditelné v registru i při starých rozdělených údajích', () => {
+  const records = [{
+    id: 'police',
+    payload: {
+      name: 'Městská policie',
+      contacts: [{
+        id: 'representative',
+        name: 'Jan Novák',
+        firstName: 'Doplnit',
+        lastName: 'oslovení',
+        role: 'strážník'
+      }]
+    }
+  }];
+
+  const [participant] = buildAttendanceParticipants(records, { police: ['representative'] });
+  assert.equal(participant.firstName, 'Jan');
+  assert.equal(participant.lastName, 'Novák');
+  assert.equal(participant.role, 'strážník');
+});
+
 test('funkce pracovníků projektu se v listině aktérů vypíše místo uloženého jména', () => {
   const records = [{
     id: 'city',
