@@ -8,31 +8,40 @@ import { getPlannedHoursForYear, getVacationOverview } from '../src/features/wor
 import { buildWorkReportWorkbook } from '../src/features/work-reports/workbookExport.mjs';
 import { getAutomaticWorkReportActivity } from '../src/features/work-reports/autoActivity.mjs';
 
-test('generátor používá dvě základní činnosti a správné smluvní fondy', () => {
+test('generátor používá dvě základní činnosti a DPP s fondem 25 hodin po celé období projektu', () => {
   assert.equal(DEFAULT_ACTIVITIES.length, 2);
+  assert.equal(DEFAULT_SETTINGS.contractType, 'DPP');
+  assert.equal(DEFAULT_SETTINGS.monthlyHours, 25);
   for (const period of getAvailableMonths()) {
     assert.deepEqual(getContractTerms(period), {
-      contractType: period.year === 2027 && period.month >= 10 ? 'DPČ' : 'DPP',
-      monthlyHours: period.year === 2026 && period.month <= 8 ? 25 : 32,
+      contractType: 'DPP',
+      monthlyHours: 25,
     }, period.key);
   }
 });
 
-test('podklady pro dovolenou zahrnují 25 hodin za červenec i srpen 2026', () => {
+test('podklady pro dovolenou zahrnují 25 hodin za každý měsíc projektu', () => {
   assert.equal(getPlannedHoursForYear(2026, 7), 25);
   assert.equal(getPlannedHoursForYear(2026, 8), 50);
-  assert.equal(getPlannedHoursForYear(2026, 9), 82);
-  assert.equal(getPlannedHoursForYear(2026), 178);
-  assert.equal(getPlannedHoursForYear(2027), 384);
-  assert.equal(getPlannedHoursForYear(2028), 192);
+  assert.equal(getPlannedHoursForYear(2026, 9), 75);
+  assert.equal(getPlannedHoursForYear(2026), 150);
+  assert.equal(getPlannedHoursForYear(2027), 300);
+  assert.equal(getPlannedHoursForYear(2028), 150);
+  const september = getVacationOverview({ period: { year: 2026, month: 9, key: '2026-09' } });
+  assert.equal(september.eligibilityReached, false);
+  const october = getVacationOverview({ period: { year: 2026, month: 10, key: '2026-10' } });
+  assert.equal(october.eligibilityReached, true);
 });
 
 test('dovolená snižuje pracovní fond a činnosti se přesně dorovnají', () => {
   const period = { year: 2027, month: 10, key: '2027-10' };
   const vacation = getVacationOverview({ period, vacationByPeriod: { '2027-10': 8 }, vacationWeeks: 5 });
-  const activities = distributeHours(DEFAULT_ACTIVITIES, 24);
+  const workTargetHours = getContractTerms(period).monthlyHours - vacation.currentMonthVacation;
+  const activities = distributeHours(DEFAULT_ACTIVITIES, workTargetHours);
   assert.equal(vacation.currentMonthVacation, 8);
-  assert.equal(getHoursStatus(activities, 24).isBalanced, true);
+  assert.equal(workTargetHours, 17);
+  assert.equal(getHoursStatus(activities, workTargetHours).isBalanced, true);
+  assert.equal(getHoursStatus(activities, workTargetHours).actual + vacation.currentMonthVacation, 25);
 });
 
 test('hodiny činností se rozdělují po praktických půlhodinách', () => {
@@ -62,10 +71,9 @@ test('fond 25 hodin se rozdělí mezi dovolenou, základní a automatickou činn
   assert.equal(getHoursStatus(activities, workTargetHours).actual + vacation.currentMonthVacation, 25);
 });
 
-for (const month of [7, 8]) {
-  test(`integrovaný export pro měsíc ${month}/2026 zapíše fond 25 hodin do XLSX`, async () => {
+for (const period of getAvailableMonths()) {
+  test(`integrovaný export pro měsíc ${period.key} zapíše DPP a fond 25 hodin do XLSX`, async () => {
     const templateBuffer = await readFile(new URL('../src/assets/SABLONA_Pracovni_vykaz_OPZ.xlsx', import.meta.url));
-    const period = { year: 2026, month, key: `2026-${String(month).padStart(2, '0')}` };
     const settings = { ...DEFAULT_SETTINGS, ...getContractTerms(period) };
     const activities = distributeHours(DEFAULT_ACTIVITIES, settings.monthlyHours);
     const workbook = await buildWorkReportWorkbook({
@@ -73,11 +81,12 @@ for (const month of [7, 8]) {
       period,
       settings,
       activities,
-      workingDays: getWorkingDays(month, period.year),
+      workingDays: getWorkingDays(period.month, period.year),
       workedHours: getHoursStatus(activities, settings.monthlyHours).actual,
       vacationHours: 0,
     });
     assert.equal(workbook.worksheets[0].getCell('C9').value, DEFAULT_SETTINGS.employeeName);
+    assert.equal(workbook.worksheets[0].getCell('G9').value, 'Dohoda o provedení práce');
     for (const address of ['G11', 'G13', 'G28', 'G29', 'G40', 'G41']) {
       assert.equal(workbook.worksheets[0].getCell(address).value, 25, address);
     }

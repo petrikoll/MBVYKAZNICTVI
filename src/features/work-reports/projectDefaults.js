@@ -12,30 +12,14 @@ export const DEFAULT_SETTINGS = {
   positionName: "Odborný garant",
   budgetCode: "1.1.3.1",
   contractType: "DPP",
-  monthlyHours: 32,
+  monthlyHours: 25,
   vacationWeeks: 5,
 };
 
-const periodNumber = ({ year, month }) => Number(year) * 100 + Number(month);
-
-export const getContractTerms = (period) => {
-  const value = periodNumber(period);
-
-  if (value >= 202607 && value <= 202608) {
-    return { contractType: "DPP", monthlyHours: 25 };
-  }
-  if (value >= 202609 && value <= 202709) {
-    return { contractType: "DPP", monthlyHours: 32 };
-  }
-  if (value >= 202710 && value <= 202712) {
-    return { contractType: "DPČ", monthlyHours: 32 };
-  }
-  if (value >= 202801 && value <= 202806) {
-    return { contractType: "DPP", monthlyHours: 32 };
-  }
-
-  return { contractType: "DPP", monthlyHours: 32 };
-};
+export const getContractTerms = () => ({
+  contractType: DEFAULT_SETTINGS.contractType,
+  monthlyHours: DEFAULT_SETTINGS.monthlyHours,
+});
 
 export const DEFAULT_ACTIVITIES = [
   {
