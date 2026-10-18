@@ -80,9 +80,14 @@ function WorkReportsView({ records = [] }) {
     if (!nextPeriod) return;
     const terms = getContractTerms(nextPeriod);
     const vacationHours = Math.max(0, Number(vacationByPeriod[nextPeriod.key]) || 0);
+    const nextAutomaticActivity = getAutomaticWorkReportActivity({
+      records,
+      period: nextPeriod,
+      employeeName: settings.employeeName,
+    });
     setPeriod(nextPeriod);
     setSettings((previous) => ({ ...previous, ...terms }));
-    setActivities((previous) => distributeHours(previous.slice(0, 2), Math.max(0, terms.monthlyHours - vacationHours)));
+    setActivities((previous) => distributeHours(previous.slice(0, 2), Math.max(0, terms.monthlyHours - vacationHours - (nextAutomaticActivity?.hours || 0))));
     setMessage(null);
   };
 
