@@ -9219,6 +9219,9 @@ ${rawPlanOutput}` }] }],
           </React.Suspense>
         )}
 
+      </main>
+
+        {/* Keep client dialogs outside the main stacking context, above the sticky header. */}
         {showClientEditForm && selectedClient && (
           <div
             className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/65 p-2 backdrop-blur-sm sm:p-5"
@@ -9552,7 +9555,6 @@ ${rawPlanOutput}` }] }],
             </section>
           </div>
         )}
-      </main>
     </div>
   );
 }
