@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { CalendarDays, Download, Plus, Printer, Save, Sparkles, Trash2, Users } from 'lucide-react';
 
 import { EmptyState, HelpIcon, InputField, Panel, SaveInlineNotice, SelectField, TextAreaField } from '../components/ui.jsx';
@@ -50,6 +51,8 @@ function useAccessibleDialog(open, onClose) {
     const dialog = dialogRef.current;
     if (!dialog) return undefined;
     const previouslyFocused = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const focusFirstControl = () => {
       const firstControl = dialog.querySelector(DIALOG_FOCUSABLE_SELECTOR);
       (firstControl || dialog).focus();
@@ -82,6 +85,7 @@ function useAccessibleDialog(open, onClose) {
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => {
+      document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
       if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(frameId);
       else window.clearTimeout(frameId);
@@ -246,12 +250,12 @@ function Ka01View({
         icon={Users}
         className="w-full min-w-0"
       >
-        <div className="grid gap-3">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid min-w-0 grid-cols-1 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Datum</label>
-              <div className="grid grid-cols-[1fr_auto] gap-2">
-                <input id="ka02-network-date" type="date" value={ka01Draft.date} onChange={(event) => setKa01Draft((previous) => ({ ...previous, date: event.target.value }))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <input id="ka02-network-date" type="date" value={ka01Draft.date} onChange={(event) => setKa01Draft((previous) => ({ ...previous, date: event.target.value }))} className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
                 <button type="button" onClick={() => document.getElementById('ka02-network-date')?.showPicker?.()} className="rounded-lg border border-slate-300 bg-white px-3" title="Otevřít kalendář"><CalendarDays className="h-4 w-4" /></button>
               </div>
             </div>
@@ -266,7 +270,7 @@ function Ka01View({
             <div><label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">{'Po\u010det \u00fa\u010dastn\u00edk\u016f'}</label><input type="text" value={ka01Draft.networkCount} readOnly className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700" /></div>
           </div>
 
-          <div className="grid items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 sm:grid-cols-2 lg:grid-cols-[88px_88px_130px_minmax(220px,1fr)]">
+          <div className="grid grid-cols-1 items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 sm:grid-cols-2 lg:grid-cols-[88px_88px_130px_minmax(220px,1fr)]">
             <div><label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Od</label><select value={ka01Draft.networkStartTime} onChange={(event) => setKa01Draft((previous) => ({ ...previous, networkStartTime: event.target.value }))} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"><option value="">Čas</option>{timesWithCurrent(ka01Draft.networkStartTime).map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
             <div><label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Do</label><select value={ka01Draft.networkEndTime} onChange={(event) => setKa01Draft((previous) => ({ ...previous, networkEndTime: event.target.value }))} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"><option value="">Čas</option>{timesWithCurrent(ka01Draft.networkEndTime).map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
             <div><label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Trvání</label><div className="flex h-9 items-center rounded-md border border-slate-300 bg-white px-2 text-sm font-semibold">{ka01NetworkDuration || '-'}</div></div>
@@ -283,7 +287,7 @@ function Ka01View({
             <label className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">{isTeamMeeting ? 'Přítomní členové realizačního týmu a další osoby' : 'Přítomní aktéři a další osoby'}</label>
             <div className="flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
               {(ka01Draft.networkActorEntries || []).map((entry, index) => (
-                <div key={`participant-${index}`} className="min-w-[260px] flex-1 rounded-md border border-slate-200 bg-white p-2">
+                <div key={`participant-${index}`} className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white p-2 sm:min-w-[260px]">
                   <select value={entry.actorType || ''} onChange={(event) => updateKa01ActorEntry(index, { actorType: event.target.value, customName: event.target.value === ka01ActorCustomValue ? entry.customName || '' : '' })} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Vyber osobu</option>{participantOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
                   {entry.actorType === ka01ActorCustomValue && <input type="text" value={entry.customName || ''} onChange={(event) => updateKa01ActorEntry(index, { customName: event.target.value })} placeholder="Jméno a funkce osoby" className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />}
                 </div>
@@ -336,7 +340,7 @@ function Ka01View({
 
       {!isMeetingsView && (
       <Panel title="KA02 - Evidence subjektů partnerské sítě" icon={Users} className="w-full min-w-0 overflow-hidden">
-        <div ref={actorFormRef} className="grid scroll-mt-4 gap-3">
+        <div ref={actorFormRef} className="grid min-w-0 grid-cols-1 scroll-mt-4 gap-3">
           {ka01ActorDraft.id && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
               <span><strong>Upravujete aktéra:</strong> {ka01ActorDraft.name || ka01ActorDraft.id}</span>
@@ -380,7 +384,7 @@ function Ka01View({
             <SaveInlineNotice notice={actorSaveNotice} />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <div className="text-sm font-bold">Uložený registr aktérů</div>
@@ -392,7 +396,7 @@ function Ka01View({
               <div className="mb-2"><SaveInlineNotice notice={recordDeleteNotice} /></div>
             )}
             {sortedActors.length === 0 ? <EmptyState icon={Users} title="Zatím není uložen žádný aktér v síti." /> : (
-              <div className="overflow-auto rounded-lg border border-slate-200 bg-white"><table className="min-w-[1100px] w-full divide-y divide-slate-200 text-xs"><thead className="sticky top-0 bg-sky-50 font-semibold uppercase text-sky-800"><tr><th className="px-2 py-2 text-left">Subjekt</th><th className="px-2 py-2 text-left">Typ</th><th className="px-2 py-2 text-left">Kontaktní osoba</th><th className="px-2 py-2 text-left">Funkce</th><th className="px-2 py-2 text-left">Kontakt</th><th className="px-2 py-2 text-left">Původ</th><th className="px-2 py-2 text-left">Datum zapojení</th><th className="px-2 py-2 text-left">Prezenční listina</th><th className="px-2 py-2 text-right">Akce</th></tr></thead><tbody className="divide-y divide-slate-100">
+              <div className="max-w-full overflow-auto rounded-lg border border-slate-200 bg-white"><table className="min-w-[1100px] w-full divide-y divide-slate-200 text-xs"><thead className="sticky top-0 bg-sky-50 font-semibold uppercase text-sky-800"><tr><th className="px-2 py-2 text-left">Subjekt</th><th className="px-2 py-2 text-left">Typ</th><th className="px-2 py-2 text-left">Kontaktní osoba</th><th className="px-2 py-2 text-left">Funkce</th><th className="px-2 py-2 text-left">Kontakt</th><th className="px-2 py-2 text-left">Původ</th><th className="px-2 py-2 text-left">Datum zapojení</th><th className="px-2 py-2 text-left">Prezenční listina</th><th className="px-2 py-2 text-right">Akce</th></tr></thead><tbody className="divide-y divide-slate-100">
                 {sortedActors.map((record) => {
                   const payload = record.payload || {};
                   const contacts = normalizeActorContacts(payload).map(displayActorContact);
@@ -437,7 +441,7 @@ function Ka01View({
       </Panel>
       )}
 
-      {!isMeetingsView && attendanceTypePickerOpen && (
+      {!isMeetingsView && attendanceTypePickerOpen && createPortal(
         <div
           ref={attendanceTypeDialogRef}
           tabIndex={-1}
@@ -449,12 +453,12 @@ function Ka01View({
             if (event.target === event.currentTarget) setAttendanceTypePickerOpen(false);
           }}
         >
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
-            <div className="mb-4">
+          <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="mb-4 shrink-0">
               <h2 id="attendance-type-dialog-title" className="text-lg font-bold text-slate-900">Vyberte druh prezenční listiny</h2>
               <p className="mt-1 text-sm text-slate-600">Volba určí nadpis vytvořeného PDF.</p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid min-h-0 gap-2 overflow-y-auto overscroll-contain sm:grid-cols-2">
               {ATTENDANCE_SHEET_TYPE_OPTIONS.map((option) => (
                 <button
                   key={option.value}
@@ -469,14 +473,14 @@ function Ka01View({
                 </button>
               ))}
             </div>
-            <div className="mt-5 flex justify-end">
+            <div className="mt-5 flex shrink-0 justify-end">
               <button type="button" onClick={() => setAttendanceTypePickerOpen(false)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Zrušit</button>
             </div>
           </div>
-        </div>
+        </div>, document.body
       )}
 
-      {!isMeetingsView && attendanceActorRecord && (
+      {!isMeetingsView && attendanceActorRecord && createPortal(
         <div
           ref={attendancePersonDialogRef}
           tabIndex={-1}
@@ -488,12 +492,12 @@ function Ka01View({
             if (event.target === event.currentTarget) closeAttendanceContactPicker();
           }}
         >
-          <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
-            <div className="mb-4">
+          <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="mb-4 shrink-0">
               <h2 id="attendance-person-dialog-title" className="text-lg font-bold text-slate-900">Vyberte osoby na prezenční listinu</h2>
               <p className="mt-1 text-sm text-slate-600">{attendanceActorRecord.payload?.name || 'Organizace'}</p>
             </div>
-            <div className="max-h-[55vh] space-y-2 overflow-auto">
+            <div className="max-h-[55dvh] min-h-0 space-y-2 overflow-auto overscroll-contain">
               {attendanceModalContacts.map((contact) => {
                 const ready = isAttendanceReadyContact(contact);
                 return (
@@ -508,12 +512,12 @@ function Ka01View({
                 );
               })}
             </div>
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <div className="mt-5 flex shrink-0 flex-wrap justify-end gap-2">
               <button type="button" onClick={closeAttendanceContactPicker} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Zrušit</button>
               <button type="button" onClick={confirmAttendanceContacts} disabled={attendanceContactIds.length === 0} className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Potvrdit výběr ({attendanceContactIds.length})</button>
             </div>
           </div>
-        </div>
+        </div>, document.body
       )}
     </div>
   );

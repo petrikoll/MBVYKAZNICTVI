@@ -1,45 +1,36 @@
 import React from 'react';
 import { CircleHelp, Loader2 } from 'lucide-react';
 import { UI_NOTICE_EVENT } from '../lib/uiNoticeLog.js';
+import { AnchoredPopup, useAnchoredPopup } from './AnchoredPopup.jsx';
 const HelpIcon = ({ help, className = '' }) => {
-  const [open, setOpen] = React.useState(false);
+  const popup = useAnchoredPopup({ maxWidth: 280 });
   const id = React.useId();
-
-  React.useEffect(() => {
-    if (!open) return undefined;
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [open]);
 
   if (!help?.text) return null;
 
   return (
-    <span className={`relative inline-flex align-middle ${className}`} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <span className={`relative inline-flex align-middle ${className}`} onMouseEnter={popup.show} onMouseLeave={popup.scheduleClose}>
       <button
+        ref={popup.anchorRef}
         type="button"
         aria-label={`Nápověda: ${help.title || 'informace'}`}
-        aria-describedby={open ? id : undefined}
-        aria-expanded={open}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
+        aria-describedby={popup.open ? id : undefined}
+        aria-expanded={popup.open}
+        onFocus={popup.show}
+        onBlur={popup.scheduleClose}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          setOpen((value) => !value);
+          popup.show();
         }}
         className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
       >
         <CircleHelp className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
-      {open && (
-        <span id={id} role="tooltip" className="absolute left-0 top-full z-[100] mt-1 w-[min(280px,calc(100vw-32px))] sm:left-1/2 sm:-translate-x-1/2 rounded-lg border border-slate-300 bg-slate-950 px-3 py-2 text-left normal-case tracking-normal text-white shadow-xl">
+        <AnchoredPopup popup={popup} id={id} className="rounded-lg border border-slate-300 bg-slate-950 px-3 py-2 text-left normal-case tracking-normal text-white shadow-xl">
           {help.title && <span className="block text-xs font-bold">{help.title}</span>}
           <span className="mt-0.5 block text-xs font-normal leading-relaxed text-slate-100">{help.text}</span>
-        </span>
-      )}
+        </AnchoredPopup>
     </span>
   );
 };

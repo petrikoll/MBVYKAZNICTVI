@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, Archive, ArrowLeft, ArrowRight, BarChart3, Bra
 
 import { EmptyState, HelpIcon, InputField, Panel, SelectField } from '../components/ui.jsx';
 import LocalDiagnosticsControl from '../components/LocalDiagnosticsControl.jsx';
+import { AnchoredPopup, useAnchoredPopup } from '../components/AnchoredPopup.jsx';
 import { HELP } from '../config/helpCatalog.js';
 import { REPORTING_PERIODS, WORKERS } from '../config/projectConfig.js';
 import { backupProgressText, isBackupStatusActive } from '../lib/backupStatus.js';
@@ -16,6 +17,7 @@ const formatEvidenceDate = (value) => {
 };
 
 const ProgressRow = ({ item }) => {
+  const popup = useAnchoredPopup();
   const hasTarget = Number(item.target) > 0;
   const percent = hasTarget ? Math.min(100, Math.round((Number(item.current || 0) / item.target) * 100)) : 0;
   const evidence = Array.isArray(item.evidence) ? item.evidence : [];
@@ -29,9 +31,10 @@ const ProgressRow = ({ item }) => {
   };
   return (
     <div
+      {...popup.triggerProps}
       className="group relative rounded-lg border border-slate-200 bg-white p-3 outline-none transition hover:z-30 hover:border-indigo-300 focus:z-30 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200"
       tabIndex={0}
-      aria-describedby={tooltipId}
+      aria-describedby={popup.open ? tooltipId : undefined}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-1 text-sm font-semibold text-slate-800">{item.label}<HelpIcon help={helpByGoal[item.key] || null} /></div>
@@ -47,10 +50,10 @@ const ProgressRow = ({ item }) => {
         <Users className="h-3.5 w-3.5" />
         Najeďte pro kontrolní detail
       </div>
-      <div
+      <AnchoredPopup
+        popup={popup}
         id={tooltipId}
-        role="tooltip"
-        className="invisible absolute left-0 top-full z-50 mt-2 w-[min(36rem,calc(100vw-2rem))] translate-y-1 rounded-xl border border-indigo-200 bg-white p-3 text-left opacity-0 shadow-xl transition group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus:visible group-focus:translate-y-0 group-focus:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100"
+        className="rounded-xl border border-indigo-200 bg-white p-3 text-left shadow-xl"
       >
         <div className="mb-2 flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
           <strong className="text-xs text-slate-900">{evidenceLabel}</strong>
@@ -72,7 +75,7 @@ const ProgressRow = ({ item }) => {
             ))}
           </ul>
         )}
-      </div>
+      </AnchoredPopup>
     </div>
   );
 };
@@ -132,15 +135,17 @@ const ProfessionalDevelopmentCard = ({ item }) => {
   );
 };
 
-const RiskControlRow = ({ risk, openUpward = false }) => {
+const RiskControlRow = ({ risk }) => {
+  const popup = useAnchoredPopup({ maxWidth: 672 });
   const issues = Array.isArray(risk.issues) ? risk.issues : [];
   const tooltipId = `risk-detail-${risk.key}`;
   const hasIssues = Number(risk.count || 0) > 0;
   return (
     <div
+      {...popup.triggerProps}
       className="group relative flex cursor-help items-center gap-3 px-4 py-3 outline-none transition hover:z-30 hover:bg-amber-50/60 focus:z-30 focus:bg-amber-50/60 focus:ring-2 focus:ring-inset focus:ring-amber-300"
       tabIndex={0}
-      aria-describedby={tooltipId}
+      aria-describedby={popup.open ? tooltipId : undefined}
     >
       <AlertTriangle className={`h-4 w-4 shrink-0 ${hasIssues ? 'text-amber-600' : 'text-emerald-600'}`} />
       <div className="min-w-0 flex-1">
@@ -154,10 +159,10 @@ const RiskControlRow = ({ risk, openUpward = false }) => {
         )}
       </div>
       <div className={`min-w-10 text-right text-lg font-bold ${hasIssues ? 'text-amber-700' : 'text-emerald-700'}`}>{risk.count}</div>
-      <div
+      <AnchoredPopup
+        popup={popup}
         id={tooltipId}
-        role="tooltip"
-        className={`invisible absolute left-2 z-50 w-[min(42rem,calc(100vw-3rem))] rounded-xl border border-amber-200 bg-white p-3 text-left opacity-0 shadow-xl transition sm:left-10 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus:visible group-focus:translate-y-0 group-focus:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100 ${openUpward ? 'bottom-full mb-1 -translate-y-1' : 'top-full mt-1 translate-y-1'}`}
+        className="rounded-xl border border-amber-200 bg-white p-3 text-left shadow-xl"
       >
         <div className="mb-2 flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
           <strong className="text-xs text-slate-900">{risk.tooltipLabel || 'Klienti a zjištěné chyby'}</strong>
@@ -183,7 +188,7 @@ const RiskControlRow = ({ risk, openUpward = false }) => {
             ))}
           </ul>
         )}
-      </div>
+      </AnchoredPopup>
     </div>
   );
 };
@@ -693,11 +698,10 @@ function ReportingView({
       <section>
         <h2 className="mb-3 flex items-center gap-1 text-base font-bold text-slate-900">Kontrolní upozornění <HelpIcon help={HELP.dashboardRisks} /></h2>
         <div className="divide-y divide-slate-200 rounded-lg border border-slate-300 bg-white">
-          {overview.risks.map((risk, index) => (
+          {overview.risks.map((risk) => (
             <RiskControlRow
               key={risk.key}
               risk={risk}
-              openUpward={index >= overview.risks.length - 3}
             />
           ))}
         </div>

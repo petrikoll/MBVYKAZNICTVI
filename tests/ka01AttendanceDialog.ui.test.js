@@ -114,11 +114,14 @@ test('dialog prezenční listiny lze ovládat myší i klávesou Escape', async 
       attendanceButton.click();
     });
     assert.equal(document.querySelector('[role="dialog"] h2')?.textContent, 'Vyberte druh prezenční listiny');
+    assert.equal(document.querySelector('[role="dialog"]').parentElement, document.body);
+    assert.equal(document.body.style.overflow, 'hidden');
 
     await act(async () => {
       document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
     assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(document.body.style.overflow, '');
 
     await act(async () => {
       attendanceButton.click();

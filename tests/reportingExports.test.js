@@ -52,14 +52,11 @@ test('tlačítko podrobných výstupů je na dashboardu oranžové', () => {
 
 test('kontrolní upozornění mají přístupný hover a focus detail klientů a chyb', () => {
   assert.match(source, /const RiskControlRow/);
-  assert.match(source, /role="tooltip"/);
-  assert.match(source, /aria-describedby=\{tooltipId\}/);
-  assert.match(source, /group-hover:visible/);
-  assert.match(source, /group-focus:visible/);
+  assert.match(source, /<AnchoredPopup\s+popup=\{popup\}\s+id=\{tooltipId\}/);
+  assert.match(source, /aria-describedby=\{popup\.open \? tooltipId : undefined\}/);
+  assert.match(source, /\.\.\.popup\.triggerProps/);
   assert.match(source, /Klienti a zjištěné chyby/);
   assert.match(source, /Najeďte pro seznam klientů a chyb/);
-  assert.match(source, /openUpward=\{index >= overview\.risks\.length - 3\}/);
-  assert.match(source, /openUpward \? 'bottom-full mb-1 -translate-y-1' : 'top-full mt-1 translate-y-1'/);
 });
 
 test('dashboard používá sdílený výpočet hodin a bezpečný filtr vykazovaného období', () => {
